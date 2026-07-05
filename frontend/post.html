@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Post Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="css/style.css">
+
+<style>
+
+body{
+  margin:0;
+  background:#000;
+  color:#fff;
+  font-family:Inter, sans-serif;
+}
+
+.viewer{
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+.topbar{
+  padding:12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background:rgba(0,0,0,0.6);
+  position:sticky;
+  top:0;
+}
+
+.back{
+  background:none;
+  border:none;
+  color:#fff;
+  font-size:18px;
+  cursor:pointer;
+}
+
+.slider{
+  flex:1;
+  display:flex;
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;
+}
+
+.slide{
+  min-width:100%;
+  height:100%;
+  scroll-snap-align:center;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.slide img,
+.slide video{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+
+.counter{
+  position:absolute;
+  bottom:20px;
+  right:20px;
+  background:rgba(0,0,0,0.5);
+  padding:6px 12px;
+  border-radius:20px;
+  font-size:13px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="viewer">
+
+  <div class="topbar">
+    <button class="back" onclick="history.back()">←</button>
+    <div id="title">Post</div>
+  </div>
+
+  <div class="slider" id="slider"></div>
+
+  <div class="counter" id="counter"></div>
+
+</div>
+
+<!-- AFTER -->
+<script type="module">
+  import "./js/api.js";
+  import "./js/app.js";
+
+const postId = new URLSearchParams(location.search).get("id");
+
+async function loadPost(){
+
+  try{
+
+    const res = await api.request(`/posts/${postId}`);
+    const post = res.data;
+
+    let media = post.media_urls;
+
+    if (typeof media === "string") {
+      media = JSON.parse(media);
+    }
+
+    if (!Array.isArray(media)) media = [];
+
+    const slider = document.getElementById("slider");
+
+    slider.innerHTML = media.map((url, i) => {
+
+      const isVideo = url.includes(".mp4") || url.includes(".webm");
+
+      return `
+        <div class="slide">
+          ${isVideo
+            ? `<video src="${url}" controls autoplay></video>`
+            : `<img src="${url}">`
+          }
+        </div>
+      `;
+    }).join("");
+
+    document.getElementById("counter").innerText =
+      `1 / ${media.length}`;
+
+    // update counter on scroll
+    slider.addEventListener("scroll", () => {
+      const index = Math.round(slider.scrollLeft / window.innerWidth) + 1;
+      document.getElementById("counter").innerText =
+        `${index} / ${media.length}`;
+    });
+
+  } catch(err){
+    document.body.innerHTML = "<h3 style='color:white;padding:20px'>Failed to load post</h3>";
+    console.error(err);
+  }
+}
+
+loadPost();
+
+</script>
+
+</body>
+</html>

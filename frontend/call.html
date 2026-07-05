@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>vConnect — Call</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body, .app-shell, .call-screen { height: 100vh; overflow: hidden; background: #0a0a0f; }
+.call-screen { position: relative; width: 100%; max-width: 480px; margin: 0 auto; }
+
+/* Remote video fills the screen (video calls only) */
+#remote-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; background: #0a0a0f; display: none;
+}
+#remote-video.active { display: block; }
+
+/* Local PIP video */
+#local-video {
+  position: absolute; top: 60px; right: 14px; z-index: 20;
+  width: 100px; height: 140px; border-radius: 14px; object-fit: cover;
+  background: #15151c; border: 2px solid rgba(255,255,255,.2);
+  display: none;
+}
+#local-video.active { display: block; }
+
+/* Voice-call / pre-connect avatar view */
+.call-avatar-screen {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; background: linear-gradient(160deg, #1a0a14, #0a0a0f 60%);
+}
+.call-avatar-screen.hidden { display: none; }
+.call-avatar-ring {
+  width: 140px; height: 140px; border-radius: 50%;
+  padding: 4px; background: conic-gradient(from 220deg, #ff3d7f, #ffc857, #00d9b5, #ff3d7f);
+  animation: ring-pulse 2s infinite;
+}
+@keyframes ring-pulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(255,61,127,.4);} 50%{ box-shadow: 0 0 0 18px rgba(255,61,127,0);} }
+.call-avatar-ring img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid #0a0a0f;
+}
+.call-name { font-size: 22px; font-weight: 800; color: #fff; }
+.call-status-text { font-size: 14px; color: rgba(255,255,255,.6); }
+
+/* Top bar */
+.call-top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 30;
+  padding: 18px 16px; display: flex; align-items: center; justify-content: space-between;
+}
+.call-duration {
+  background: rgba(0,0,0,.45); backdrop-filter: blur(8px);
+  border-radius: 16px; padding: 6px 14px; color: #fff; font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.call-minimize {
+  width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,.45);
+  backdrop-filter: blur(8px); border: none; color: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Bottom controls */
+.call-controls {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 30;
+  padding: 20px 24px 40px; display: flex; align-items: center; justify-content: center; gap: 22px;
+}
+.call-btn {
+  width: 58px; height: 58px; border-radius: 50%;
+  background: rgba(255,255,255,.12); backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.18); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 22px; transition: background .2s, transform .1s;
+}
+.call-btn:active { transform: scale(.92); }
+.call-btn.active-state { background: #fff; color: #0a0a0f; }
+.call-btn.end-call { background: #ff3d4f; width: 64px; height: 64px; }
+.call-btn.end-call:hover { background: #d8203a; }
+.call-btn.accept-call { background: #00c864; width: 64px; height: 64px; }
+
+/* Incoming call ringing buttons row (caller=accept/decline, callee sees this) */
+.ringing-controls { display: none; gap: 40px; }
+.ringing-controls.show { display: flex; }
+.outgoing-controls { display: flex; }
+.outgoing-controls.hide { display: none; }
+
+.call-btn svg { width: 24px; height: 24px; }
+
+.connecting-dots { display: flex; gap: 5px; }
+.connecting-dots span {
+  width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.6);
+  animation: dot-bounce 1.2s infinite;
+}
+.connecting-dots span:nth-child(2) { animation-delay: .2s; }
+.connecting-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes dot-bounce { 0%,60%,100%{ transform: translateY(0); opacity:.4 } 30%{ transform: translateY(-4px); opacity:1 } }
+
+.toast {
+  position: fixed; bottom: 140px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.88); color: #fff; padding: 10px 20px;
+  border-radius: 20px; font-size: 13px; font-weight: 600; z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="call-screen">
+
+    <video id="remote-video" autoplay playsinline></video>
+    <video id="local-video" autoplay playsinline muted></video>
+
+    <!-- Pre-connect / voice call avatar screen -->
+    <div class="call-avatar-screen" id="avatar-screen">
+      <div class="call-avatar-ring">
+        <img id="call-avatar" src="https://i.pravatar.cc/200" alt="">
+      </div>
+      <div class="call-name" id="call-name">…</div>
+      <div class="call-status-text" id="call-status-text">Calling…</div>
+      <div class="connecting-dots" id="connecting-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <div class="call-top">
+      <div class="call-duration" id="call-duration" style="display:none;">00:00</div>
+      <div></div>
+    </div>
+
+    <div class="call-controls">
+
+      <!-- Outgoing / connected state controls -->
+      <div class="outgoing-controls" id="outgoing-controls">
+        <button class="call-btn" id="mute-btn" onclick="toggleMute()" title="Mute">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </button>
+        <button class="call-btn" id="speaker-btn" onclick="toggleSpeaker()" title="Speaker">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </button>
+        <button class="call-btn end-call" onclick="hangUp()" title="End call">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15.46l-5.27-.61a2 2 0 0 0-1.82.7l-2.13 2.6a16 16 0 0 1-6.4-6.4l2.59-2.13a2 2 0 0 0 .7-1.83L8.06 2.6a2 2 0 0 0-2-1.51H3.91A2 2 0 0 0 2 3.2c0 9.8 7 17.8 16.8 19.9a2 2 0 0 0 2.11-2.06v-4.06a2 2 0 0 0-1.91-1.58z" transform="rotate(135 12 12)"/></svg>
+        </button>
+        <button class="call-btn" id="camera-toggle-btn" onclick="toggleLocalCamera()" title="Camera" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        </button>
+      </div>
+
+      <!-- Incoming call: accept / decline -->
+      <div class="ringing-controls" id="ringing-controls">
+        <button class="call-btn end-call" onclick="declineCall()" title="Decline">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15.46l-5.27-.61a2 2 0 0 0-1.82.7l-2.13 2.6a16 16 0 0 1-6.4-6.4l2.59-2.13a2 2 0 0 0 .7-1.83L8.06 2.6a2 2 0 0 0-2-1.51H3.91A2 2 0 0 0 2 3.2c0 9.8 7 17.8 16.8 19.9a2 2 0 0 0 2.11-2.06v-4.06a2 2 0 0 0-1.91-1.58z" transform="rotate(135 12 12)"/></svg>
+        </button>
+        <button class="call-btn accept-call" onclick="acceptCall()" title="Accept">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 15.46l-5.27-.61a2 2 0 0 0-1.82.7l-2.13 2.6a16 16 0 0 1-6.4-6.4l2.59-2.13a2 2 0 0 0 .7-1.83L8.06 2.6a2 2 0 0 0-2-1.51H3.91A2 2 0 0 0 2 3.2c0 9.8 7 17.8 16.8 19.9a2 2 0 0 0 2.11-2.06v-4.06a2 2 0 0 0-1.91-1.58z"/></svg>
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<audio id="ringtone-audio" loop>
+  <!-- Browser default beep fallback handled via Web Audio in JS if no file present -->
+</audio>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<!-- AFTER -->
+
+<!-- </script>-->
+<!--
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>-->
+<!--<script>-->
+
+<script type="module">
+  import "./js/api.js";
+  import "./js/app.js";
+/* ============================================================
+   vConnect — 1:1 Call Page (WebRTC + Socket.IO signaling)
+
+   Wires up the existing backend signaling relay in
+   call.socket.js (callOffer / callAnswer / iceCandidate / endCall)
+   to a real RTCPeerConnection. Also creates/updates the call
+   record via the existing /api/calls REST endpoints so call
+   history (CallController.history) works correctly.
+   ============================================================ */
+
+if (!requireAuthOrRedirect()) { /* stops */ }
+
+const params = new URLSearchParams(window.location.search);
+const otherUserId = params.get("userId");
+const otherName   = decodeURIComponent(params.get("name") || "User");
+const otherAvatar  = decodeURIComponent(params.get("avatar") || "https://i.pravatar.cc/200");
+const callType     = params.get("type") || "voice";       // voice | video
+const role         = params.get("role") || "callee";      // caller | callee
+const incomingCallId = params.get("callId") || null;       // present when answering an incoming call
+
+let pc = null;
+let localStream = null;
+let callId = incomingCallId;
+let callStartedAt = null;
+let durationTimer = null;
+let isMuted = false;
+let isSpeakerOn = true;
+let isCameraOn = callType === "video";
+let remoteDescSet = false;
+const pendingRemoteCandidates = [];
+
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
+  ]
+};
+
+const socket = io(API_BASE_URL.replace("/api", ""), {
+  transports: ["websocket"],
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+});
+
+/* ============================================================
+   UI INIT
+   ============================================================ */
+document.getElementById("call-avatar").src = otherAvatar;
+document.getElementById("call-name").textContent = otherName;
+document.getElementById("call-status-text").textContent =
+  role === "caller" ? "Calling…" : "Incoming call…";
+
+if (callType === "video") {
+  document.getElementById("camera-toggle-btn").style.display = "flex";
+}
+
+if (role === "callee" && incomingCallId) {
+  // We arrived here because of a call:incoming socket event elsewhere (e.g. a
+  // global listener bound in app.js) that redirected to call.html?role=callee
+  document.getElementById("ringing-controls").classList.add("show");
+  document.getElementById("outgoing-controls").classList.add("hide");
+  playRingtone();
+}
+
+/* ============================================================
+   SOCKET REGISTRATION
+   ============================================================ */
+if (CURRENT_USER.id) {
+  socket.emit("registerUser", CURRENT_USER.id);
+}
+
+/* ============================================================
+   CREATE PEER CONNECTION
+   ============================================================ */
+function createPeerConnection() {
+  const conn = new RTCPeerConnection(RTC_CONFIG);
+
+  conn.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("iceCandidate", {
+        targetUserId: otherUserId,
+        candidate: event.candidate
+      });
+    }
+  };
+
+  conn.ontrack = (event) => {
+    const remoteVideo = document.getElementById("remote-video");
+    if (!remoteVideo.srcObject) remoteVideo.srcObject = new MediaStream();
+    remoteVideo.srcObject.addTrack(event.track);
+
+    if (callType === "video") {
+      remoteVideo.classList.add("active");
+      document.getElementById("avatar-screen").classList.add("hidden");
+    }
+  };
+
+  conn.onconnectionstatechange = () => {
+    console.log("Connection state:", conn.connectionState);
+    if (conn.connectionState === "connected") {
+      onCallConnected();
+    } else if (["failed", "disconnected", "closed"].includes(conn.connectionState)) {
+      if (conn.connectionState === "failed") {
+        showToast("Call connection lost");
+        setTimeout(hangUp, 1500);
+      }
+    }
+  };
+
+  return conn;
+}
+
+/* ============================================================
+   GET LOCAL MEDIA
+   ============================================================ */
+async function getMedia() {
+  const constraints = {
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    video: callType === "video" ? { width: { ideal: 720 }, facingMode: "user" } : false
+  };
+  return navigator.mediaDevices.getUserMedia(constraints);
+}
+
+/* ============================================================
+   CALLER FLOW — create call record, get media, create offer
+   ============================================================ */
+async function startOutgoingCall() {
+  try {
+    // 1. Create the call record via REST so history works (CallController.initiate)
+   const res = await api.request("/calls", {
+  method: "POST",
+  body: JSON.stringify({
+    calleeId: otherUserId,
+    callType
+  })
+});
+
+callId =
+  res.data?.id ??
+  res.data?.call?.id ??
+  null;
+
+if (!callId) {
+  throw new Error("Unable to create call.");
+}
+
+    // 2. Get local media
+    localStream = await getMedia();
+    attachLocalPreview();
+
+    // 3. Build peer connection + add tracks
+    pc = createPeerConnection();
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    // 4. Create + send offer over the signaling socket (call.socket.js relays it)
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    socket.emit("callOffer", {
+      calleeId: otherUserId,
+      callerId: CURRENT_USER.id,
+      callId,
+      callType,
+      callerName: CURRENT_USER.display_name || CURRENT_USER.username,
+      callerAvatar: CURRENT_USER.avatar_url || CURRENT_USER.avatarUrl,
+      offer
+    });
+
+    document.getElementById("call-status-text").textContent = "Ringing…";
+  } catch (err) {
+    console.error("startOutgoingCall error:", err);
+    showToast(err.message?.includes("Permission") ? "Camera/mic permission denied" : (err.message || "Could not start call"));
+    setTimeout(() => window.history.back(), 1500);
+  }
+}
+
+/* ============================================================
+   CALLEE FLOW — accept incoming call
+   ============================================================ */
+let pendingOffer = null; // set by socket listener below if we land here pre-accept
+
+async function acceptCall() {
+  stopRingtone();
+  document.getElementById("ringing-controls").classList.remove("show");
+  document.getElementById("outgoing-controls").classList.remove("hide");
+  document.getElementById("call-status-text").textContent = "Connecting…";
+
+  try {
+    localStream = await getMedia();
+    attachLocalPreview();
+
+    pc = createPeerConnection();
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    if (pendingOffer) {
+      await pc.setRemoteDescription(new RTCSessionDescription(pendingOffer));
+      remoteDescSet = true;
+      flushPendingCandidates();
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socket.emit("callAnswer", {
+        callerId: otherUserId,
+        calleeId: CURRENT_USER.id,
+        callId,
+        answer
+      });
+
+      if (callId) {
+        api.request(`/calls/${callId}`, { method: "PATCH", body: JSON.stringify({ status: "accepted" }) }).catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.error("acceptCall error:", err);
+    showToast(err.message || "Could not accept call");
+    declineCall();
+  }
+}
+
+function declineCall() {
+  stopRingtone();
+  if (callId) {
+    api.request(`/calls/${callId}`, { method: "PATCH", body: JSON.stringify({ status: "rejected" }) }).catch(() => {});
+  }
+  socket.emit("endCall", { targetUserId: otherUserId, callId });
+  cleanupAndClose();
+}
+
+/* ============================================================
+   SOCKET SIGNALING LISTENERS — mirrors backend call.socket.js
+   ============================================================ */
+socket.on("incomingCall", (payload) => {
+  // Only relevant if we are the callee and haven't already wired this call
+  if (String(payload.calleeId) !== String(CURRENT_USER.id)) return;
+ pendingOffer =
+    payload.offer ??
+    payload.data?.offer;
+
+callId =
+    payload.callId ??
+    payload.data?.callId ??
+    callId;
+
+  document.getElementById("call-avatar").src = payload.callerAvatar || otherAvatar;
+  document.getElementById("call-name").textContent = payload.callerName || otherName;
+  document.getElementById("call-status-text").textContent = "Incoming call…";
+  document.getElementById("ringing-controls").classList.add("show");
+  document.getElementById("outgoing-controls").classList.add("hide");
+  playRingtone();
+});
+
+socket.on("callAnswered", async (payload) => {
+  if (!pc) return;
+  try {
+    const answer =
+    payload.answer ??
+    payload.data?.answer;
+
+if (!answer) return;
+
+await pc.setRemoteDescription(
+    new RTCSessionDescription(answer)
+);
+    remoteDescSet = true;
+    flushPendingCandidates();
+    if (callId) {
+      api.request(`/calls/${callId}`, { method: "PATCH", body: JSON.stringify({ status: "accepted" }) }).catch(() => {});
+    }
+  } catch (err) {
+    console.error("callAnswered error:", err);
+  }
+});
+
+socket.on("iceCandidate", async (payload) => {
+  const candidate =
+    payload.candidate ??
+    payload.data?.candidate;
+
+if (!candidate) return;
+
+  if (!pc || !remoteDescSet) {
+    pendingRemoteCandidates.push(candidate);
+    return;
+  }
+  try {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (err) {
+    console.error("addIceCandidate error:", err);
+  }
+});
+
+function flushPendingCandidates() {
+  while (pendingRemoteCandidates.length) {
+    const c = pendingRemoteCandidates.shift();
+    pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+  }
+}
+
+socket.on("callEnded", () => {
+  showToast(`${otherName} ended the call`);
+  setTimeout(cleanupAndClose, 800);
+});
+
+/* ============================================================
+   CONNECTED STATE
+   ============================================================ */
+function onCallConnected() {
+  if (callStartedAt) return; // already handled
+  callStartedAt = Date.now();
+  stopRingtone();
+  document.getElementById("call-status-text").textContent = "Connected";
+  document.getElementById("call-duration").style.display = "block";
+  document.getElementById("ringing-controls").classList.remove("show");
+  document.getElementById("outgoing-controls").classList.remove("hide");
+
+  if (callType !== "video") {
+    // Voice call keeps the avatar screen visible throughout
+    document.getElementById("avatar-screen").classList.remove("hidden");
+  }
+
+  durationTimer = setInterval(updateDuration, 1000);
+}
+
+function updateDuration() {
+  const secs = Math.floor((Date.now() - callStartedAt) / 1000);
+  const m = Math.floor(secs / 60).toString().padStart(2, "0");
+  const s = (secs % 60).toString().padStart(2, "0");
+  document.getElementById("call-duration").textContent = `${m}:${s}`;
+}
+
+/* ============================================================
+   LOCAL PREVIEW (video calls)
+   ============================================================ */
+function attachLocalPreview() {
+  if (callType !== "video") return;
+  const localVideo = document.getElementById("local-video");
+  localVideo.srcObject = localStream;
+  localVideo.classList.add("active");
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+function toggleMute() {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => (t.enabled = !isMuted));
+  document.getElementById("mute-btn").classList.toggle("active-state", isMuted);
+}
+
+function toggleSpeaker() {
+  isSpeakerOn = !isSpeakerOn;
+  const remoteVideo = document.getElementById("remote-video");
+  remoteVideo.muted = !isSpeakerOn;
+  document.getElementById("speaker-btn").classList.toggle("active-state", !isSpeakerOn);
+  showToast(isSpeakerOn ? "Speaker on" : "Speaker off");
+}
+
+function toggleLocalCamera() {
+  if (!localStream) return;
+  isCameraOn = !isCameraOn;
+  localStream.getVideoTracks().forEach(t => (t.enabled = isCameraOn));
+  document.getElementById("camera-toggle-btn").classList.toggle("active-state", !isCameraOn);
+}
+
+/* ============================================================
+   HANG UP
+   ============================================================ */
+function hangUp() {
+  if (callId) {
+    api.request(`/calls/${callId}`, { method: "PATCH", body: JSON.stringify({ status: "ended" }) }).catch(() => {});
+  }
+  socket.emit("endCall", { targetUserId: otherUserId, callId });
+  cleanupAndClose();
+}
+
+function cleanupAndClose() {
+  stopRingtone();
+  clearInterval(durationTimer);
+
+  if (localStream)
+    localStream.getTracks().forEach(t => t.stop());
+
+  if (pc) {
+    try {
+      pc.close();
+    } catch (e) {}
+  }
+
+  setTimeout(() => {
+
+    if (otherUserId) {
+      window.location.href =
+        `chat.html?userId=${encodeURIComponent(otherUserId)}`;
+    } else {
+      window.location.href = "chat.html";
+    }
+
+  }, 300);
+}
+
+window.addEventListener("beforeunload", () => {
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
+  if (pc) { try { pc.close(); } catch (e) {} }
+});
+
+/* ============================================================
+   RINGTONE (best-effort — uses Web Audio beep if no audio file)
+   ============================================================ */
+let ringtoneCtx = null, ringtoneInterval = null;
+function playRingtone() {
+  try {
+    ringtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const beep = () => {
+      const osc = ringtoneCtx.createOscillator();
+      const gain = ringtoneCtx.createGain();
+      osc.frequency.value = 880;
+      gain.gain.value = 0.05;
+      osc.connect(gain).connect(ringtoneCtx.destination);
+      osc.start();
+      setTimeout(() => osc.stop(), 300);
+    };
+    beep();
+    ringtoneInterval = setInterval(beep, 1500);
+  } catch (e) { /* ignore — non-fatal */ }
+}
+function stopRingtone() {
+  clearInterval(ringtoneInterval);
+  if (ringtoneCtx) { try { ringtoneCtx.close(); } catch (e) {} }
+}
+
+/* ============================================================
+   ENTRY POINT
+   ============================================================ */
+if (role === "caller") {
+  startOutgoingCall();
+}
+// If role === "callee" and we arrived with no incomingCallId/pendingOffer yet,
+// we wait for the "incomingCall" socket event above to populate pendingOffer,
+// then the user taps Accept.
+</script>
+</body>
+</html>

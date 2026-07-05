@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>vConnect — Podcast Live</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body, .app-shell, .live-screen {
+  height: 100dvh; overflow: hidden; background: #0a0610;
+}
+
+.live-screen {
+  position: relative; width: 100%; max-width: 480px; margin: 0 auto;
+  display: flex; flex-direction: column; height: 100dvh;
+}
+
+/* ══════════════════════════
+   STAGE — host video (top, taller for podcast)
+══════════════════════════ */
+.stage-panel {
+  position: relative; flex: 0 0 58%;
+  background: #0a0610; overflow: hidden;
+}
+
+#stage-video {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center top; display: block;
+}
+
+/* Podcast-style gradient overlay — darker, more cinematic */
+.stage-panel::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(10,6,16,.55) 0%,
+    transparent 30%,
+    transparent 65%,
+    rgba(10,6,16,.8) 100%
+  );
+}
+
+.stage-offline {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  background: #0a0610; color: rgba(255,255,255,.4); font-size: 13px; z-index: 1;
+}
+.stage-offline .icon { font-size: 44px; }
+
+/* ══════════════════════════
+   TOP BAR
+══════════════════════════ */
+.live-top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 12px 12px 0; gap: 8px;
+}
+
+.host-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(12px);
+  border-radius: 28px; padding: 5px 10px 5px 5px;
+  max-width: calc(100% - 140px); min-width: 0;
+  border: 1px solid rgba(160,90,255,.2);
+}
+.host-chip img {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid rgba(160,90,255,.6); object-fit: cover; flex: none; cursor: pointer;
+}
+.host-chip .ht { min-width: 0; flex: 1; }
+.host-chip .name {
+  display: block; font-size: 12px; font-weight: 800; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.host-chip .sub { font-size: 10px; color: rgba(255,255,255,.6); }
+
+.follow-btn {
+  flex: none; background: linear-gradient(135deg,#a05aff,#6a1adf);
+  color: #fff; border: none; border-radius: 14px; padding: 4px 10px;
+  font-size: 11px; font-weight: 800; cursor: pointer; white-space: nowrap;
+}
+.follow-btn.active { background: rgba(255,255,255,.2); }
+
+.live-top-right {
+  display: flex; align-items: center; gap: 6px; flex: none;
+}
+
+/* PODCAST LIVE badge — purple instead of red */
+.live-badge {
+  display: flex; align-items: center; gap: 4px;
+  background: linear-gradient(135deg,#a05aff,#6a1adf);
+  border-radius: 14px; padding: 5px 9px;
+  color: #fff; font-size: 10px; font-weight: 900; letter-spacing: .05em;
+}
+.live-badge .dot {
+  width: 5px; height: 5px; border-radius: 50%; background: #fff;
+  animation: pulse-anim 1.4s infinite;
+}
+@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.75)} }
+
+.viewer-chip {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(8px);
+  border-radius: 14px; padding: 5px 8px;
+  color: #fff; font-size: 11px; font-weight: 700;
+}
+#network-badge {
+  font-size: 9px; font-weight: 900; padding: 3px 6px;
+  border-radius: 7px; background: rgba(0,200,100,.7); color: #fff;
+}
+.close-btn {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; border: none; cursor: pointer; flex: none;
+}
+
+/* PODCAST META OVERLAY (bottom of stage) */
+.podcast-meta-overlay {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 20;
+  padding: 12px 14px 14px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.pod-episode-label {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: rgba(160,90,255,.9);
+}
+.pod-title {
+  font-size: 15px; font-weight: 900; color: #fff; line-height: 1.25;
+  text-shadow: 0 1px 6px rgba(0,0,0,.7);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pod-show-name {
+  font-size: 11px; color: rgba(255,255,255,.6); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* AUDIO ONLY MODE — shown when host turns off video */
+.audio-mode-overlay {
+  position: absolute; inset: 0; z-index: 15;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, #1a0b2e 0%, #0a0610 100%);
+  gap: 12px;
+}
+.audio-mode-overlay.show { display: flex; }
+.pod-cover-art {
+  width: 120px; height: 120px; border-radius: 20px;
+  object-fit: cover; border: 3px solid rgba(160,90,255,.4);
+  box-shadow: 0 12px 40px rgba(160,90,255,.3);
+}
+.pod-cover-fallback {
+  width: 120px; height: 120px; border-radius: 20px;
+  background: linear-gradient(135deg,#1a0b2e,#2a0d4e);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 48px; border: 3px solid rgba(160,90,255,.3);
+}
+.soundwave {
+  display: flex; align-items: center; gap: 3px; height: 28px;
+}
+.sw-bar {
+  width: 3px; border-radius: 2px;
+  background: linear-gradient(to top, #a05aff, #c890ff);
+  animation: sw-anim .6s ease-in-out infinite alternate;
+}
+@keyframes sw-anim { from{height:4px} to{height:24px} }
+
+/* END LIVE BTN */
+.end-live-btn {
+  display: none; align-items: center; gap: 5px;
+  background: rgba(255,61,127,.9); color: #fff; border: none;
+  border-radius: 14px; padding: 5px 10px; font-size: 11px;
+  font-weight: 800; cursor: pointer; white-space: nowrap;
+}
+
+/* HOST CONTROLS */
+#host-controls {
+  display: none; position: absolute; top: 54px; right: 12px;
+  z-index: 20; flex-direction: column; gap: 6px;
+}
+.host-mode #host-controls { display: flex; }
+.h-ctrl {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(8px);
+  border: 1px solid rgba(160,90,255,.25);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; font-size: 14px;
+}
+
+/* MIC LEVEL */
+.mic-wrap {
+  position: absolute; bottom: 60px; right: 12px; z-index: 20;
+  width: 4px; height: 48px; background: rgba(255,255,255,.1);
+  border-radius: 4px; overflow: hidden; display: none;
+}
+.host-mode .mic-wrap { display: block; }
+#mic-level {
+  position: absolute; bottom: 0; width: 100%;
+  background: #a05aff; border-radius: 4px; height: 0%;
+  transition: height .08s;
+}
+
+/* ══════════════════════════
+   PARTICIPANTS STRIP
+══════════════════════════ */
+.participants-section {
+  flex: 0 0 auto; background: #0d0a18;
+  border-top: 1px solid rgba(160,90,255,.12);
+}
+.participants-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 12px 4px;
+}
+.participants-header span {
+  font-size: 11px; font-weight: 700; color: rgba(255,255,255,.4);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+#participants-strip {
+  display: flex; gap: 8px;
+  padding: 4px 12px 10px; overflow-x: auto; scrollbar-width: none;
+}
+#participants-strip::-webkit-scrollbar { display: none; }
+
+#local-tile {
+  display: none; flex: 0 0 72px; flex-direction: column;
+  align-items: center; gap: 0; position: relative;
+}
+#local-video {
+  width: 72px; height: 96px; border-radius: 12px;
+  object-fit: cover; border: 2px solid #a05aff; background: #111; display: block;
+}
+#local-name {
+  font-size: 9px; color: rgba(255,255,255,.6); font-weight: 700;
+  text-align: center; max-width: 72px; margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.local-tile-controls {
+  position: absolute; bottom: 20px; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: center; gap: 4px; z-index: 5;
+}
+.local-ctrl-btn {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(0,0,0,.72); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; font-size: 11px; padding: 0; line-height: 1;
+  transition: background .15s;
+}
+.local-ctrl-btn.muted { background: rgba(255,61,127,.7); border-color: rgba(255,61,127,.5); }
+
+.participant-tile { flex: 0 0 72px; position: relative; }
+.participant-tile video {
+  width: 72px; height: 96px; border-radius: 12px;
+  object-fit: cover; border: 2px solid rgba(255,255,255,.15);
+  background: #111; display: block;
+}
+.ptile-name {
+  position: absolute; bottom: 4px; left: 0; right: 0;
+  text-align: center; font-size: 9px; font-weight: 700;
+  color: #fff; text-shadow: 0 1px 4px #000; padding: 0 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ptile-muted-badge {
+  position: absolute; top: 5px; left: 5px; z-index: 4;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0,0,0,.72); backdrop-filter: blur(4px);
+  display: none; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 1;
+}
+.strip-empty-hint {
+  color: rgba(255,255,255,.2); font-size: 11px;
+  display: flex; align-items: center; padding: 10px 4px;
+}
+
+/* ══════════════════════════
+   LOWER PANEL
+══════════════════════════ */
+.lower-panel {
+  flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column;
+  background: linear-gradient(to bottom, #0d0a18 0%, #0a0610 100%);
+}
+
+.fx-layer {
+  position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: hidden;
+}
+.fx-particle {
+  position: absolute; bottom: 80px; font-size: 20px;
+  animation: float-up 2.7s ease-out forwards;
+}
+@keyframes float-up {
+  0%{transform:translateY(0) rotate(0deg);opacity:1}
+  60%{opacity:1}
+  100%{transform:translateY(-180px) translateX(var(--drift)) rotate(var(--rot));opacity:0}
+}
+
+.gift-streak-layer {
+  position: absolute; bottom: 70px; left: 0; right: 0; z-index: 7;
+  pointer-events: none; display: flex; flex-direction: column;
+  align-items: flex-start; gap: 6px; padding: 0 12px;
+}
+.gift-banner {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,.65); backdrop-filter: blur(10px);
+  border-radius: 20px; padding: 6px 12px; border: 1px solid rgba(160,90,255,.2);
+  animation: slide-in-left .35s ease-out, fade-out 2.6s .4s ease-in forwards;
+}
+.gift-banner-text { font-size: 11px; color: #fff; line-height: 1.4; }
+.gift-banner-text strong { font-weight: 800; }
+.gift-banner-text em { font-style: normal; color: #c890ff; font-weight: 700; }
+@keyframes slide-in-left { from{transform:translateX(-16px);opacity:0} to{transform:translateX(0);opacity:1} }
+@keyframes fade-out { 0%{opacity:1} 100%{opacity:0} }
+
+.comments-wrap {
+  flex: 1; overflow: hidden; position: relative;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 22%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 22%);
+}
+.comments-scroll {
+  height: 100%; overflow-y: auto; display: flex; flex-direction: column;
+  justify-content: flex-end; gap: 5px; padding: 8px 12px;
+  scrollbar-width: none;
+}
+.comments-scroll::-webkit-scrollbar { display: none; }
+.comment-row { display: flex; align-items: flex-start; gap: 6px; animation: comment-in .2s ease-out; }
+@keyframes comment-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+.comment-row img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; margin-top: 2px; }
+.comment-row .bubble {
+  background: rgba(0,0,0,.45); backdrop-filter: blur(6px);
+  border-radius: 12px; padding: 5px 9px; font-size: 11.5px;
+  color: rgba(255,255,255,.9); line-height: 1.4; max-width: 88%; word-break: break-word;
+}
+.comment-row .uname { display: inline; font-weight: 800; color: #c890ff; margin-right: 4px; }
+.comment-row.gift-row .bubble { background: rgba(160,90,255,.15); border: 1px solid rgba(160,90,255,.25); }
+.comment-row.system .bubble { background: rgba(160,90,255,.1); color: rgba(255,255,255,.7); font-size: 10.5px; }
+
+/* ── Bottom controls ── */
+.live-controls {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 20px; border-top: 1px solid rgba(160,90,255,.1);
+}
+.comment-bar {
+  flex: 1; display: flex; align-items: center;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(160,90,255,.2);
+  border-radius: 22px; padding: 0 12px; height: 40px; gap: 6px;
+}
+.comment-bar input {
+  flex: 1; background: none; border: none; outline: none;
+  color: #fff; font-size: 13px;
+}
+.comment-bar input::placeholder { color: rgba(255,255,255,.35); }
+.comment-send {
+  background: none; border: none; color: #a05aff;
+  font-size: 12px; font-weight: 800; cursor: pointer; flex: none;
+}
+.ctrl-icon {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(160,90,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; flex: none; font-size: 17px;
+  transition: background .15s;
+}
+.ctrl-icon:active { transform: scale(.88); }
+
+/* ══════════════════════════
+   GIFT SHEET
+══════════════════════════ */
+.sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  backdrop-filter: blur(4px); z-index: 50;
+  opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+.gift-sheet {
+  position: fixed; bottom: -100%; left: 0; right: 0;
+  max-width: 480px; margin: 0 auto; z-index: 51;
+  background: #0d0a18; border-radius: 24px 24px 0 0;
+  padding: 0 0 36px; transition: bottom .3s cubic-bezier(.34,1.56,.64,1);
+  border-top: 1px solid rgba(160,90,255,.2);
+}
+.gift-sheet.open { bottom: 0; }
+.sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,.15); border-radius: 2px; margin: 12px auto 0; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 4px; }
+.sheet-head h3 { font-size: 15px; font-weight: 800; }
+.gift-target-row { padding: 0 18px 10px; font-size: 11.5px; color: rgba(255,255,255,.5); }
+#gift-target-name { color: #a05aff; font-weight: 700; }
+.coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.25); border-radius: 18px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #c890ff; }
+.gift-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; padding: 0 14px 14px; max-height: 240px; overflow-y: auto; scrollbar-width: none; }
+.gift-grid::-webkit-scrollbar { display: none; }
+.gift-tile { display: flex; flex-direction: column; align-items: center; gap: 3px; background: rgba(255,255,255,.06); border: 1.5px solid transparent; border-radius: 14px; padding: 10px 5px; cursor: pointer; transition: all .15s; }
+.gift-tile:active { transform: scale(.92); }
+.gift-tile.selected { border-color: #a05aff; background: rgba(160,90,255,.15); }
+.gift-tile .emoji { font-size: 20px; }
+.gift-tile .name { font-size: 9.5px; font-weight: 700; color: rgba(255,255,255,.8); text-align: center; }
+.gift-tile .price { font-size: 9.5px; font-weight: 800; color: #c890ff; background: rgba(160,90,255,.12); border-radius: 7px; padding: 2px 5px; }
+.send-gift-btn { width: calc(100% - 28px); margin: 0 14px; height: 46px; border-radius: 14px; font-size: 13px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg,#a05aff,#6a1adf); color: #fff; transition: opacity .2s; }
+.send-gift-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Toast */
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 200; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
+.toast.show { opacity: 1; }
+
+/* Top gifters */
+.top-gifters {
+  position: absolute; top: 52px; left: 12px; z-index: 10;
+  display: flex; align-items: center;
+}
+.top-gifters img {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid rgba(0,0,0,.5); object-fit: cover; margin-left: -4px;
+}
+.top-gifters img:first-child { margin-left: 0; }
+.top-gifters .label { font-size: 10px; color: rgba(255,255,255,.55); margin-left: 6px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+<div class="live-screen">
+
+  <!-- ══ STAGE PANEL ══ -->
+  <div class="stage-panel">
+    <video id="stage-video" autoplay playsinline></video>
+
+    <!-- Audio-only mode overlay (shown when host camera is off) -->
+    <div class="audio-mode-overlay" id="audio-mode-overlay">
+      <img class="pod-cover-art" id="pod-cover-art" src="" alt="" onerror="this.style.display='none'">
+      <div class="pod-cover-fallback" id="pod-cover-fallback">🎙️</div>
+      <div class="soundwave" id="soundwave">
+        <!-- bars injected by JS -->
+      </div>
+    </div>
+
+    <!-- Stage offline -->
+    <div class="stage-offline" id="stage-offline">
+      <span class="icon">🎙️</span>
+      <span>Waiting for host to start…</span>
+    </div>
+
+    <!-- Top bar -->
+    <div class="live-top">
+      <div class="host-chip">
+        <img id="host-avatar" src="" alt="">
+        <div class="ht">
+          <span class="name" id="host-name">Loading…</span>
+          <span class="sub">Podcast · <span id="live-duration">00:00</span></span>
+        </div>
+        <button class="follow-btn" id="follow-btn">Follow</button>
+      </div>
+      <div class="live-top-right">
+        <button id="end-live-btn" class="end-live-btn">End</button>
+        <span id="network-badge">HD</span>
+        <span class="viewer-chip">👁 <span id="viewer-count">0</span></span>
+        <div class="live-badge"><span class="dot"></span>POD LIVE</div>
+        <button class="close-btn" id="close-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="14" height="14">
+            <path d="m6 6 12 12M18 6 6 18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Top gifters -->
+    <div class="top-gifters" id="top-gifters">
+      <span class="label">Top Gifters</span>
+    </div>
+
+    <!-- Host-only controls -->
+    <div id="host-controls">
+      <button class="h-ctrl" id="mic-btn" title="Mute mic">🎤</button>
+      <button class="h-ctrl" id="camera-btn" title="Camera off">📷</button>
+      <button class="h-ctrl" id="switch-camera-btn" title="Flip camera">🔄</button>
+    </div>
+
+    <div class="mic-wrap"><div id="mic-level"></div></div>
+
+    <!-- Episode meta overlay -->
+    <div class="podcast-meta-overlay">
+      <span class="pod-episode-label" id="pod-episode-label">● PODCAST LIVE</span>
+      <div class="pod-title" id="pod-title">Loading…</div>
+      <div class="pod-show-name" id="pod-show-name"></div>
+    </div>
+  </div>
+
+  <!-- ══ PARTICIPANTS STRIP ══ -->
+  <div class="participants-section">
+    <div class="participants-header">
+      <span>Listeners</span>
+      <span id="viewer-count-label" style="font-size:11px;color:rgba(255,255,255,.3);">0 online</span>
+    </div>
+    <div id="participants-strip">
+      <div id="local-tile">
+        <video id="local-video" autoplay playsinline muted></video>
+        <div class="local-tile-controls">
+          <button class="local-ctrl-btn" id="local-mic-btn" title="Mute mic">🎤</button>
+          <button class="local-ctrl-btn" id="local-camera-btn" title="Camera off">📷</button>
+        </div>
+        <div id="local-name">You</div>
+      </div>
+      <div class="strip-empty-hint" id="strip-hint">No one else here yet</div>
+    </div>
+  </div>
+
+  <!-- ══ LOWER PANEL ══ -->
+  <div class="lower-panel">
+    <div class="fx-layer" id="fx-layer"></div>
+    <div class="gift-streak-layer" id="gift-streak-layer"></div>
+
+    <div class="comments-wrap">
+      <div class="comments-scroll" id="comments-scroll"></div>
+    </div>
+
+    <div class="live-controls">
+      <div class="comment-bar">
+        <input type="text" id="comment-input" placeholder="Say something…" maxlength="200">
+        <button class="comment-send" id="comment-send-btn">Send</button>
+      </div>
+      <button class="ctrl-icon" id="heart-btn">❤️</button>
+      <button class="ctrl-icon" id="gift-btn">🎁</button>
+      <button class="ctrl-icon" id="mic-react-btn">🎙️</button>
+    </div>
+  </div>
+
+</div><!-- /live-screen -->
+</div><!-- /app-shell -->
+
+<!-- Gift sheet -->
+<div class="sheet-backdrop" id="sheet-backdrop"></div>
+<div class="gift-sheet" id="gift-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <h3>Support the Host</h3>
+    <div class="coin-pill-sm">🪙 <span id="sheet-coin-balance">0</span></div>
+  </div>
+  <div class="gift-target-row">Gifting: <span id="gift-target-name">Host</span></div>
+  <div class="gift-grid" id="gift-grid"></div>
+  <button class="send-gift-btn" id="send-gift-btn" disabled>Select a gift to send</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  /* Strip observer */
+  const _strip = document.getElementById("participants-strip");
+  const _hint  = document.getElementById("strip-hint");
+  const _obs   = new MutationObserver(() => {
+    const hasPeers   = _strip.querySelector(".participant-tile");
+    const localShown = document.getElementById("local-tile").style.display !== "none";
+    if (_hint) _hint.style.display = (hasPeers || localShown) ? "none" : "flex";
+    const count      = _strip.querySelectorAll(".participant-tile").length;
+    const label      = document.getElementById("viewer-count-label");
+    if (label) label.textContent = (count + (localShown ? 1 : 0)) + " online";
+  });
+  _obs.observe(_strip, { childList: true, subtree: true, attributes: true });
+
+  /* Soundwave bars */
+  const sw = document.getElementById("soundwave");
+  for (let i = 0; i < 18; i++) {
+    const b = document.createElement("div");
+    b.className = "sw-bar";
+    b.style.animationDelay = (i * 0.055) + "s";
+    b.style.height = "4px";
+    sw.appendChild(b);
+  }
+
+  /* Podcast meta from URL — ?room=X&title=…&show=…&cover=…
+     Host sets these when they start the podcast live session.
+     Listeners see them immediately without waiting for API. */
+  const _params = new URLSearchParams(window.location.search);
+  const _titleEl = document.getElementById("pod-title");
+  const _showEl  = document.getElementById("pod-show-name");
+  const _coverEl = document.getElementById("pod-cover-art");
+  const _fallEl  = document.getElementById("pod-cover-fallback");
+
+  const _titleParam = _params.get("title");
+  const _showParam  = _params.get("show");
+  const _coverParam = _params.get("cover");
+
+  if (_titleParam) _titleEl.textContent = decodeURIComponent(_titleParam);
+  if (_showParam)  _showEl.textContent  = decodeURIComponent(_showParam);
+  if (_coverParam) {
+    _coverEl.src = decodeURIComponent(_coverParam);
+    _coverEl.style.display = "block";
+    _fallEl.style.display  = "none";
+  }
+
+  /* Audio-only mode toggle — called by live.js camera toggle indirectly.
+     We watch #stage-video opacity changes as the signal. */
+  const _stageVid = document.getElementById("stage-video");
+  const _audioOverlay = document.getElementById("audio-mode-overlay");
+  const _stageObserver = new MutationObserver(() => {
+    const isAudioOnly = _stageVid.style.opacity === "0.15";
+    _audioOverlay.classList.toggle("show", isAudioOnly);
+  });
+  _stageObserver.observe(_stageVid, { attributes: true, attributeFilter: ["style"] });
+</script>
+
+<!-- live.js is the EXACT SAME file used by live.html — zero changes needed -->
+<script type="module" src="/js/live.js"></script>
+</body>
+</html>

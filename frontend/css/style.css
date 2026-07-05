@@ -1,0 +1,289 @@
+/* ============================================================
+   vConnect — Design Tokens
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
+
+:root{
+  --bg:        #120D1A;
+  --surface:   #1C1426;
+  --surface-2: #251A33;
+  --border:    #342848;
+  --magenta:   #FF3D7F;
+  --magenta-dim: #B82C5C;
+  --gold:      #FFC857;
+  --teal:      #00D9B5;
+  --text:      #F4F0FA;
+  --text-dim:  #8D84A6;
+  --text-faint:#5C5273;
+  --danger:    #FF5C5C;
+
+  --font-display: 'Sora', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 8px 24px rgba(0,0,0,0.35);
+  --shadow-pop:  0 12px 40px rgba(255,61,127,0.25);
+}
+
+.post-thumb {
+  position: relative;
+}
+
+.post-caption-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #fff;
+
+  background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:
+    radial-gradient(circle at 12% -10%, rgba(255,61,127,0.18), transparent 45%),
+    radial-gradient(circle at 90% 0%, rgba(0,217,181,0.10), transparent 40%),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+h1,h2,h3,h4{ font-family:var(--font-display); margin:0; letter-spacing:-0.01em; }
+p{ margin:0; }
+a{ color:inherit; text-decoration:none; }
+button{ font-family:inherit; cursor:pointer; }
+input,select,textarea{ font-family:inherit; }
+::selection{ background:var(--magenta); color:#fff; }
+
+/* Focus visibility */
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible{
+  outline:2px solid var(--gold);
+  outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
+}
+
+/* ============================================================
+   App shell — mobile-first, centers as a "phone" on wide screens
+   ============================================================ */
+.app-shell{
+  max-width:480px;
+  margin:0 auto;
+  min-height:100vh;
+  position:relative;
+  background:var(--bg);
+  display:flex;
+  flex-direction:column;
+  overflow-x:hidden;
+}
+@media (min-width:560px){
+  .app-shell{
+    min-height:calc(100vh - 48px);
+    margin:24px auto;
+    border-radius:32px;
+    border:1px solid var(--border);
+    box-shadow:0 30px 80px rgba(0,0,0,0.55);
+    overflow:hidden;
+  }
+}
+
+.screen{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  padding-bottom:84px; /* room for tab bar */
+}
+.screen.no-tabbar{ padding-bottom:0; }
+
+/* ============================================================
+   Top bar
+   ============================================================ */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:18px 20px 10px;
+}
+.brand{
+  display:flex; align-items:center; gap:8px;
+  font-family:var(--font-display); font-weight:800; font-size:20px;
+}
+.brand .dot{
+  width:9px; height:9px; border-radius:50%;
+  background:var(--magenta);
+  box-shadow:0 0 12px var(--magenta);
+}
+.icon-btn{
+  width:38px; height:38px;
+  border-radius:var(--radius-pill);
+  border:1px solid var(--border);
+  background:var(--surface);
+  display:grid; place-items:center;
+  color:var(--text);
+  transition:border-color .15s, transform .15s;
+}
+.icon-btn:active{ transform:scale(0.93); }
+.icon-btn:hover{ border-color:var(--magenta); }
+
+/* ============================================================
+   Coin pill — recurring motif
+   ============================================================ */
+.coin-pill{
+  display:inline-flex; align-items:center; gap:6px;
+  background:linear-gradient(135deg, rgba(255,200,87,0.18), rgba(255,200,87,0.06));
+  border:1px solid rgba(255,200,87,0.35);
+  color:var(--gold);
+  font-family:var(--font-mono); font-weight:600; font-size:13px;
+  padding:6px 12px 6px 8px;
+  border-radius:var(--radius-pill);
+}
+.coin-pill svg{ width:14px; height:14px; }
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  border:none; border-radius:var(--radius-pill);
+  padding:14px 22px;
+  font-weight:700; font-size:15px;
+  font-family:var(--font-body);
+  transition:transform .15s ease, box-shadow .15s ease, opacity .15s;
+}
+.btn:active{ transform:scale(0.97); }
+.btn-primary{
+  background:linear-gradient(135deg, var(--magenta), #FF6F9C);
+  color:#1A0B12;
+  box-shadow:var(--shadow-pop);
+}
+.btn-primary:hover{ box-shadow:0 14px 44px rgba(255,61,127,0.38); }
+.btn-ghost{
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--text);
+}
+.btn-ghost:hover{ border-color:var(--text-dim); }
+.btn-block{ width:100%; }
+.btn-sm{ padding:9px 16px; font-size:13px; }
+.btn[disabled]{ opacity:0.45; pointer-events:none; }
+
+/* ============================================================
+   Inputs
+   ============================================================ */
+.field{ display:flex; flex-direction:column; gap:7px; margin-bottom:16px; }
+.field label{ font-size:12.5px; color:var(--text-dim); font-weight:600; letter-spacing:.02em; text-transform:uppercase; }
+.field input{
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:var(--radius-sm);
+  padding:14px 16px;
+  font-size:15px;
+  transition:border-color .15s;
+}
+.field input::placeholder{ color:var(--text-faint); }
+.field input:focus{ border-color:var(--magenta); outline:none; }
+.field-hint{ font-size:12px; color:var(--text-faint); }
+.field-error{ font-size:12px; color:var(--danger); display:none; }
+.field.has-error input{ border-color:var(--danger); }
+.field.has-error .field-error{ display:block; }
+
+/* ============================================================
+   Cards
+   ============================================================ */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  padding:16px;
+}
+
+/* ============================================================
+   Bottom tab bar
+   ============================================================ */
+.tabbar{
+  position:absolute;
+  left:0; right:0; bottom:0;
+  display:flex;
+  background:rgba(20,14,28,0.88);
+  backdrop-filter:blur(16px);
+  border-top:1px solid var(--border);
+  padding:10px 8px calc(10px + env(safe-area-inset-bottom));
+  z-index:40;
+}
+.tabbar .tab{
+  flex:1;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  color:var(--text-faint);
+  font-size:11px; font-weight:600;
+  padding:6px 0;
+  position:relative;
+}
+.tabbar .tab svg{ width:22px; height:22px; }
+.tabbar .tab.active{ color:var(--magenta); }
+.tabbar .tab.active::before{
+  content:"";
+  position:absolute; top:-10px; left:50%; transform:translateX(-50%);
+  width:18px; height:3px; border-radius:2px;
+  background:var(--magenta);
+  box-shadow:0 0 8px var(--magenta);
+}
+.tabbar .tab.fab{
+  background:linear-gradient(135deg, var(--magenta), #FF6F9C);
+  width:48px; height:48px; border-radius:50%;
+  align-self:center;
+  margin-top:-26px;
+  color:#1A0B12;
+  box-shadow:0 10px 26px rgba(255,61,127,0.45);
+}
+.tabbar .tab.fab svg{ width:22px; height:22px; }
+
+/* ============================================================
+   Utility
+   ============================================================ */
+.section-title{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:4px 20px 12px;
+}
+.section-title h2{ font-size:17px; }
+.section-title .see-all{ font-size:12.5px; color:var(--text-dim); font-weight:600; }
+.avatar{
+  border-radius:50%;
+  object-fit:cover;
+  background:var(--surface-2);
+}
+.scroll-x{
+  display:flex; gap:12px; overflow-x:auto; padding:0 20px 4px;
+  scrollbar-width:none;
+}
+.scroll-x::-webkit-scrollbar{ display:none; }
+
+.toast{
+  position:fixed; left:50%; bottom:104px; transform:translate(-50%, 12px);
+  background:var(--surface-2); border:1px solid var(--border);
+  color:var(--text); font-size:13.5px; font-weight:600;
+  padding:11px 18px; border-radius:var(--radius-pill);
+  box-shadow:var(--shadow-card);
+  opacity:0; pointer-events:none;
+  transition:opacity .25s ease, transform .25s ease;
+  z-index:200; white-space:nowrap;
+}
+.toast.show{ opacity:1; transform:translate(-50%, 0); }
