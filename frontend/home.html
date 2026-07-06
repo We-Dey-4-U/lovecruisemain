@@ -798,17 +798,28 @@ function buildMediaHtml(post) {
   if (!media) return "";
   if (typeof media === "string") { try { media = JSON.parse(media); } catch { media = []; } }
   if (!Array.isArray(media)) media = [];
-  media = media.filter(u => typeof u === "string" && u.trim());
+
+  // Handles both old plain-string posts and new {url,type} posts
+  media = media.map(m => {
+    if (typeof m === "string") {
+      const isVideo = /\.(mp4|webm|mov|m4v)(\?|$)/i.test(m);
+      return { url: m, type: isVideo ? "video" : "image" };
+    }
+    return m && m.url ? m : null;
+  }).filter(Boolean);
+
   if (!media.length) return "";
   const count     = media.length;
   const gridClass = count === 2 ? "grid-2" : count === 3 ? "grid-3" : count >= 4 ? "grid-4" : "grid-1";
-  return `<div class="media-grid ${gridClass}">${media.slice(0,4).map((url,i) => {
-    const isVideo = /\.(mp4|webm|mov)$/i.test(url);
-    const isLast  = i === 3 && count > 4;
-    return `<div class="media-item">${isVideo?`<video src="${window.escapeHtml(url)}" muted playsinline></video>`:`<img src="${window.escapeHtml(url)}" loading="lazy" alt="">`}${isLast?`<div class="more-count">+${count-4}</div>`:""}</div>`;
+  return `<div class="media-grid ${gridClass}">${media.slice(0,4).map((m,i) => {
+    const isLast = i === 3 && count > 4;
+    return `<div class="media-item">${
+      m.type === "video"
+        ? `<video src="${window.escapeHtml(m.url)}" muted playsinline preload="metadata"></video>`
+        : `<img src="${window.escapeHtml(m.url)}" loading="lazy" alt="">`
+    }${isLast ? `<div class="more-count">+${count-4}</div>` : ""}</div>`;
   }).join("")}</div>`;
 }
-
 /* ══════════════════════════════════════════
    LOAD FEED
 ══════════════════════════════════════════ */
@@ -927,11 +938,19 @@ async function submitComment() {
   }
 }
 function sharePost(postId) {
-  const url = `${window.location.origin}/post.html?id=${postId}`;
-  if (navigator.share) { navigator.share({ url, title:"Check this out on Lovio" }).catch(()=>{}); }
-  else { navigator.clipboard?.writeText(url).then(()=>window.showToast("Link copied!")).catch(()=>window.showToast("Share not available")); }
-}
+  // Points at the public OG endpoint so Facebook/WhatsApp/Twitter
+  // previews show the post's image + caption + link, whether the
+  // post's owner shares it or someone else does.
+  const post = postsData.find(p => p.id === postId);
+  const shareUrl = `${window.API_BASE_URL}/posts/share/${postId}`;
+  const caption  = post?.caption || "Check this out on Lovio";
 
+  if (navigator.share) {
+    navigator.share({ title: "Lovio", text: caption, url: shareUrl }).catch(()=>{});
+  } else {
+    navigator.clipboard?.writeText(shareUrl).then(()=>window.showToast("Link copied!")).catch(()=>window.showToast("Share not available"));
+  }
+}
 /* ══════════════════════════════════════════
    COMMENT MODAL WIRING
 ══════════════════════════════════════════ */

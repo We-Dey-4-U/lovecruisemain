@@ -6,8 +6,8 @@ const { requireAuth } =
 
 const UserController =
   require("../controllers/userController");
-  const PostController = require("../controllers/postController");
-  const uploadPostMedia = require("../middlewares/uploadPostMedia");
+const PostController = require("../controllers/postController");
+const uploadPostMedia = require("../middlewares/uploadPostMedia");
 
 // Create post
 router.post(
@@ -29,6 +29,13 @@ router.get(
   "/user/:id",
   requireAuth,
   PostController.getUserPosts
+);
+
+// ✅ NEW: Public share/OG preview page — no auth (crawlers can't log in).
+// Must stay ABOVE "/:id" or it will be swallowed by that route.
+router.get(
+  "/share/:id",
+  PostController.renderShare
 );
 
 // Single post

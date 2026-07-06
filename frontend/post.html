@@ -73,6 +73,20 @@ body{
   font-size:13px;
 }
 
+.viewer-share-btn{
+  margin-left:auto;
+  background:rgba(255,255,255,.1);
+  border:none;
+  color:#fff;
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+
 </style>
 </head>
 
@@ -83,6 +97,9 @@ body{
   <div class="topbar">
     <button class="back" onclick="history.back()">←</button>
     <div id="title">Post</div>
+    <button class="viewer-share-btn" id="viewer-share-btn" aria-label="Share">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+    </button>
   </div>
 
   <div class="slider" id="slider"></div>
@@ -91,12 +108,32 @@ body{
 
 </div>
 
-<!-- AFTER -->
 <script type="module">
   import "./js/api.js";
   import "./js/app.js";
 
 const postId = new URLSearchParams(location.search).get("id");
+let currentPost = null;
+
+/* ----------------------------------------------------------
+   Normalizes media_urls into [{ url, type }].
+   Handles both old plain-string posts and new {url,type} posts.
+---------------------------------------------------------- */
+function normalizeMedia(media) {
+  if (typeof media === "string") {
+    try { media = JSON.parse(media); } catch { media = []; }
+  }
+  if (!Array.isArray(media)) return [];
+
+  return media.map(m => {
+    if (typeof m === "string") {
+      // Fallback guess only used for legacy posts saved before the fix
+      const isVideo = /\.(mp4|webm|mov|m4v)(\?|$)/i.test(m);
+      return { url: m, type: isVideo ? "video" : "image" };
+    }
+    return m && m.url ? { url: m.url, type: m.type === "video" ? "video" : "image" } : null;
+  }).filter(Boolean);
+}
 
 async function loadPost(){
 
@@ -104,33 +141,25 @@ async function loadPost(){
 
     const res = await api.request(`/posts/${postId}`);
     const post = res.data;
+    currentPost = post;
 
-    let media = post.media_urls;
-
-    if (typeof media === "string") {
-      media = JSON.parse(media);
-    }
-
-    if (!Array.isArray(media)) media = [];
+    const media = normalizeMedia(post.media_urls);
 
     const slider = document.getElementById("slider");
 
-    slider.innerHTML = media.map((url, i) => {
-
-      const isVideo = url.includes(".mp4") || url.includes(".webm");
-
+    slider.innerHTML = media.map((m) => {
       return `
         <div class="slide">
-          ${isVideo
-            ? `<video src="${url}" controls autoplay></video>`
-            : `<img src="${url}">`
+          ${m.type === "video"
+            ? `<video src="${m.url}" controls autoplay playsinline></video>`
+            : `<img src="${m.url}">`
           }
         </div>
       `;
     }).join("");
 
     document.getElementById("counter").innerText =
-      `1 / ${media.length}`;
+      media.length ? `1 / ${media.length}` : "";
 
     // update counter on scroll
     slider.addEventListener("scroll", () => {
@@ -144,6 +173,25 @@ async function loadPost(){
     console.error(err);
   }
 }
+
+/* ----------------------------------------------------------
+   SHARE — always points at the public /share/:id OG endpoint,
+   so Facebook/WhatsApp/Twitter previews show the post's real
+   image, caption, and a link back into the app. Works the same
+   whether the post owner shares it or another user does.
+---------------------------------------------------------- */
+document.getElementById("viewer-share-btn").addEventListener("click", () => {
+  const shareUrl = `${window.API_BASE_URL}/posts/share/${postId}`;
+  const caption = currentPost?.caption || "Check this out on Lovio";
+
+  if (navigator.share) {
+    navigator.share({ title: "Lovio", text: caption, url: shareUrl }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(shareUrl)
+      .then(() => window.showToast?.("Link copied!"))
+      .catch(() => window.showToast?.("Could not copy link"));
+  }
+});
 
 loadPost();
 

@@ -10,8 +10,8 @@
 //         "topGiftersUpdated", and "battleScoreUpdated" to
 //         room:{roomId} itself, once the gift transaction commits.
 //
-//   ── NEW: BLACK-SCREEN / AUDIO FIXES ──────────────────────────────
-//   FIX-A (black screen root cause): iceTransportPolicy was hard-forced
+//   ── BLACK-SCREEN / AUDIO FIXES ──────────────────────────────
+//   FIX-A (black screen root cause #1): iceTransportPolicy was hard-forced
 //         to "relay" on every transport, but buildIceServers() falls
 //         back to STUN-only when TURN credentials fail to load. Relay
 //         policy + no TURN candidates = zero usable ICE candidates =
@@ -34,6 +34,31 @@
 //         autoplay) instead of freezing on a black frame. A "Tap for
 //         sound" banner primes the AudioContext on first user gesture,
 //         which browsers require before ANY audio graph can play.
+//   FIX-C (black screen root cause #2 — THE REAL ONE for viewers who
+//         never publish): `deviceReady` used to only resolve INSIDE
+//         the try block, AFTER `await publishStream()` succeeded:
+//
+//             await loadDevice(rtpCapabilities);
+//             await publishStream();       // <- throws if camera/mic
+//                                              denied or unavailable
+//             _deviceReadyResolve();       // <- never reached on error
+//
+//         Every consumeProducer() call (which is what actually renders
+//         the HOST's video for a viewer) starts with `await deviceReady`.
+//         So: a viewer who denies the camera/mic permission prompt, has
+//         no camera, or is on a browser that blocks a non-gesture
+//         getUserMedia() call would have publishStream() throw — and
+//         deviceReady would then NEVER resolve. Every future
+//         consumeProducer() call (including the one meant to show them
+//         the host) hangs forever on that await. Mediasoup, TURN, and
+//         the server-side isHost logic were all fine; the viewer just
+//         silently never got far enough to attach any video at all.
+//
+//         Fix: resolve deviceReady as soon as the mediasoup Device is
+//         loaded (all consumeProducer() actually needs), and run
+//         publishStream() as a SEPARATE try/catch after that. A viewer
+//         who can't/won't publish their own camera can now still watch
+//         the host — they just don't get a local self-tile.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -43,7 +68,9 @@ import "./app.js";
 /* ── Device ── */
 let device = null;
 
-// ── FIX-1: deviceReady resolves once device is loaded AND stream is published ──
+// ── FIX-1: deviceReady resolves once the mediasoup Device is loaded.
+// (FIX-C, above, is what makes this resolve independently of whether
+// this peer's OWN camera/mic publish succeeds.) ──
 let _deviceReadyResolve;
 const deviceReady = new Promise((resolve) => { _deviceReadyResolve = resolve; });
 
@@ -439,7 +466,7 @@ async function publishStream() {
     console.log("[publishStream] ✅ audioProducer id=", audioProducer.id);
   }
 
-  console.log("[publishStream] ✅ Done — signalling deviceReady");
+  console.log("[publishStream] ✅ Done publishing own stream");
 }
 
 /* ============================================================
@@ -842,16 +869,42 @@ async function leaveRoom() {
    ============================================================ */
 function initSocket() {
 
+  // ── FIX-C (the real black-screen root cause) ───────────────
+  // `deviceReady` now resolves as soon as loadDevice() succeeds —
+  // that is genuinely all consumeProducer() needs to watch the
+  // host. publishStream() (which requires camera/mic permission)
+  // runs afterward in its own try/catch, so a viewer who denies
+  // that permission, has no camera, or is on a browser that blocks
+  // the getUserMedia() prompt can still watch — they simply don't
+  // get a local self-tile / don't publish their own video.
+  //
+  // Before this fix, publishStream() throwing meant
+  // _deviceReadyResolve() was NEVER called, so every future
+  // `await deviceReady` inside consumeProducer() — including the
+  // one needed to show the HOST's stream — hung forever. That is
+  // what produced the permanent black screen for affected viewers,
+  // even though sockets/mediasoup/TURN were all working correctly.
   socket.on("routerRtpCapabilities", async ({ rtpCapabilities }) => {
     console.log("[socket] routerRtpCapabilities received");
+
     try {
       await loadDevice(rtpCapabilities);
-      await publishStream();
       _deviceReadyResolve();
-      console.log("[socket] ✅ deviceReady resolved");
+      console.log("[socket] ✅ deviceReady resolved (device loaded)");
     } catch (err) {
-      console.error("[socket] routerRtpCapabilities handler failed:", err);
-      window.showToast("Failed to start video: " + err.message);
+      console.error("[socket] loadDevice failed — cannot consume OR publish:", err);
+      window.showToast("Failed to connect: " + err.message);
+      return; // genuinely unrecoverable without a loaded device
+    }
+
+    try {
+      await publishStream();
+    } catch (err) {
+      // Camera/mic denied, unavailable, or blocked — not fatal.
+      // This peer can still watch the host; they just won't publish
+      // their own video/audio or show a local self-tile.
+      console.warn("[socket] publishStream failed — continuing in watch-only mode:", err.message);
+      window.showToast("Watching only (camera unavailable)");
     }
   });
 
