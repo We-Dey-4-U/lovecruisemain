@@ -20,7 +20,6 @@ router.post(
 // Feed
 router.get(
   "/feed",
-  requireAuth,
   PostController.getFeed
 );
 
