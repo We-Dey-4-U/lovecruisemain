@@ -1,5 +1,0 @@
-import"./app-C0dFVt1v.js";/* empty css              */var e=new URLSearchParams(location.search).get(`id`);async function t(){try{let t=(await api.request(`/posts/${e}`)).data.media_urls;typeof t==`string`&&(t=JSON.parse(t)),Array.isArray(t)||(t=[]);let n=document.getElementById(`slider`);n.innerHTML=t.map((e,t)=>`
-        <div class="slide">
-          ${e.includes(`.mp4`)||e.includes(`.webm`)?`<video src="${e}" controls autoplay></video>`:`<img src="${e}">`}
-        </div>
-      `).join(``),document.getElementById(`counter`).innerText=`1 / ${t.length}`,n.addEventListener(`scroll`,()=>{let e=Math.round(n.scrollLeft/window.innerWidth)+1;document.getElementById(`counter`).innerText=`${e} / ${t.length}`})}catch(e){document.body.innerHTML=`<h3 style='color:white;padding:20px'>Failed to load post</h3>`,console.error(e)}}t();
