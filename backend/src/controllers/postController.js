@@ -69,9 +69,6 @@ const PostController = {
         const uploaded = await UploadService.uploadFile(file);
         const url = UploadService.getFileViewUrl(uploaded.$id);
 
-        // ✅ FIX: determine type from the actual mimetype, not the URL.
-        // Appwrite view URLs have no file extension, so guessing from the
-        // URL (old code) always classified videos as images.
         const type = file.mimetype.startsWith("video") ? "video" : "image";
 
         media.push({ url, type });
@@ -85,7 +82,6 @@ const PostController = {
         ? "image"
         : "mixed";
 
-      // ✅ jsonb-safe string, now storing [{url,type}, ...]
       const safeMedia = JSON.stringify(media);
 
       let safeTags = [];
@@ -131,12 +127,15 @@ const PostController = {
 
   /* ----------------------------------------------------------
      GET FEED
+     ✅ FIX: works for guests AND logged-in users.
+     req.user may be undefined if this route uses optionalAuth
+     (or no auth middleware at all) — we no longer crash on that.
   ---------------------------------------------------------- */
   async getFeed(req, res) {
     try {
       const limit = Math.min(Number(req.query.limit) || 20, 50);
       const offset = Number(req.query.offset) || 0;
-      const userId = req.user.id;
+      const userId = req.user?.id || null; // 👈 the actual fix
 
       const { rows } = await db.query(
         `
@@ -186,7 +185,7 @@ const PostController = {
   async getUserPosts(req, res) {
     try {
       const { id } = req.params;
-      const userId = req.user.id;
+      const userId = req.user?.id || null;
 
       const { rows } = await db.query(
         `
@@ -210,7 +209,6 @@ const PostController = {
         [id, userId]
       );
 
-      // ✅ FIX: this endpoint was returning raw (unparsed) media_urls before.
       const cleaned = rows.map((p) => ({
         ...p,
         media_urls: safeParseMedia(p.media_urls)
@@ -232,11 +230,12 @@ const PostController = {
 
   /* ----------------------------------------------------------
      SINGLE POST
+     ✅ FIX: also tolerates missing req.user (guest viewing a post)
   ---------------------------------------------------------- */
   async getPost(req, res) {
     try {
       const { id } = req.params;
-      const userId = req.user.id;
+      const userId = req.user?.id || null;
 
       const { rows: [post] } = await db.query(
         `
@@ -282,7 +281,7 @@ const PostController = {
         success: true,
         data: {
           ...post,
-          media_urls: safeParseMedia(post.media_urls), // ✅ FIX: was returning raw JSON before
+          media_urls: safeParseMedia(post.media_urls),
           comments
         }
       });
@@ -300,8 +299,6 @@ const PostController = {
      PUBLIC SHARE / OG PREVIEW PAGE
      GET /api/posts/share/:id
      No auth — this is what Facebook/WhatsApp/Twitter crawlers hit.
-     Server-renders <meta> tags, then redirects real humans into
-     the actual app (post.html).
   ---------------------------------------------------------- */
   async renderShare(req, res) {
     try {

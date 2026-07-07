@@ -73,7 +73,6 @@
   background: linear-gradient(135deg, #ff3d7f, #a05aff);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
-/* Coin balance pill — mirrors the one on discover.html, own profile only */
 .topbar-coin-pill {
   display: flex; align-items: center; gap: 5px; flex: none;
   background: rgba(255,200,87,.12); border: 1px solid rgba(255,200,87,.25);
@@ -189,10 +188,6 @@
 
 /* ══════════════════════════════════════════
    VIP / EXCLUSIVE RANK CARD
-   Shown on every profile — blends the user's VIP tier (derived
-   from lifetime coins gifted) with their live leaderboard rank,
-   pulled straight from GET /leaderboard/me or /leaderboard/user/:id
-   (type=gifter, period=all) so it always reflects real data.
 ══════════════════════════════════════════ */
 .vip-rank-card {
   position: relative; margin: 16px 18px 0; padding: 18px 18px 16px;
@@ -332,8 +327,6 @@
    GIFTS TAB
 ══════════════════════════════════════════ */
 .gifts-panel { padding: 20px 18px 100px; }
-
-/* Received / Gifted sub-toggle */
 .gift-subtabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .gift-subtab {
   flex: 1; text-align: center; padding: 9px 10px; border-radius: 14px;
@@ -345,7 +338,6 @@
   background: linear-gradient(135deg, rgba(255,61,127,.16), rgba(255,200,87,.12));
   border-color: rgba(255,200,87,.4); color: #ffc857;
 }
-
 .gift-history-item { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border); }
 .gift-history-item:last-child { border-bottom: none; }
 .gift-emoji-big { font-size: 28px; flex: none; }
@@ -354,8 +346,6 @@
 .gift-info small { font-size: 12px; color: var(--text-dim); }
 .gift-coins-badge { background: rgba(255,200,87,.15); border: 1px solid rgba(255,200,87,.25); border-radius: 10px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #ffc857; }
 .no-gifts { text-align: center; padding: 60px 20px; color: var(--text-dim); font-size: 13px; }
-
-/* "People you've gifted" — exclusive ranked list */
 .gifted-person-item {
   display: flex; align-items: center; gap: 12px;
   padding: 13px 12px; border-radius: 16px;
@@ -496,7 +486,6 @@
         <span class="brand-lovio-sm" id="topbar-brand" style="display:none">Lovio</span>
         <span id="topbar-username-text"></span>
       </span>
-      <!-- Coin balance pill — shown only on your own profile, tap to top up -->
       <div class="topbar-coin-pill" id="topbar-coin-pill" style="display:none;">
         🪙 <span id="topbar-coin-balance">0</span>
       </div>
@@ -623,8 +612,6 @@
 
     <div class="tab-panel" id="panel-gifts">
       <div class="gifts-panel">
-        <!-- Received / Gifted toggle — "Gifted" only shown on your own profile,
-             since GET /gifts/sent is scoped to the authenticated user. -->
         <div class="gift-subtabs" id="gift-subtabs">
           <div class="gift-subtab active" data-sub="received">🎁 Received</div>
           <div class="gift-subtab" data-sub="sent" id="gift-subtab-sent" style="display:none;">💸 Gifted</div>
@@ -724,14 +711,13 @@ let isFollowing   = false;
 let GIFT_LIST     = [];
 let selectedGift  = null;
 let pendingAvatar = null;
-let profilePosts  = [];   // in-memory post list for delete
-let sentGiftsRaw  = [];   // raw /gifts/sent rows, grouped client-side for the "Gifted" list
+let profilePosts  = [];
+let sentGiftsRaw  = [];
 
 let activePostId  = null;
 let replyToId     = null;
 let replyToName   = null;
 
-// Post options sheet state
 let optionsTargetId  = null;
 let optionsTargetUID = null;
 
@@ -744,7 +730,7 @@ const MOCK_USER_POSTS = [
     display_name: "You", username: "you",
     avatar_url: window.CURRENT_USER?.avatar_url || "https://i.pravatar.cc/100?img=3",
     caption: "Just shipped a new feature on Lovio 🚀 The grind has been real but we're building something special. Stay tuned for what's coming next — you're going to love it 🔥",
-    media_urls: ["https://picsum.photos/seed/code1/600/400"],
+    media_urls: [{ url: "https://picsum.photos/seed/code1/600/400", type: "image" }],
     likes_count: 47, comments_count: 8, is_liked: false,
     created_at: new Date(Date.now() - 3 * 3600000).toISOString()
   },
@@ -753,7 +739,10 @@ const MOCK_USER_POSTS = [
     display_name: "You", username: "you",
     avatar_url: window.CURRENT_USER?.avatar_url || "https://i.pravatar.cc/100?img=3",
     caption: "Golden hour hits different when you've been grinding all week 🌅✨",
-    media_urls: ["https://picsum.photos/seed/golden1/600/500","https://picsum.photos/seed/golden2/600/500"],
+    media_urls: [
+      { url: "https://picsum.photos/seed/golden1/600/500", type: "image" },
+      { url: "https://picsum.photos/seed/golden2/600/500", type: "image" }
+    ],
     likes_count: 121, comments_count: 14, is_liked: true,
     created_at: new Date(Date.now() - 2 * 86400000).toISOString()
   },
@@ -824,7 +813,6 @@ function setNotifBadge(n) {
 
 /* ══════════════════════════════════════════
    COIN BALANCE PILL (topbar)
-   Own profile only — mirrors discover.html's coin pill, tap to top up.
 ══════════════════════════════════════════ */
 function initCoinBalance() {
   if (!isOwn) return;
@@ -945,11 +933,6 @@ function renderActions(u) {
 
 /* ══════════════════════════════════════════
    EXCLUSIVE VIP / LEADERBOARD RANK CARD
-   Tier is derived from lifetime coins gifted (real, monotonic
-   metric — doesn't rely on a maybe-stale `vip_level` column).
-   Rank comes straight from the leaderboard service:
-     - own profile  → GET /leaderboard/me?type=gifter&period=all
-     - other profile → GET /leaderboard/user/:id?type=gifter&period=all
 ══════════════════════════════════════════ */
 const VIP_TIERS = [
   { name: "Member",   icon: "🌙", min: 0 },
@@ -1009,7 +992,6 @@ function renderVipRank(totalCoins, rank) {
 
 /* ══════════════════════════════════════════
    POST OPTIONS SHEET
-   Owner sees Delete; visitors see Report
 ══════════════════════════════════════════ */
 function openPostOptions(postId, postUserId) {
   optionsTargetId  = postId;
@@ -1065,8 +1047,6 @@ function copyPostLink(postId) {
 
 /* ══════════════════════════════════════════
    DELETE POST
-   Calls DELETE /posts/:id — removes card
-   with smooth collapse, updates in-memory list
 ══════════════════════════════════════════ */
 function confirmDeletePost(postId) {
   if (!confirm("Delete this post? This cannot be undone.")) return;
@@ -1075,8 +1055,6 @@ function confirmDeletePost(postId) {
 
 async function deletePost(postId) {
   const card = document.getElementById(`post-${postId}`);
-
-  // Optimistic: collapse & remove immediately
   if (card) {
     card.style.transition   = "opacity .25s, transform .25s, max-height .3s, margin .3s";
     card.style.overflow     = "hidden";
@@ -1089,10 +1067,7 @@ async function deletePost(postId) {
     });
     setTimeout(() => card.remove(), 350);
   }
-
-  // Update in-memory list
   profilePosts = profilePosts.filter(p => String(p.id) !== String(postId));
-
   try {
     await api.request(`/posts/${postId}`, { method: "DELETE" });
     showToast("Post deleted");
@@ -1162,13 +1137,11 @@ function renderPosts(posts) {
         </button>
       </div>`;
 
-    // Header → post detail page (not triggered by ··· btn)
     card.querySelector(".post-header").addEventListener("click", e => {
       if (e.target.closest(".post-more-btn")) return;
       window.location.href = `post.html?id=${p.id}`;
     });
 
-    // ··· → options sheet
     card.querySelector(".post-more-btn").addEventListener("click", e => {
       e.stopPropagation();
       openPostOptions(p.id, p.user_id);
@@ -1197,19 +1170,44 @@ function renderPosts(posts) {
   });
 }
 
+/* ══════════════════════════════════════════
+   ✅ FIXED buildMediaHtml
+   ------------------------------------------------------------
+   The backend now always returns media_urls as [{url, type}, ...]
+   (see safeParseMedia in postController.js). The old version of
+   this function threw away every entry because it only kept
+   plain strings ( media.filter(u => typeof u === "string") ),
+   so no image/video ever rendered on the profile feed.
+
+   This version accepts BOTH shapes:
+   - legacy plain string urls   -> "https://.../file.jpg"
+   - current {url,type} objects -> {url:"...", type:"image"|"video"}
+   exactly like home.html already does.
+══════════════════════════════════════════ */
 function buildMediaHtml(p) {
   let media = p.media_urls;
   if (!media) return "";
   if (typeof media === "string") { try { media = JSON.parse(media); } catch { media = []; } }
   if (!Array.isArray(media)) media = [];
-  media = media.filter(u => typeof u === "string" && u.trim());
+
+  media = media.map(m => {
+    if (typeof m === "string") {
+      const isVideo = /\.(mp4|webm|mov|m4v)(\?|$)/i.test(m);
+      return { url: m, type: isVideo ? "video" : "image" };
+    }
+    return m && m.url ? { url: m.url, type: m.type === "video" ? "video" : "image" } : null;
+  }).filter(Boolean);
+
   if (!media.length) return "";
   const count = media.length;
   const gc    = count === 2 ? "grid-2" : count === 3 ? "grid-3" : count >= 4 ? "grid-4" : "grid-1";
-  return `<div class="media-grid ${gc}">${media.slice(0,4).map((url,i) => {
-    const isV = /\.(mp4|webm|mov)$/i.test(url);
-    const isL = i === 3 && count > 4;
-    return `<div class="media-item">${isV?`<video src="${escapeHtml(url)}" muted playsinline></video>`:`<img src="${escapeHtml(url)}" loading="lazy" alt="">`}${isL?`<div class="more-count">+${count-4}</div>`:""}</div>`;
+  return `<div class="media-grid ${gc}">${media.slice(0,4).map((m,i) => {
+    const isLast = i === 3 && count > 4;
+    return `<div class="media-item">${
+      m.type === "video"
+        ? `<video src="${escapeHtml(m.url)}" muted playsinline preload="metadata"></video>`
+        : `<img src="${escapeHtml(m.url)}" loading="lazy" alt="">`
+    }${isLast ? `<div class="more-count">+${count-4}</div>` : ""}</div>`;
   }).join("")}</div>`;
 }
 
@@ -1466,8 +1464,6 @@ function renderGiftHistory(gifts) {
   el.innerHTML = gifts.map(g => `<div class="gift-history-item"><span class="gift-emoji-big">${g.emoji||"🎁"}</span><div class="gift-info"><strong>${escapeHtml(g.gift_name||g.name||"Gift")}</strong><small>${escapeHtml(g.sender_name||g.sender_username||"Someone")} · ${timeAgo(g.created_at)}</small></div><span class="gift-coins-badge">${g.total_coins||g.price_coins||0} 🪙</span></div>`).join("");
 }
 
-/* "Gifted" sub-tab — grouped list of people this user has sent gifts to,
-   ranked by lifetime total (exclusive-styled: gold/silver/bronze rank). */
 function initGiftSubtabs() {
   const subTabSent = document.getElementById("gift-subtab-sent");
   if (isOwn) subTabSent.style.display = "block";
@@ -1547,7 +1543,7 @@ function renderSentGifts() {
 }
 
 /* ══════════════════════════════════════════
-   HOST ACADEMY  (Part 3)
+   HOST ACADEMY
 ══════════════════════════════════════════ */
 let academySocket = null;
 
