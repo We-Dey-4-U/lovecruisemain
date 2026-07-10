@@ -3,16 +3,13 @@
  * PostgreSQL Migration Runner
  * ==========================================
  *
- * Reads every .sql file inside /sql
- * and executes them in alphabetical order.
- *
  * Usage:
  *
- * node backend/migrate.js
+ * Run all migrations:
+ *   node migrate.js
  *
- * or
- *
- * npm run migrate
+ * Run a specific migration:
+ *   node migrate.js market-schema.sql
  *
  */
 
@@ -33,18 +30,36 @@ async function migrate() {
       process.exit(1);
     }
 
-    const files = fs
-      .readdirSync(sqlDir)
-      .filter(file => file.endsWith(".sql"))
-      .sort();
+    // Optional migration file passed from command line
+    const targetMigration = process.argv[2];
 
-    if (files.length === 0) {
-      console.log("⚠ No SQL migration files found.");
-      process.exit(0);
+    let files;
+
+    if (targetMigration) {
+      const filePath = path.join(sqlDir, targetMigration);
+
+      if (!fs.existsSync(filePath)) {
+        console.error(`❌ Migration file not found: ${targetMigration}`);
+        process.exit(1);
+      }
+
+      files = [targetMigration];
+
+      console.log(`📄 Running single migration: ${targetMigration}\n`);
+    } else {
+      files = fs
+        .readdirSync(sqlDir)
+        .filter(file => file.endsWith(".sql"))
+        .sort();
+
+      if (files.length === 0) {
+        console.log("⚠ No SQL migration files found.");
+        process.exit(0);
+      }
+
+      console.log(`📂 SQL Folder: ${sqlDir}`);
+      console.log(`📄 Found ${files.length} SQL file(s).\n`);
     }
-
-    console.log(`📂 SQL Folder: ${sqlDir}`);
-    console.log(`📄 Found ${files.length} SQL file(s).\n`);
 
     for (const file of files) {
       const filePath = path.join(sqlDir, file);
@@ -56,16 +71,16 @@ async function migrate() {
 
       try {
         await db.query(sql);
-        console.log(`✅ ${file} completed`);
+        console.log(`✅ ${file} completed\n`);
       } catch (err) {
         console.error(`❌ Failed: ${file}`);
-        console.error(err.message);
+        console.error(err);
         process.exit(1);
       }
     }
 
-    console.log("\n======================================");
-    console.log("🎉 All migrations completed successfully!");
+    console.log("======================================");
+    console.log("🎉 Migration completed successfully!");
     console.log("======================================");
 
     process.exit(0);

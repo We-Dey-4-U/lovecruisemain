@@ -72,7 +72,6 @@
   background: linear-gradient(135deg, #ff3d7f, #a05aff);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
-/* Coin balance pill — mirrors the one on discover.html, own profile only */
 .topbar-coin-pill {
   display: flex; align-items: center; gap: 5px; flex: none;
   background: rgba(255,200,87,.12); border: 1px solid rgba(255,200,87,.25);
@@ -188,10 +187,6 @@
 
 /* ══════════════════════════════════════════
    VIP / EXCLUSIVE RANK CARD
-   Shown on every profile — blends the user's VIP tier (derived
-   from lifetime coins gifted) with their live leaderboard rank,
-   pulled straight from GET /leaderboard/me or /leaderboard/user/:id
-   (type=gifter, period=all) so it always reflects real data.
 ══════════════════════════════════════════ */
 .vip-rank-card {
   position: relative; margin: 16px 18px 0; padding: 18px 18px 16px;
@@ -331,8 +326,6 @@
    GIFTS TAB
 ══════════════════════════════════════════ */
 .gifts-panel { padding: 20px 18px 100px; }
-
-/* Received / Gifted sub-toggle */
 .gift-subtabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .gift-subtab {
   flex: 1; text-align: center; padding: 9px 10px; border-radius: 14px;
@@ -344,7 +337,6 @@
   background: linear-gradient(135deg, rgba(255,61,127,.16), rgba(255,200,87,.12));
   border-color: rgba(255,200,87,.4); color: #ffc857;
 }
-
 .gift-history-item { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border); }
 .gift-history-item:last-child { border-bottom: none; }
 .gift-emoji-big { font-size: 28px; flex: none; }
@@ -353,8 +345,6 @@
 .gift-info small { font-size: 12px; color: var(--text-dim); }
 .gift-coins-badge { background: rgba(255,200,87,.15); border: 1px solid rgba(255,200,87,.25); border-radius: 10px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #ffc857; }
 .no-gifts { text-align: center; padding: 60px 20px; color: var(--text-dim); font-size: 13px; }
-
-/* "People you've gifted" — exclusive ranked list */
 .gifted-person-item {
   display: flex; align-items: center; gap: 12px;
   padding: 13px 12px; border-radius: 16px;
@@ -375,6 +365,15 @@
 .gifted-person-total .amt { font-size: 13.5px; font-weight: 900; color: #ffc857; }
 .gifted-person-total .amt::after { content: " 🪙"; }
 .gifted-person-total .sub { font-size: 9.5px; color: var(--text-dim); }
+
+
+.seller-status-card { margin: 16px 18px 0; padding: 16px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); }
+.seller-apply-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 16px; color: #fff; font-weight: 800; font-size: 14px; padding: 13px; cursor: pointer; }
+.seller-pending-pill { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #ffc857; background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); border-radius: 14px; padding: 12px 14px; }
+.seller-rejected-box { font-size: 13px; color: #ff4455; background: rgba(255,68,85,.08); border: 1px solid rgba(255,68,85,.2); border-radius: 14px; padding: 12px 14px; }
+.seller-approved-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seller-approved-box .txt { font-size: 13px; color: #00d9b5; }
+.seller-sell-btn { background: #00d9b5; color: #00231d; border: none; border-radius: 12px; padding: 9px 16px; font-size: 12.5px; font-weight: 800; cursor: pointer; flex: none; }
 
 /* ══════════════════════════════════════════
    EDIT PROFILE SHEET
@@ -434,7 +433,7 @@
 .comment-send-btn { width: 40px; height: 40px; border-radius: 50%; border: none; background: #ff3d7f; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
 .comment-send-btn:active { transform: scale(.9); }
 </style>
-  <script type="module" crossorigin src="/assets/profile-B2JsofPo.js"></script>
+  <script type="module" crossorigin src="/assets/profile-CkxNHXX_.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-By3Wcv2E.js">
   <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
 </head>
@@ -465,10 +464,10 @@
    <a href="podcast-listen.html" class="sidebar-item"><span class="si-icon">🎙️</span> Podcasts</a>
     <a href="#" class="sidebar-item"><span class="si-icon">🎁</span> Gifts</a>
     <a href="leaderboard.html" class="sidebar-item"><span class="si-icon">🏆</span> Leaderboard</a>
+    <a href="marketplace.html" class="sidebar-item"><span class="si-icon">🛍️</span> Marketplace</a>
     <a href="#" class="sidebar-item"><span class="si-icon">📊</span> Analytics</a>
     <div class="sidebar-divider"></div>
     <div class="sidebar-section-label">Coming Soon</div>
-    <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">🛍️</span> Marketplace <span class="si-soon">SOON</span></div>
     <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">💼</span> Jobs <span class="si-soon">SOON</span></div>
     <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">📅</span> Events <span class="si-soon">SOON</span></div>
     <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">👥</span> Groups <span class="si-soon">SOON</span></div>
@@ -498,7 +497,6 @@
         <span class="brand-lovio-sm" id="topbar-brand" style="display:none">Lovio</span>
         <span id="topbar-username-text"></span>
       </span>
-      <!-- Coin balance pill — shown only on your own profile, tap to top up -->
       <div class="topbar-coin-pill" id="topbar-coin-pill" style="display:none;">
         🪙 <span id="topbar-coin-balance">0</span>
       </div>
@@ -565,6 +563,11 @@
       <div class="stat-cell"><div class="stat-val" id="val-streams">0</div><div class="stat-lbl">Streams</div></div>
     </div>
 
+
+    <div class="seller-status-card" id="seller-status-card" style="display:none;">
+      <div id="seller-status-content"></div>
+     </div>
+
     <!-- ══ EXCLUSIVE VIP / LEADERBOARD RANK CARD ══ -->
     <div class="vip-rank-card" id="vip-rank-card">
       <div class="vip-rank-glow"></div>
@@ -625,8 +628,6 @@
 
     <div class="tab-panel" id="panel-gifts">
       <div class="gifts-panel">
-        <!-- Received / Gifted toggle — "Gifted" only shown on your own profile,
-             since GET /gifts/sent is scoped to the authenticated user. -->
         <div class="gift-subtabs" id="gift-subtabs">
           <div class="gift-subtab active" data-sub="received">🎁 Received</div>
           <div class="gift-subtab" data-sub="sent" id="gift-subtab-sent" style="display:none;">💸 Gifted</div>

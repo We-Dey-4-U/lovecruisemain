@@ -105,6 +105,8 @@ const postsRoutes = require("./src/routes/posts.routes");
 const podcastRoutes = require("./src/routes/podcast.routes");
 const hostAcademyRoutes = require("./src/routes/hostAcademy.routes");
 const leaderboardRoutes = require("./src/routes/leaderboard.routes");
+const marketplaceRoutes = require("./src/routes/marketplace.routes");
+const sellersRoutes = require("./src/routes/sellers.routes");
 
 console.log("=================================");
 console.log("PODCAST ROUTER DEBUG");
@@ -174,6 +176,8 @@ safeUse("/api/podcasts", podcastRoutes);
 
 safeUse("/api/host-academy", hostAcademyRoutes);
 safeUse("/api/leaderboard", leaderboardRoutes);
+safeUse("/api/marketplace", marketplaceRoutes);
+safeUse("/api/sellers", sellersRoutes);
 /* =========================================================
    ERROR HANDLERS
 ========================================================= */

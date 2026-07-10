@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "migrate": "node src/config/migrate.js"
+    "migrate": "node src/config/migrate.js",
+    "migrate:marketplace": "node src/config/migrate2.js"
   },
   "dependencies": {
     "@paypal/paypal-server-sdk": "^2.4.0",

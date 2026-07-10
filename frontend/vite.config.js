@@ -25,12 +25,11 @@ export default defineConfig({
         success: resolve(__dirname, "success.html"),  // ← NEW
         coins: resolve(__dirname, "coins.html"),
         leaderboard: resolve(__dirname, "leaderboard.html"),  // ← NEW
+        marketplace: resolve(__dirname, "marketplace.html"),  // ← NEW
         "podcast-listen": resolve(__dirname, "podcast-listen.html"),
         "podcast-show": resolve(__dirname, "podcast-show.html"),
         "podcast-studio": resolve(__dirname, "podcast-studio.html"),
          "podcast-live": resolve(__dirname, "podcast-live.html"),  // ← NEW
-         
-          
         
       }
     }

@@ -1,15 +1,13 @@
 const express = require("express");
 const router = express.Router();
 
-const { requireAuth } =
-  require("../middlewares/auth");
+const { requireAuth } = require("../middlewares/auth");
+const { optionalAuth } = require("../middlewares/optionalAuth");
 
-const UserController =
-  require("../controllers/userController");
 const PostController = require("../controllers/postController");
 const uploadPostMedia = require("../middlewares/uploadPostMedia");
 
-// Create post
+// Create post — must be logged in
 router.post(
   "/",
   requireAuth,
@@ -17,58 +15,59 @@ router.post(
   PostController.createPost
 );
 
-// Feed
+// Feed — public. optionalAuth means guests see it too,
+// and logged-in users still get correct is_liked flags.
 router.get(
   "/feed",
+  optionalAuth,
   PostController.getFeed
 );
 
-// User posts
+// User posts (profile page) — must be logged in
 router.get(
   "/user/:id",
   requireAuth,
   PostController.getUserPosts
 );
 
-// ✅ NEW: Public share/OG preview page — no auth (crawlers can't log in).
+// Public share/OG preview page — no auth (crawlers can't log in).
 // Must stay ABOVE "/:id" or it will be swallowed by that route.
 router.get(
   "/share/:id",
   PostController.renderShare
 );
 
-// Single post
+// Single post — public (guests can open a shared post link too)
 router.get(
   "/:id",
-  requireAuth,
+  optionalAuth,
   PostController.getPost
 );
 
-// Delete post
+// Delete post — must be logged in
 router.delete(
   "/:id",
   requireAuth,
   PostController.deletePost
 );
 
-// Like / Unlike
+// Like / Unlike — must be logged in
 router.post(
   "/:id/like",
   requireAuth,
   PostController.toggleLike
 );
 
-// Add comment
+// Add comment — must be logged in
 router.post(
   "/:id/comments",
   requireAuth,
   PostController.addComment
 );
 
-// Get comments
+// Get comments — public read
 router.get(
   "/:id/comments",
-  requireAuth,
   PostController.getComments
 );
 

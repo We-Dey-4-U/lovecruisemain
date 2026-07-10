@@ -367,6 +367,15 @@
 .gifted-person-total .amt::after { content: " 🪙"; }
 .gifted-person-total .sub { font-size: 9.5px; color: var(--text-dim); }
 
+
+.seller-status-card { margin: 16px 18px 0; padding: 16px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); }
+.seller-apply-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 16px; color: #fff; font-weight: 800; font-size: 14px; padding: 13px; cursor: pointer; }
+.seller-pending-pill { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #ffc857; background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); border-radius: 14px; padding: 12px 14px; }
+.seller-rejected-box { font-size: 13px; color: #ff4455; background: rgba(255,68,85,.08); border: 1px solid rgba(255,68,85,.2); border-radius: 14px; padding: 12px 14px; }
+.seller-approved-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seller-approved-box .txt { font-size: 13px; color: #00d9b5; }
+.seller-sell-btn { background: #00d9b5; color: #00231d; border: none; border-radius: 12px; padding: 9px 16px; font-size: 12.5px; font-weight: 800; cursor: pointer; flex: none; }
+
 /* ══════════════════════════════════════════
    EDIT PROFILE SHEET
 ══════════════════════════════════════════ */
@@ -453,10 +462,10 @@
    <a href="podcast-listen.html" class="sidebar-item"><span class="si-icon">🎙️</span> Podcasts</a>
     <a href="#" class="sidebar-item"><span class="si-icon">🎁</span> Gifts</a>
     <a href="leaderboard.html" class="sidebar-item"><span class="si-icon">🏆</span> Leaderboard</a>
+    <a href="marketplace.html" class="sidebar-item"><span class="si-icon">🛍️</span> Marketplace</a>
     <a href="#" class="sidebar-item"><span class="si-icon">📊</span> Analytics</a>
     <div class="sidebar-divider"></div>
     <div class="sidebar-section-label">Coming Soon</div>
-    <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">🛍️</span> Marketplace <span class="si-soon">SOON</span></div>
     <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">💼</span> Jobs <span class="si-soon">SOON</span></div>
     <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">📅</span> Events <span class="si-soon">SOON</span></div>
     <div class="sidebar-item" style="opacity:.5;cursor:default"><span class="si-icon">👥</span> Groups <span class="si-soon">SOON</span></div>
@@ -551,6 +560,11 @@
       <div class="stat-cell"><div class="stat-val" id="val-gifts">0</div><div class="stat-lbl">Gifts recv'd</div></div>
       <div class="stat-cell"><div class="stat-val" id="val-streams">0</div><div class="stat-lbl">Streams</div></div>
     </div>
+
+
+    <div class="seller-status-card" id="seller-status-card" style="display:none;">
+      <div id="seller-status-content"></div>
+     </div>
 
     <!-- ══ EXCLUSIVE VIP / LEADERBOARD RANK CARD ══ -->
     <div class="vip-rank-card" id="vip-rank-card">
@@ -809,6 +823,70 @@ function setNotifBadge(n) {
     d.textContent = n > 9 ? "9+" : n; d.style.display = "flex";
     s.textContent = n > 9 ? "9+" : n; s.style.display = "";
   } else { d.style.display = "none"; s.style.display = "none"; }
+}
+
+
+
+
+
+async function loadSellerStatus() {
+  if (!isOwn) return;
+  const card = document.getElementById("seller-status-card");
+  card.style.display = "block";
+  try {
+    const res = await api.request("/sellers/me");
+    renderSellerStatus(res.data);
+  } catch (err) {
+    console.error("[profile] seller status load failed:", err);
+    card.style.display = "none";
+  }
+}
+
+function renderSellerStatus(data) {
+  const content = document.getElementById("seller-status-content");
+  const app = data.application;
+
+  if (data.isApprovedSeller) {
+    content.innerHTML = `
+      <div class="seller-approved-box">
+        <span class="txt">✅ You're an approved seller</span>
+        <button class="seller-sell-btn" id="seller-go-sell-btn">Sell an item</button>
+      </div>`;
+    document.getElementById("seller-go-sell-btn").addEventListener("click", () => {
+      window.location.href = "marketplace.html?sell=1";
+    });
+    return;
+  }
+
+  if (app && app.status === "pending") {
+    content.innerHTML = `<div class="seller-pending-pill">⏳ Your seller application is under review</div>`;
+    return;
+  }
+
+  if (app && app.status === "rejected") {
+    content.innerHTML = `
+      <div class="seller-rejected-box">Your last application wasn't approved${app.rejection_reason ? ": " + escapeHtml(app.rejection_reason) : "."}</div>
+      <button class="seller-apply-btn" id="seller-apply-btn" style="margin-top:10px">Apply again</button>`;
+    document.getElementById("seller-apply-btn").addEventListener("click", openSellerApplyPrompt);
+    return;
+  }
+
+  content.innerHTML = `<button class="seller-apply-btn" id="seller-apply-btn">🛍️ Apply to become a seller</button>`;
+  document.getElementById("seller-apply-btn").addEventListener("click", openSellerApplyPrompt);
+}
+
+
+
+async function openSellerApplyPrompt() {
+  const reason = prompt("Tell us briefly what you'd like to sell:");
+  if (reason === null) return;
+  try {
+    await api.request("/sellers/apply", { method: "POST", body: JSON.stringify({ reason }) });
+    showToast("Application submitted ✓");
+    loadSellerStatus();
+  } catch (err) {
+    showToast(err.message || "Could not submit application");
+  }
 }
 
 /* ══════════════════════════════════════════
