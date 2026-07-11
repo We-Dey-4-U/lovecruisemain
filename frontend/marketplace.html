@@ -65,6 +65,7 @@
 .mkt-card-img-wrap { position: relative; aspect-ratio: 1/1; background: #000; }
 .mkt-card-img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mkt-cond-badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); color: #fff; font-size: 9.5px; font-weight: 800; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: .03em; }
+.mkt-img-count-badge { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); color: #fff; font-size: 9.5px; font-weight: 800; padding: 3px 8px; border-radius: 8px; display: flex; align-items: center; gap: 3px; }
 .mkt-sold-badge { position: absolute; inset: 0; background: rgba(0,0,0,.65); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }
 .mkt-card-body { padding: 10px 12px 12px; }
 .mkt-card-title { font-size: 13px; font-weight: 700; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 34px; }
@@ -108,12 +109,24 @@
 .mkt-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 300; display: none; align-items: flex-end; justify-content: center; }
 .mkt-modal-bg.show { display: flex; }
 .mkt-detail-sheet { width: 100%; max-width: 480px; max-height: 92vh; overflow-y: auto; background: var(--bg); border-radius: 24px 24px 0 0; border-top: 1px solid var(--border); }
-.mkt-detail-hero { position: relative; aspect-ratio: 1/1; background: #000; }
-.mkt-detail-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.mkt-detail-close { position: absolute; top: 14px; right: 14px; width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,.5); border: none; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.mkt-detail-dots { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 5px; }
-.mkt-detail-dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.4); }
-.mkt-detail-dots span.on { background: #fff; }
+
+/* Product image gallery — same scroll-snap slider technique used by
+   the post viewer (post.html) so multiple product photos are
+   swipeable instead of only ever showing the first image. */
+.mkt-detail-hero { position: relative; aspect-ratio: 1/1; background: #000; overflow: hidden; }
+.mkt-detail-slider {
+  display: flex; width: 100%; height: 100%;
+  overflow-x: auto; scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.mkt-detail-slider::-webkit-scrollbar { display: none; }
+.mkt-detail-slide { min-width: 100%; height: 100%; flex: none; scroll-snap-align: center; }
+.mkt-detail-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mkt-detail-close { position: absolute; top: 14px; right: 14px; width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,.5); border: none; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2; }
+.mkt-detail-dots { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 5px; z-index: 2; pointer-events: none; }
+.mkt-detail-dots span { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.4); transition: background .15s, transform .15s; }
+.mkt-detail-dots span.on { background: #fff; transform: scale(1.2); }
+.mkt-detail-counter { position: absolute; top: 14px; left: 14px; background: rgba(0,0,0,.5); color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; z-index: 2; }
 .mkt-detail-body { padding: 18px 20px 24px; }
 .mkt-detail-cat { font-size: 11px; font-weight: 800; color: var(--magenta); text-transform: uppercase; letter-spacing: .05em; }
 .mkt-detail-title { font-size: 19px; font-weight: 900; margin-top: 6px; line-height: 1.3; }
@@ -134,6 +147,13 @@
 .mkt-btn-primary { flex: 1; height: 50px; border-radius: 16px; border: none; background: linear-gradient(135deg, #ff3d7f, #c2185b); color: #fff; font-size: 14.5px; font-weight: 800; cursor: pointer; }
 .mkt-btn-primary:disabled { opacity: .4; cursor: not-allowed; }
 .mkt-btn-secondary { flex: none; width: 50px; height: 50px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+/* Thumbnail strip below the hero — lets buyers jump straight to a
+   specific photo instead of only swiping sequentially. */
+.mkt-detail-thumbs { display: flex; gap: 8px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
+.mkt-detail-thumbs::-webkit-scrollbar { display: none; }
+.mkt-detail-thumb { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex: none; cursor: pointer; border: 2px solid transparent; opacity: .6; transition: opacity .15s, border-color .15s; }
+.mkt-detail-thumb.on { opacity: 1; border-color: var(--magenta); }
 
 /* ══ BUY CONFIRM MODAL ══ */
 .mkt-confirm-box { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; margin-top: 14px; }
@@ -379,13 +399,13 @@ const MOCK_LISTINGS = [
 const MOCK_MY_LISTINGS = MOCK_LISTINGS.filter(l => l.seller_id === "u1");
 
 const MOCK_ORDERS_BUYING = [
-  { id:"o1", listing_id:"l3", listing_title:"Adjustable dumbbell set (5–25kg)", listing_image:"https://picsum.photos/seed/dumbbell1/200/200",
+  { id:"o1", listing_id:"l3", listing_title:"Adjustable dumbbell set (5–25kg)", listing_images:["https://picsum.photos/seed/dumbbell1/200/200"],
     seller_name:"Big Sammy", price_coins:15000, quantity:1, status:"shipped", created_at:new Date(Date.now()-2*86400e3).toISOString() },
-  { id:"o2", listing_id:"l2", listing_title:"Custom Afrobeats mix — 1 hour, mastered", listing_image:"https://picsum.photos/seed/mixtape1/200/200",
+  { id:"o2", listing_id:"l2", listing_title:"Custom Afrobeats mix — 1 hour, mastered", listing_images:["https://picsum.photos/seed/mixtape1/200/200"],
     seller_name:"DJ Koast", price_coins:2000, quantity:1, status:"delivered", created_at:new Date(Date.now()-6*86400e3).toISOString() },
 ];
 const MOCK_ORDERS_SELLING = [
-  { id:"o3", listing_id:"l1", listing_title:"Ankara print tote bag — handmade", listing_image:"https://picsum.photos/seed/tote1/200/200",
+  { id:"o3", listing_id:"l1", listing_title:"Ankara print tote bag — handmade", listing_images:["https://picsum.photos/seed/tote1/200/200"],
     buyer_name:"Funmi Adeyemi", price_coins:850, quantity:1, status:"pending", created_at:new Date(Date.now()-5*3600e3).toISOString() },
 ];
 
@@ -409,6 +429,38 @@ function requireLoginOrPrompt() {
   showToast("Log in to do that");
   setTimeout(() => { window.location.href = "home.html"; }, 900);
   return false;
+}
+
+/* ══════════════════════════════════════════
+   ✅ FIX (product images not showing)
+   ------------------------------------------------------------
+   The backend stores each listing's images as an ARRAY OF
+   OBJECTS: [{ url: "...", type: "image" }, ...] (see
+   marketplaceService.js — it JSON.stringify()s exactly that
+   shape into the `images` JSONB column).
+
+   This page used to do `l.images[0]` directly as an <img src>,
+   which is an OBJECT, not a string — the browser rendered
+   "[object Object]" as the src, so nothing loaded.
+
+   This mirrors the same fix already applied to posts in
+   home.html/profile.html's buildMediaHtml(): normalize
+   whatever shape comes back (old plain-string arrays OR the
+   current {url,type} objects) into a single consistent
+   [{url,type}, ...] array before ever touching the DOM.
+══════════════════════════════════════════ */
+function normalizeImages(images) {
+  let arr = images;
+  if (!arr) return [];
+  if (typeof arr === "string") {
+    try { arr = JSON.parse(arr); } catch { arr = []; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr.map(m => {
+    if (typeof m === "string") return { url: m, type: "image" };
+    if (m && typeof m === "object" && m.url) return { url: m.url, type: m.type || "image" };
+    return null;
+  }).filter(Boolean);
 }
 
 async function checkSellerStatus() {
@@ -520,12 +572,14 @@ function renderGrid() {
 }
 
 function cardHtml(l) {
-  const img = (l.images && l.images[0]) || `https://ui-avatars.com/api/?name=${encodeURIComponent(l.title)}&size=400`;
+  const images = normalizeImages(l.images);
+  const img = images[0]?.url || `https://ui-avatars.com/api/?name=${encodeURIComponent(l.title)}&size=400`;
   const cond = CONDITION_LABELS[l.condition] || l.condition;
   return `<div class="mkt-card" data-id="${l.id}">
     <div class="mkt-card-img-wrap">
-      <img src="${escapeHtml(img)}" loading="lazy" alt="">
+      <img src="${escapeHtml(img)}" loading="lazy" alt="" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(l.title||'Item')}&size=400'">
       ${l.status !== "sold" ? `<span class="mkt-cond-badge">${escapeHtml(cond)}</span>` : `<div class="mkt-sold-badge">Sold out</div>`}
+      ${images.length > 1 ? `<span class="mkt-img-count-badge">🖼️ ${images.length}</span>` : ""}
     </div>
     <div class="mkt-card-body">
       <div class="mkt-card-title">${escapeHtml(l.title)}</div>
@@ -541,23 +595,41 @@ function cardHtml(l) {
 const CONDITION_LABELS = { new:"New", like_new:"Like new", good:"Good", fair:"Fair", digital:"Digital" };
 
 /* ══════════════════════════════════════════
-   LISTING DETAIL MODAL
+   LISTING DETAIL — the "product details page"
+   ------------------------------------------------------------
+   Renders every photo the seller uploaded as a swipeable
+   gallery (same scroll-snap slider technique as post.html's
+   media viewer) with dot indicators, a counter, and a
+   thumbnail strip to jump straight to a specific photo.
 ══════════════════════════════════════════ */
 function openDetail(id) {
   const l = LISTINGS.find(x => String(x.id) === String(id));
   if (!l) return;
   currentDetail = l;
   const cat = CATEGORIES.find(c => c.key === l.category);
-  const images = (l.images && l.images.length) ? l.images : ["https://ui-avatars.com/api/?name=" + encodeURIComponent(l.title) + "&size=500"];
+  const images = normalizeImages(l.images);
+  const displayImages = images.length
+    ? images
+    : [{ url: `https://ui-avatars.com/api/?name=${encodeURIComponent(l.title)}&size=500` }];
   const isOwner = String(l.seller_id) === String(ME.id || ME.user_id);
   const soldOut = l.status === "sold" || l.quantity <= 0;
 
   document.getElementById("detail-sheet").innerHTML = `
     <div class="mkt-detail-hero">
-      <img src="${escapeHtml(images[0])}" alt="">
+      <div class="mkt-detail-slider" id="detail-slider">
+        ${displayImages.map(img => `
+          <div class="mkt-detail-slide">
+            <img src="${escapeHtml(img.url)}" alt="" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(l.title||'Item')}&size=500'">
+          </div>`).join("")}
+      </div>
       <button class="mkt-detail-close" id="detail-close-btn">✕</button>
-      ${images.length > 1 ? `<div class="mkt-detail-dots">${images.map((_,i)=>`<span class="${i===0?'on':''}"></span>`).join("")}</div>` : ""}
+      ${displayImages.length > 1 ? `<div class="mkt-detail-counter" id="detail-counter">1 / ${displayImages.length}</div>` : ""}
+      ${displayImages.length > 1 ? `<div class="mkt-detail-dots" id="detail-dots">${displayImages.map((_,i)=>`<span class="${i===0?'on':''}"></span>`).join("")}</div>` : ""}
     </div>
+    ${displayImages.length > 1 ? `
+      <div class="mkt-detail-thumbs" id="detail-thumbs">
+        ${displayImages.map((img,i)=>`<img class="mkt-detail-thumb ${i===0?'on':''}" data-i="${i}" src="${escapeHtml(img.url)}" alt="">`).join("")}
+      </div>` : ""}
     <div class="mkt-detail-body">
       <div class="mkt-detail-cat">${cat ? cat.icon + " " + cat.label : ""}</div>
       <div class="mkt-detail-title">${escapeHtml(l.title)}</div>
@@ -593,6 +665,32 @@ function openDetail(id) {
       }
       <div id="buy-confirm-slot"></div>
     </div>`;
+
+  // ── Gallery wiring: swipe scroll <-> dots <-> thumbnails ──
+  const sliderEl = document.getElementById("detail-slider");
+  const dotsEl   = document.getElementById("detail-dots");
+  const counterEl= document.getElementById("detail-counter");
+  const thumbsEl = document.getElementById("detail-thumbs");
+
+  function setActiveSlide(idx) {
+    dotsEl?.querySelectorAll("span").forEach((d,i) => d.classList.toggle("on", i === idx));
+    thumbsEl?.querySelectorAll(".mkt-detail-thumb").forEach((t,i) => t.classList.toggle("on", i === idx));
+    if (counterEl) counterEl.textContent = `${idx+1} / ${displayImages.length}`;
+  }
+
+  if (sliderEl && displayImages.length > 1) {
+    sliderEl.addEventListener("scroll", () => {
+      const idx = Math.round(sliderEl.scrollLeft / sliderEl.clientWidth);
+      setActiveSlide(Math.min(Math.max(idx,0), displayImages.length-1));
+    });
+    thumbsEl?.querySelectorAll(".mkt-detail-thumb").forEach(thumb => {
+      thumb.addEventListener("click", () => {
+        const idx = Number(thumb.dataset.i);
+        sliderEl.scrollTo({ left: idx * sliderEl.clientWidth, behavior: "smooth" });
+        setActiveSlide(idx);
+      });
+    });
+  }
 
   document.getElementById("detail-close-btn").addEventListener("click", closeDetail);
   document.getElementById("detail-msg-btn")?.addEventListener("click", () => { if (!requireLoginOrPrompt()) return; window.location.href = `chat.html?userId=${l.seller_id}`; });
@@ -643,7 +741,7 @@ async function completePurchase(l) {
     persistCurrentUser({ coinBalance: newBalance, coin_balance: newBalance });
     l.quantity = Math.max(0, (l.quantity||1) - 1);
     if (l.quantity === 0) l.status = "sold";
-    ORDERS_BUYING.unshift({ id: "local_"+Date.now(), listing_id: l.id, listing_title: l.title, listing_image: (l.images||[])[0], seller_name: l.seller_name, price_coins: l.price_coins, quantity: 1, status: "pending", created_at: new Date().toISOString() });
+    ORDERS_BUYING.unshift({ id: "local_"+Date.now(), listing_id: l.id, listing_title: l.title, listing_images: l.images, seller_name: l.seller_name, price_coins: l.price_coins, quantity: 1, status: "pending", created_at: new Date().toISOString() });
   }
   ME.coinBalance = ME.coin_balance = window.CURRENT_USER.coinBalance ?? window.CURRENT_USER.coin_balance;
   document.getElementById("topbar-coin-balance").textContent = formatCoins(ME.coinBalance || 0);
@@ -672,16 +770,20 @@ function renderMyListings() {
     list.innerHTML = `<div class="mkt-empty"><div class="icon">📦</div><h3 style="font-size:15px;font-weight:700;">No listings yet</h3><p style="font-size:13px;">Tap the + button to list your first item.</p></div>`;
     return;
   }
-  list.innerHTML = MY_LISTINGS.map(l => `
+  list.innerHTML = MY_LISTINGS.map(l => {
+    const imgs  = normalizeImages(l.images);
+    const thumb = imgs[0]?.url || `https://ui-avatars.com/api/?name=${encodeURIComponent(l.title||'Item')}&size=200`;
+    return `
     <div class="mkt-row-card" data-id="${l.id}">
-      <img class="mkt-row-img" src="${escapeHtml((l.images||[])[0] || '')}" onerror="this.src='https://ui-avatars.com/api/?name='+encodeURIComponent('${escapeHtml(l.title)}')" alt="">
+      <img class="mkt-row-img" src="${escapeHtml(thumb)}" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(l.title||'Item')}&size=200'" alt="">
       <div class="mkt-row-info">
         <strong>${escapeHtml(l.title)}</strong>
-        <div class="mkt-row-sub">${formatCoins(l.quantity)} in stock</div>
+        <div class="mkt-row-sub">${formatCoins(l.quantity)} in stock${imgs.length > 1 ? ` · ${imgs.length} photos` : ""}</div>
         <div class="mkt-row-price">🪙 ${formatCoins(l.price_coins)}</div>
       </div>
       <span class="mkt-status-pill mkt-status-${l.status === 'sold' ? 'sold' : 'active'}">${l.status === 'sold' ? 'Sold out' : 'Active'}</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   list.querySelectorAll(".mkt-row-card").forEach(row => row.addEventListener("click", () => openDetail(row.dataset.id)));
 }
 
@@ -709,16 +811,26 @@ function renderOrders() {
     el.innerHTML = `<div class="mkt-empty"><div class="icon">🧾</div><h3 style="font-size:15px;font-weight:700;">No orders yet</h3></div>`;
     return;
   }
-  el.innerHTML = items.map(o => `
+  // ✅ FIX: the backend returns the listing's full image array as
+  // `listing_images` (see marketplaceService.ordersForBuyer/Seller —
+  // `l.images AS listing_images`). This page used to read the
+  // non-existent singular `o.listing_image`, so order thumbnails
+  // were always blank. Now we normalize `listing_images` and use
+  // the first photo, same as everywhere else on this page.
+  el.innerHTML = items.map(o => {
+    const imgs  = normalizeImages(o.listing_images);
+    const thumb = imgs[0]?.url || `https://ui-avatars.com/api/?name=${encodeURIComponent(o.listing_title||'Item')}&size=200`;
+    return `
     <div class="mkt-row-card">
-      <img class="mkt-row-img" src="${escapeHtml(o.listing_image||'')}" onerror="this.src='https://i.pravatar.cc/100'" alt="">
+      <img class="mkt-row-img" src="${escapeHtml(thumb)}" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(o.listing_title||'Item')}&size=200'" alt="">
       <div class="mkt-row-info">
         <strong>${escapeHtml(o.listing_title)}</strong>
         <div class="mkt-row-sub">${ordersSub === "buying" ? "Sold by " + escapeHtml(o.seller_name||"seller") : "Buyer: " + escapeHtml(o.buyer_name||"buyer")} · ${timeAgo(o.created_at)} ago</div>
         <div class="mkt-row-price">🪙 ${formatCoins(o.price_coins)} × ${o.quantity}</div>
       </div>
       <span class="mkt-status-pill mkt-status-${o.status}">${o.status}</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 /* ══════════════════════════════════════════
@@ -739,7 +851,9 @@ function openListingSheet(existing) {
   document.getElementById("listing-condition").value= existing?.condition || "new";
   document.getElementById("listing-price").value    = existing?.price_coins || "";
   document.getElementById("listing-qty").value      = existing?.quantity || 1;
-  listingImages = existing?.images ? existing.images.map(im => typeof im === "string" ? im : im.url) : [];
+  // Normalizes both old plain-string image arrays and the current
+  // {url,type} object arrays into plain URL strings for the editor.
+  listingImages = normalizeImages(existing?.images).map(im => im.url);
   listingNewFiles = [];
   renderImageSlots();
   document.getElementById("listing-save-btn").textContent = existing ? "Save changes" : "Publish listing";

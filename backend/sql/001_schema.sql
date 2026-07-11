@@ -439,7 +439,7 @@ CREATE TABLE IF NOT EXISTS platform_wallet_ledger (
   amount         INTEGER NOT NULL,
   balance_after  BIGINT NOT NULL,
   reference_type TEXT,
-  reference_id   BIGINT,
+  reference_id UUID,
   description    TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
