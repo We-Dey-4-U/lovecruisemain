@@ -1,3 +1,19 @@
+/* ============================================================
+   backend/src/middlewares/requireApprovedSeller.js
+   ------------------------------------------------------------
+   Gates listing creation/editing to users whose seller
+   application has been approved by an admin (users.is_approved_seller).
+   Must run AFTER requireAuth.
+
+   This is the server-side enforcement that backs the UI rule:
+   "product upload form only shows on the user's profile /
+   marketplace once admin approves their seller application."
+   Without this middleware, a user could still hit the API
+   directly even if the frontend hides the "Sell" button.
+   ============================================================ */
+
+
+
 const db = require('../config/db');
 
 async function requireApprovedSeller(req, res, next) {

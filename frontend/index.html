@@ -673,6 +673,21 @@ function requireLoginOrPrompt() {
 }
 
 /* ══════════════════════════════════════════
+   ROLE-BASED REDIRECT
+   Only used right after a fresh login/signup on
+   this page. Admins get sent to the admin console;
+   everyone else stays on the home feed (handled by
+   onLoginSuccess, unchanged for non-admins).
+══════════════════════════════════════════ */
+function redirectAdminsElsewhere(user) {
+  if (user?.role === "admin") {
+    window.location.href = "admin-dashboard.html";
+    return true;
+  }
+  return false;
+}
+
+/* ══════════════════════════════════════════
    USER UI — now branches on guest vs logged-in
 ══════════════════════════════════════════ */
 function initUserUI() {
@@ -772,7 +787,9 @@ document.getElementById("auth-tab-signup").addEventListener("click", () => switc
 
 /* Same /auth/login and /auth/register endpoints as before.
    Only difference: no redirect — we close the modal and
-   refresh the current page's state in place. */
+   refresh the current page's state in place (unless the
+   logged-in user is an admin, in which case they're sent
+   to the admin dashboard instead). */
 document.getElementById("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const email    = document.getElementById("login-email").value.trim();
@@ -790,6 +807,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     window.CURRENT_USER = auth.user;
     window.showToast(`Welcome back ${auth.user.username}`);
     closeAuthModal();
+    if (redirectAdminsElsewhere(auth.user)) return;
     onLoginSuccess();
   } catch (err) {
     window.showToast(err.message || "Login failed");
@@ -814,6 +832,7 @@ document.getElementById("signup-form").addEventListener("submit", async (e) => {
     window.CURRENT_USER = auth.user;
     window.showToast("Account created successfully");
     closeAuthModal();
+    if (redirectAdminsElsewhere(auth.user)) return;
     onLoginSuccess();
   } catch (err) {
     window.showToast(err.message || "Registration failed");

@@ -30,7 +30,7 @@ export default defineConfig({
         "podcast-show": resolve(__dirname, "podcast-show.html"),
         "podcast-studio": resolve(__dirname, "podcast-studio.html"),
          "podcast-live": resolve(__dirname, "podcast-live.html"),  // ← NEW
-        
+          "admin-dashboard.html": resolve(__dirname, "admin-dashboard.html"),
       }
     }
   }
