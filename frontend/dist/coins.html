@@ -7,88 +7,52 @@
 <style>
 * { box-sizing: border-box; }
 
-.coins-topbar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 16px 20px 10px;
-}
+.coins-topbar { display: flex; align-items: center; gap: 12px; padding: 16px 20px 10px; }
 .coins-topbar h1 { font-size: 19px; font-weight: 800; flex: 1; }
 
 .balance-hero {
   margin: 8px 20px 6px;
   background: linear-gradient(135deg, rgba(255,200,87,.16), rgba(255,61,127,.12));
   border: 1px solid rgba(255,200,87,.3);
-  border-radius: 20px; padding: 22px 20px;
-  text-align: center;
+  border-radius: 20px; padding: 22px 20px; text-align: center;
 }
 .balance-hero .lbl { font-size: 12px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.balance-hero .amt {
-  font-size: 36px; font-weight: 900; margin-top: 6px;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-}
+.balance-hero .amt { font-size: 36px; font-weight: 900; margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .balance-hero .amt .coin-icon { font-size: 28px; }
 
-.section-label {
-  padding: 18px 20px 10px; font-size: 13px; font-weight: 800;
-  color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em;
-}
+.section-label { padding: 18px 20px 10px; font-size: 13px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
 
-.pkg-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 12px; padding: 0 20px 20px;
-}
+.pkg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 20px 20px; }
 .pkg-card {
-  position: relative;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 18px; padding: 18px 14px;
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  position: relative; background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 18px; padding: 18px 14px; display: flex; flex-direction: column; align-items: center; gap: 6px;
   cursor: pointer; transition: border-color .15s, transform .1s;
 }
 .pkg-card:active { transform: scale(.97); }
 .pkg-card.selected { border-color: var(--magenta); background: rgba(255,61,127,.06); }
 .pkg-card .pkg-icon { font-size: 30px; }
 .pkg-card .pkg-coins { font-size: 18px; font-weight: 800; }
-.pkg-card .pkg-bonus {
-  font-size: 10.5px; font-weight: 800; color: #00d9b5;
-  background: rgba(0,217,181,.12); border-radius: 10px; padding: 2px 8px;
-}
+.pkg-card .pkg-bonus { font-size: 10.5px; font-weight: 800; color: #00d9b5; background: rgba(0,217,181,.12); border-radius: 10px; padding: 2px 8px; }
 .pkg-card .pkg-price { font-size: 13px; color: var(--text-dim); font-weight: 700; margin-top: 2px; }
 .pkg-card .pkg-badge {
-  position: absolute; top: -9px; right: 10px;
-  background: linear-gradient(135deg, var(--gold), #ff9d00);
-  color: #1a0a00; font-size: 9.5px; font-weight: 900;
-  padding: 3px 8px; border-radius: 10px; letter-spacing: .03em;
+  position: absolute; top: -9px; right: 10px; background: linear-gradient(135deg, var(--gold), #ff9d00);
+  color: #1a0a00; font-size: 9.5px; font-weight: 900; padding: 3px 8px; border-radius: 10px; letter-spacing: .03em;
 }
 
 .pay-method-section { padding: 4px 20px 10px; }
 .pay-method {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 14px; padding: 14px 16px; cursor: pointer;
-  margin-bottom: 10px; transition: border-color .15s;
+  display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: 14px; padding: 14px 16px; cursor: pointer; margin-bottom: 10px; transition: border-color .15s;
 }
 .pay-method.selected { border-color: var(--magenta); }
-.pay-method .pm-icon {
-  width: 38px; height: 38px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; flex: none; color: #fff; font-weight: 900;
-}
+.pay-method .pm-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex: none; color: #fff; font-weight: 900; }
 .pay-method .pm-info { flex: 1; min-width: 0; }
 .pay-method .pm-name { font-size: 14px; font-weight: 700; }
 .pay-method .pm-sub { font-size: 11.5px; color: var(--text-dim); }
-.pay-method .pm-radio {
-  width: 20px; height: 20px; border-radius: 50%;
-  border: 2px solid var(--border); flex: none;
-  display: flex; align-items: center; justify-content: center;
-}
+.pay-method .pm-radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); flex: none; display: flex; align-items: center; justify-content: center; }
 .pay-method.selected .pm-radio { border-color: var(--magenta); }
-.pay-method.selected .pm-radio::after {
-  content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--magenta);
-}
-.pay-method .pm-badge {
-  font-size: 9px; font-weight: 800; color: rgba(255,255,255,.55);
-  background: rgba(255,255,255,.08); border-radius: 8px;
-  padding: 2px 7px; flex: none; text-transform: uppercase; letter-spacing: .03em;
-}
+.pay-method.selected .pm-radio::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--magenta); }
+.pay-method .pm-badge { font-size: 9px; font-weight: 800; color: rgba(255,255,255,.55); background: rgba(255,255,255,.08); border-radius: 8px; padding: 2px 7px; flex: none; text-transform: uppercase; letter-spacing: .03em; }
 
 .pm-icon.pm-opay        { background: linear-gradient(135deg, #1ab846, #0f7a2e); }
 .pm-icon.pm-flutterwave { background: linear-gradient(135deg, #f5a623, #fb7a00); }
@@ -99,136 +63,51 @@
 .pm-icon.pm-crypto      { background: linear-gradient(135deg, #f7931a, #627eea); }
 .pm-icon.pm-googlepay   { background: #ffffff; color: #1a0a00; }
 
-.checkout-bar {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  max-width: 480px; margin: 0 auto;
-  padding: 14px 20px 26px; background: var(--bg);
-  border-top: 1px solid var(--border);
-}
+.checkout-bar { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; padding: 14px 20px 26px; background: var(--bg); border-top: 1px solid var(--border); }
 .checkout-btn {
-  width: 100%; height: 52px; border-radius: 16px;
-  background: linear-gradient(135deg, #ff3d7f, #c2185b);
-  color: #fff; border: none; font-size: 15px; font-weight: 800;
-  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
-  transition: opacity .2s, transform .1s;
+  width: 100%; height: 52px; border-radius: 16px; background: linear-gradient(135deg, #ff3d7f, #c2185b);
+  color: #fff; border: none; font-size: 15px; font-weight: 800; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity .2s, transform .1s;
 }
 .checkout-btn:disabled { opacity: .4; cursor: not-allowed; }
 .checkout-btn:not(:disabled):active { transform: scale(.98); }
 
-.history-link {
-  display: block; text-align: center; padding: 14px;
-  font-size: 12.5px; color: var(--text-dim); text-decoration: underline;
-  cursor: pointer;
-}
+.history-link { display: block; text-align: center; padding: 14px; font-size: 12.5px; color: var(--text-dim); text-decoration: underline; cursor: pointer; }
 
-.skeleton-pkg {
-  border-radius: 18px; height: 110px;
-  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
-  background-size: 200% 100%; animation: shimmer 1.5s infinite;
-}
+.skeleton-pkg { border-radius: 18px; height: 110px; background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-.spinner {
-  width: 22px; height: 22px; border: 2.5px solid rgba(255,255,255,.3);
-  border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite;
-}
+.spinner { width: 22px; height: 22px; border: 2.5px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.toast {
-  position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
-  background: rgba(0,0,0,.88); color: #fff; padding: 10px 20px;
-  border-radius: 20px; font-size: 13px; font-weight: 600; z-index: 200;
-  opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap;
-}
-
-.pkg-name {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
+.toast { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: 600; z-index: 200; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
+.pkg-name { font-size: 12px; font-weight: 700; color: var(--text-dim); margin-top: 2px; }
 .toast.show { opacity: 1; }
 
-.earnings-strip {
-  margin: 0 20px 6px;
-  background: rgba(0,217,181,.08); border: 1px solid rgba(0,217,181,.25);
-  border-radius: 14px; padding: 12px 16px;
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+/* ── Earnings breakdown (separated by source) ── */
+.earnings-section { margin: 4px 20px 6px; display: flex; flex-direction: column; gap: 10px; }
+.earnings-card {
+  border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
-.earnings-strip .e-info { font-size: 12px; color: var(--text-dim); }
-.earnings-strip .e-amt { font-size: 16px; font-weight: 800; color: #00d9b5; }
-.earnings-strip button {
-  background: #00d9b5; color: #00231d; border: none; border-radius: 10px;
-  padding: 7px 12px; font-size: 11.5px; font-weight: 800; cursor: pointer; flex: none;
-}
-
-/* ── Crypto coin picker overlay ── */
-.crypto-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  display: none; align-items: flex-end; justify-content: center;
-  z-index: 300;
-}
-.crypto-overlay.show { display: flex; }
-.crypto-sheet {
-  width: 100%; max-width: 480px;
-  background: var(--bg); border-radius: 22px 22px 0 0;
-  padding: 18px 20px 28px; max-height: 85vh; overflow-y: auto;
-  border-top: 1px solid var(--border);
-}
-.crypto-sheet h3 { font-size: 16px; font-weight: 800; margin-bottom: 4px; }
-.crypto-sheet .sub { font-size: 12.5px; color: var(--text-dim); margin-bottom: 16px; }
-.crypto-coin-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 10px; border-radius: 12px; cursor: pointer;
-  border: 1.5px solid transparent;
-}
-.crypto-coin-row:hover, .crypto-coin-row:active { background: var(--surface); }
-.crypto-coin-row .cc-icon {
-  width: 34px; height: 34px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 800; color: #fff; flex: none;
-}
-.crypto-coin-row .cc-name { font-size: 14px; font-weight: 700; flex: 1; }
-.crypto-coin-row .cc-sub { font-size: 11px; color: var(--text-dim); }
-.crypto-cancel-btn {
-  width: 100%; margin-top: 10px; height: 46px; border-radius: 14px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  color: var(--text-dim); font-weight: 700; font-size: 13.5px; cursor: pointer;
-}
-
-/* ── Crypto deposit-address screen ── */
-.deposit-box {
-  background: var(--surface); border: 1.5px solid var(--border);
-  border-radius: 16px; padding: 18px; margin-top: 14px;
-}
-.deposit-box .dep-label {
-  font-size: 11px; font-weight: 800; color: var(--text-dim);
-  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
-}
-.deposit-box .dep-value {
-  font-family: monospace; font-size: 13px; word-break: break-all;
-  background: var(--bg); border-radius: 10px; padding: 10px 12px;
-  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
-}
-.deposit-box .dep-value button {
-  background: var(--magenta); color: #fff; border: none; border-radius: 8px;
-  padding: 5px 10px; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
-}
-.deposit-box .dep-amount { font-size: 22px; font-weight: 900; margin-bottom: 4px; }
-.deposit-box .dep-waiting {
-  display: flex; align-items: center; gap: 8px; margin-top: 14px;
+.earnings-card.gift { background: rgba(255,61,127,.08); border: 1px solid rgba(255,61,127,.22); }
+.earnings-card.market { background: rgba(0,217,181,.08); border: 1px solid rgba(0,217,181,.25); }
+.earnings-card .e-left { display: flex; align-items: center; gap: 10px; }
+.earnings-card .e-icon { font-size: 20px; flex: none; }
+.earnings-card .e-label { font-size: 12px; color: var(--text-dim); font-weight: 700; }
+.earnings-card.gift .e-amt { font-size: 17px; font-weight: 900; color: #ff3d7f; }
+.earnings-card.market .e-amt { font-size: 17px; font-weight: 900; color: #00d9b5; }
+.earnings-total-row {
+  display: flex; align-items: center; justify-content: space-between; padding: 10px 4px 2px;
   font-size: 12.5px; color: var(--text-dim);
 }
-.deposit-box .dep-spinner {
-  width: 14px; height: 14px; border: 2px solid var(--border);
-  border-top-color: var(--magenta); border-radius: 50%;
-  animation: spin .8s linear infinite;
+.earnings-total-row strong { color: var(--text); font-weight: 800; }
+.earnings-withdraw-btn {
+  width: 100%; height: 44px; border-radius: 14px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #00d9b5, #00a98e); color: #00231d; font-weight: 800; font-size: 13.5px;
 }
-.deposit-box .dep-warning {
-  margin-top: 12px; font-size: 11.5px; color: #ff9d00; line-height: 1.4;
-}
+.earnings-withdraw-btn:disabled { opacity: .5; cursor: not-allowed; }
 </style>
-  <script type="module" crossorigin src="/assets/coins-DdIXIVWA.js"></script>
+  <script type="module" crossorigin src="/assets/coins-C7Vn7GQY.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-By3Wcv2E.js">
   <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
 </head>
@@ -248,9 +127,21 @@
       <div class="amt"><span class="coin-icon">🪙</span><span id="current-balance">0</span></div>
     </div>
 
-    <div class="earnings-strip" id="earnings-strip" style="display:none;">
-      <div class="e-info">Earnings (from gifts)<br><span class="e-amt" id="earnings-amt">0</span> coins</div>
-      <button id="withdrawBtn">Withdraw</button>
+    <!-- ══ EARNINGS — split by source, never summed together ══ -->
+    <div class="earnings-section" id="earnings-section" style="display:none;">
+      <div class="earnings-card gift">
+        <div class="e-left"><span class="e-icon">🎁</span><span class="e-label">Earnings from gifts</span></div>
+        <span class="e-amt" id="gift-earnings-amt">0</span>
+      </div>
+      <div class="earnings-card market">
+        <div class="e-left"><span class="e-icon">🛍️</span><span class="e-label">Earnings from marketplace sales</span></div>
+        <span class="e-amt" id="market-earnings-amt">0</span>
+      </div>
+      <div class="earnings-total-row">
+        <span>Total withdrawable</span>
+        <strong id="total-earnings-amt">0 🪙</strong>
+      </div>
+      <button class="earnings-withdraw-btn" id="withdrawBtn">Withdraw earnings</button>
     </div>
 
     <div class="section-label">Choose a package</div>
@@ -266,75 +157,51 @@
 
       <div class="pay-method selected" id="pm-opay" data-method="opay">
         <div class="pm-icon pm-opay">O</div>
-        <div class="pm-info">
-          <div class="pm-name">OPay</div>
-          <div class="pm-sub">Card, bank transfer, or OPay wallet</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">OPay</div><div class="pm-sub">Card, bank transfer, or OPay wallet</div></div>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-flutterwave" data-method="flutterwave">
         <div class="pm-icon pm-flutterwave">FW</div>
-        <div class="pm-info">
-          <div class="pm-name">Flutterwave</div>
-          <div class="pm-sub">Card, bank, mobile money &amp; more</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">Flutterwave</div><div class="pm-sub">Card, bank, mobile money &amp; more</div></div>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-paypal" data-method="paypal">
         <div class="pm-icon pm-paypal">P</div>
-        <div class="pm-info">
-          <div class="pm-name">PayPal</div>
-          <div class="pm-sub">Pay with your PayPal balance or card</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">PayPal</div><div class="pm-sub">Pay with your PayPal balance or card</div></div>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-stripe" data-method="stripe">
         <div class="pm-icon pm-stripe">S</div>
-        <div class="pm-info">
-          <div class="pm-name">Stripe</div>
-          <div class="pm-sub">Credit or debit card</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">Stripe</div><div class="pm-sub">Credit or debit card</div></div>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-ipay" data-method="ipay">
         <div class="pm-icon pm-ipay">iP</div>
-        <div class="pm-info">
-          <div class="pm-name">iPay</div>
-          <div class="pm-sub">Card &amp; mobile wallet payments</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">iPay</div><div class="pm-sub">Card &amp; mobile wallet payments</div></div>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-crypto" data-method="crypto">
         <div class="pm-icon pm-crypto">₿</div>
-        <div class="pm-info">
-          <div class="pm-name">Crypto</div>
-          <div class="pm-sub">BTC, ETH, BNB, Polygon, USDT, USDC</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">Crypto</div><div class="pm-sub">BTC, ETH, BNB, Polygon, USDT, USDC</div></div>
         <span class="pm-badge">New</span>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-cashapp" data-method="cashapp">
         <div class="pm-icon pm-cashapp">$</div>
-        <div class="pm-info">
-          <div class="pm-name">Cash App Pay</div>
-          <div class="pm-sub">Pay using your Cash App balance</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">Cash App Pay</div><div class="pm-sub">Pay using your Cash App balance</div></div>
         <span class="pm-badge">Soon</span>
         <div class="pm-radio"></div>
       </div>
 
       <div class="pay-method" id="pm-googlepay" data-method="googlepay">
         <div class="pm-icon pm-googlepay">G</div>
-        <div class="pm-info">
-          <div class="pm-name">Google Pay</div>
-          <div class="pm-sub">Fast checkout with saved cards</div>
-        </div>
+        <div class="pm-info"><div class="pm-name">Google Pay</div><div class="pm-sub">Fast checkout with saved cards</div></div>
         <span class="pm-badge">Soon</span>
         <div class="pm-radio"></div>
       </div>
@@ -346,29 +213,27 @@
   </div>
 
   <div class="checkout-bar">
-    <button class="checkout-btn" id="checkout-btn" disabled>
-      Select a package to continue
-    </button>
+    <button class="checkout-btn" id="checkout-btn" disabled>Select a package to continue</button>
   </div>
 </div>
 
 <!-- Crypto coin picker -->
-<div class="crypto-overlay" id="crypto-overlay">
-  <div class="crypto-sheet">
-    <h3>Pay with crypto</h3>
-    <div class="sub">Choose which currency you'd like to pay with</div>
+<div class="crypto-overlay" id="crypto-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center;z-index:300;">
+  <div class="crypto-sheet" style="width:100%;max-width:480px;background:var(--bg);border-radius:22px 22px 0 0;padding:18px 20px 28px;max-height:85vh;overflow-y:auto;border-top:1px solid var(--border);">
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:4px;">Pay with crypto</h3>
+    <div class="sub" style="font-size:12.5px;color:var(--text-dim);margin-bottom:16px;">Choose which currency you'd like to pay with</div>
     <div id="crypto-coin-list"></div>
-    <button class="crypto-cancel-btn" id="crypto-cancel-btn">Cancel</button>
+    <button id="crypto-cancel-btn" style="width:100%;margin-top:10px;height:46px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);color:var(--text-dim);font-weight:700;font-size:13.5px;cursor:pointer;">Cancel</button>
   </div>
 </div>
 
 <!-- Crypto deposit address screen -->
-<div class="crypto-overlay" id="deposit-overlay">
-  <div class="crypto-sheet">
-    <h3 id="deposit-title">Send payment</h3>
-    <div class="sub">Send the exact amount below to confirm your purchase</div>
-    <div class="deposit-box" id="deposit-box"></div>
-    <button class="crypto-cancel-btn" id="deposit-cancel-btn">Cancel</button>
+<div class="crypto-overlay" id="deposit-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center;z-index:300;">
+  <div class="crypto-sheet" style="width:100%;max-width:480px;background:var(--bg);border-radius:22px 22px 0 0;padding:18px 20px 28px;max-height:85vh;overflow-y:auto;border-top:1px solid var(--border);">
+    <h3 id="deposit-title" style="font-size:16px;font-weight:800;margin-bottom:4px;">Send payment</h3>
+    <div class="sub" style="font-size:12.5px;color:var(--text-dim);margin-bottom:16px;">Send the exact amount below to confirm your purchase</div>
+    <div id="deposit-box"></div>
+    <button id="deposit-cancel-btn" style="width:100%;margin-top:10px;height:46px;border-radius:14px;background:var(--surface);border:1.5px solid var(--border);color:var(--text-dim);font-weight:700;font-size:13.5px;cursor:pointer;">Cancel</button>
   </div>
 </div>
 

@@ -7,18 +7,15 @@ const { notFound, errorHandler } = require("./src/middlewares/error");
 
 const app = express();
 
-console.log("🚀 APP.JS LOADED - Podcast test route is present");
+console.log("🚀 APP.JS LOADED");
 
 /* =========================================================
-   SECURITY + LOGGING git logs ths n  s i love this code hkowoiwkw
+   SECURITY + LOGGING
 ========================================================= */
 app.use(cors());
 app.use(helmet());
 app.use(morgan("dev"));
 
-/* =========================================================
-   BODY PARSING (SAFE FOR MULTER)
-========================================================= */
 /* =========================================================
    BODY PARSING (SAFE FOR MULTER + STRIPE WEBHOOK)
 ========================================================= */
@@ -44,13 +41,8 @@ app.use((req, res, next) => {
    HEALTH CHECK
 ========================================================= */
 app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "VoiceChat API Running"
-  });
+  res.json({ success: true, message: "VoiceChat API Running" });
 });
-
-
 
 app.get("/my-ip", async (req, res) => {
   try {
@@ -59,14 +51,10 @@ app.get("/my-ip", async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      error: "Failed to fetch public IP"
-    });
+    res.status(500).json({ error: "Failed to fetch public IP" });
   }
 });
-/* =========================================================
-   SAFE ROUTE LOADER
-========================================================= */
+
 /* =========================================================
    SAFE ROUTE LOADER
 ========================================================= */
@@ -79,10 +67,7 @@ function safeUse(path, route) {
     return;
   }
 
-  console.log("Type:", typeof route);
-
   app.use(path, route);
-
   console.log(`✅ Mounted ${path}`);
   console.log("=================================");
 }
@@ -107,77 +92,29 @@ const hostAcademyRoutes = require("./src/routes/hostAcademy.routes");
 const leaderboardRoutes = require("./src/routes/leaderboard.routes");
 const marketplaceRoutes = require("./src/routes/marketplace.routes");
 const sellersRoutes = require("./src/routes/sellers.routes");
+const walletRoutes = require("./src/routes/wallet.routes");           // ← NEW
+const withdrawalsRoutes = require("./src/routes/withdrawals.routes"); // ← NEW
 
-console.log("=================================");
-console.log("PODCAST ROUTER DEBUG");
-console.log("=================================");
-console.log("Type:", typeof podcastRoutes);
-console.log("Constructor:", podcastRoutes?.constructor?.name);
-console.log("Keys:", Object.keys(podcastRoutes || {}));
-console.log("=================================");
-/* =========================================================
-   ROUTE REGISTRATION ORDER (IMPORTANT) how is my branch up to data
-========================================================= */
 safeUse("/api/auth", authRoutes);
 safeUse("/api/users", userRoutes);
-
 safeUse("/api/chats", chatRoutes);
 safeUse("/api/calls", callRoutes);
-
 safeUse("/api/gifts", giftRoutes);
-
-console.log("=================================");
-console.log("PAYMENT ROUTER STACK");
-console.log("=================================");
-
-paymentRoutes.stack.forEach((layer) => {
-  if (layer.route) {
-    console.log(
-      `${Object.keys(layer.route.methods)[0].toUpperCase()} ${layer.route.path}`
-    );
-  }
-});
-
-console.log("=================================");
-
 safeUse("/api/payments", paymentRoutes);
-
 safeUse("/api/stories", storyRoutes);
 safeUse("/api/notifications", notificationRoutes);
-
 safeUse("/api/live", liveRoomRoutes);
-
 safeUse("/api/admin", adminRoutes);
 safeUse("/api/uploads", uploadRoutes);
-
-app.use("/api/posts", postsRoutes);
-
-// Temporarily add this BEFORE safeUse("/api/podcasts", podcastRoutes)
-app.get("/api/podcasts-test", (req, res) => {
-  console.log("✅ /api/podcasts-test was called");
-
-  try {
-    const r = require("./src/routes/podcast.routes");
-    res.json({
-      success: true,
-      type: typeof r,
-      keys: Object.keys(r || {})
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      stack: err.stack
-    });
-  }
-});
+safeUse("/api/posts", postsRoutes);
 safeUse("/api/podcasts", podcastRoutes);
-
 safeUse("/api/host-academy", hostAcademyRoutes);
 safeUse("/api/leaderboard", leaderboardRoutes);
 safeUse("/api/marketplace", marketplaceRoutes);
 safeUse("/api/sellers", sellersRoutes);
+safeUse("/api/wallet", walletRoutes);           // ← NEW: /api/wallet/earnings-summary, /api/wallet/ledger
+safeUse("/api/withdrawals", withdrawalsRoutes); // ← NEW: /api/withdrawals, /api/withdrawals/mine
+
 /* =========================================================
    ERROR HANDLERS
 ========================================================= */

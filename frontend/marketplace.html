@@ -110,9 +110,6 @@
 .mkt-modal-bg.show { display: flex; }
 .mkt-detail-sheet { width: 100%; max-width: 480px; max-height: 92vh; overflow-y: auto; background: var(--bg); border-radius: 24px 24px 0 0; border-top: 1px solid var(--border); }
 
-/* Product image gallery — same scroll-snap slider technique used by
-   the post viewer (post.html) so multiple product photos are
-   swipeable instead of only ever showing the first image. */
 .mkt-detail-hero { position: relative; aspect-ratio: 1/1; background: #000; overflow: hidden; }
 .mkt-detail-slider {
   display: flex; width: 100%; height: 100%;
@@ -148,8 +145,6 @@
 .mkt-btn-primary:disabled { opacity: .4; cursor: not-allowed; }
 .mkt-btn-secondary { flex: none; width: 50px; height: 50px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; }
 
-/* Thumbnail strip below the hero — lets buyers jump straight to a
-   specific photo instead of only swiping sequentially. */
 .mkt-detail-thumbs { display: flex; gap: 8px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
 .mkt-detail-thumbs::-webkit-scrollbar { display: none; }
 .mkt-detail-thumb { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex: none; cursor: pointer; border: 2px solid transparent; opacity: .6; transition: opacity .15s, border-color .15s; }
@@ -310,6 +305,11 @@
   <div class="form-group"><label>Title</label><input type="text" id="listing-title" placeholder="e.g. iPhone 12 charger, barely used" maxlength="100"></div>
   <div class="form-group"><label>Description</label><textarea id="listing-desc" placeholder="Describe the item, its condition, and any details buyers should know…" maxlength="600"></textarea></div>
 
+  <div class="form-group">
+    <label>Contact number (shown to buyers who purchase)</label>
+    <input type="tel" id="listing-contact" placeholder="e.g. 0803 123 4567" maxlength="30">
+  </div>
+
   <div class="form-row-2">
     <div class="form-group"><label>Category</label><select id="listing-category"></select></div>
     <div class="form-group"><label>Condition</label>
@@ -363,39 +363,37 @@ const MOCK_LISTINGS = [
   { id:"l1", seller_id:"u1", seller_name:"Chiamaka Obi", seller_username:"chiamaka", seller_avatar:"https://i.pravatar.cc/100?img=32",
     title:"Ankara print tote bag — handmade", description:"Locally handmade Ankara tote, sturdy cotton lining, one inside pocket. Great for everyday use or as a gift.",
     category:"fashion", condition:"new", price_coins:850, quantity:4, images:["https://picsum.photos/seed/tote1/500/500","https://picsum.photos/seed/tote2/500/500"],
-    status:"active", created_at:new Date(Date.now()-2*3600e3).toISOString() },
+    status:"active", seller_contact:"0803 555 1234", created_at:new Date(Date.now()-2*3600e3).toISOString() },
   { id:"l2", seller_id:"u4", seller_name:"DJ Koast", seller_username:"djkoast", seller_avatar:"https://i.pravatar.cc/100?img=14",
     title:"Custom Afrobeats mix — 1 hour, mastered", description:"I'll produce and master a custom 1-hour DJ mix in the genre of your choice. Delivered as a downloadable MP3 within 48 hours.",
     category:"digital", condition:"digital", price_coins:2000, quantity:10, images:["https://picsum.photos/seed/mixtape1/500/500"],
-    status:"active", created_at:new Date(Date.now()-6*3600e3).toISOString() },
+    status:"active", seller_contact:"0807 555 8899", created_at:new Date(Date.now()-6*3600e3).toISOString() },
   { id:"l3", seller_id:"u5", seller_name:"Big Sammy", seller_username:"bigsammy_", seller_avatar:"https://i.pravatar.cc/100?img=51",
     title:"Adjustable dumbbell set (5–25kg)", description:"Barely used adjustable dumbbells, great condition, no rust. Pickup preferred, can arrange delivery within Lagos.",
     category:"home", condition:"like_new", price_coins:15000, quantity:1, images:["https://picsum.photos/seed/dumbbell1/500/500","https://picsum.photos/seed/dumbbell2/500/500"],
-    status:"active", created_at:new Date(Date.now()-26*3600e3).toISOString() },
+    status:"active", seller_contact:"0812 555 4321", created_at:new Date(Date.now()-26*3600e3).toISOString() },
   { id:"l4", seller_id:"u3", seller_name:"Funmi Adeyemi", seller_username:"funmi_ade", seller_avatar:"https://i.pravatar.cc/100?img=45",
     title:"Shea butter & black soap skincare bundle", description:"100% organic shea butter and raw black soap, sourced locally. Bundle of 3 — great for gifting.",
     category:"beauty", condition:"new", price_coins:1200, quantity:8, images:["https://picsum.photos/seed/shea1/500/500"],
-    status:"active", created_at:new Date(Date.now()-40*3600e3).toISOString() },
+    status:"active", seller_contact:"0705 555 7766", created_at:new Date(Date.now()-40*3600e3).toISOString() },
   { id:"l5", seller_id:"u2", seller_name:"Tega Live", seller_username:"tegastar", seller_avatar:"https://i.pravatar.cc/100?img=12",
     title:"Ring light + phone tripod stand", description:"10-inch LED ring light with adjustable brightness, plus a 2m tripod with phone clamp. Perfect starter streaming kit.",
     category:"electronics", condition:"good", price_coins:6500, quantity:2, images:["https://picsum.photos/seed/ringlight1/500/500"],
-    status:"active", created_at:new Date(Date.now()-3*86400e3).toISOString() },
+    status:"active", seller_contact:"0902 555 3344", created_at:new Date(Date.now()-3*86400e3).toISOString() },
   { id:"l6", seller_id:"u1", seller_name:"Chiamaka Obi", seller_username:"chiamaka", seller_avatar:"https://i.pravatar.cc/100?img=32",
     title:"₦5,000 Jumia gift voucher", description:"Unused Jumia gift voucher code, sent digitally right after purchase confirms.",
     category:"vouchers", condition:"digital", price_coins:4800, quantity:3, images:["https://picsum.photos/seed/voucher1/500/500"],
-    status:"active", created_at:new Date(Date.now()-5*86400e3).toISOString() },
+    status:"active", seller_contact:"0803 555 1234", created_at:new Date(Date.now()-5*86400e3).toISOString() },
   { id:"l7", seller_id:"u5", seller_name:"Big Sammy", seller_username:"bigsammy_", seller_avatar:"https://i.pravatar.cc/100?img=51",
     title:"Hand-painted canvas — Lagos skyline", description:"Original acrylic on canvas, 40x60cm, signed. Ships rolled in a protective tube.",
     category:"handmade", condition:"new", price_coins:22000, quantity:1, images:["https://picsum.photos/seed/canvas1/500/500"],
-    status:"sold", created_at:new Date(Date.now()-7*86400e3).toISOString() },
+    status:"sold", seller_contact:"0812 555 4321", created_at:new Date(Date.now()-7*86400e3).toISOString() },
   { id:"l8", seller_id:"u4", seller_name:"DJ Koast", seller_username:"djkoast", seller_avatar:"https://i.pravatar.cc/100?img=14",
     title:"1-on-1 DJ basics coaching (1hr, video call)", description:"Learn beatmatching, transitions and crowd reading in a live 1-hour video call session, scheduled at your convenience.",
     category:"digital", condition:"digital", price_coins:3500, quantity:5, images:["https://picsum.photos/seed/coaching1/500/500"],
-    status:"active", created_at:new Date(Date.now()-9*86400e3).toISOString() },
+    status:"active", seller_contact:"0807 555 8899", created_at:new Date(Date.now()-9*86400e3).toISOString() },
 ];
 
-// Seed a couple of "my" listings if the logged-in user is Chiamaka/etc. — for demo purposes
-// we just tag listing l1 & l6 as belonging to the current user when no backend is available.
 const MOCK_MY_LISTINGS = MOCK_LISTINGS.filter(l => l.seller_id === "u1");
 
 const MOCK_ORDERS_BUYING = [
@@ -432,22 +430,10 @@ function requireLoginOrPrompt() {
 }
 
 /* ══════════════════════════════════════════
-   ✅ FIX (product images not showing)
-   ------------------------------------------------------------
-   The backend stores each listing's images as an ARRAY OF
-   OBJECTS: [{ url: "...", type: "image" }, ...] (see
-   marketplaceService.js — it JSON.stringify()s exactly that
-   shape into the `images` JSONB column).
-
-   This page used to do `l.images[0]` directly as an <img src>,
-   which is an OBJECT, not a string — the browser rendered
-   "[object Object]" as the src, so nothing loaded.
-
-   This mirrors the same fix already applied to posts in
-   home.html/profile.html's buildMediaHtml(): normalize
-   whatever shape comes back (old plain-string arrays OR the
-   current {url,type} objects) into a single consistent
-   [{url,type}, ...] array before ever touching the DOM.
+   Normalize listing image arrays: the backend stores
+   [{ url, type }, ...] but older/mocked data may be a
+   plain string array. Always coerce to {url,type}[]
+   before touching the DOM.
 ══════════════════════════════════════════ */
 function normalizeImages(images) {
   let arr = images;
@@ -595,12 +581,7 @@ function cardHtml(l) {
 const CONDITION_LABELS = { new:"New", like_new:"Like new", good:"Good", fair:"Fair", digital:"Digital" };
 
 /* ══════════════════════════════════════════
-   LISTING DETAIL — the "product details page"
-   ------------------------------------------------------------
-   Renders every photo the seller uploaded as a swipeable
-   gallery (same scroll-snap slider technique as post.html's
-   media viewer) with dot indicators, a counter, and a
-   thumbnail strip to jump straight to a specific photo.
+   LISTING DETAIL
 ══════════════════════════════════════════ */
 function openDetail(id) {
   const l = LISTINGS.find(x => String(x.id) === String(id));
@@ -650,6 +631,7 @@ function openDetail(id) {
       <div class="mkt-detail-meta-chips">
         <span class="mkt-meta-chip">Condition: ${escapeHtml(CONDITION_LABELS[l.condition]||l.condition)}</span>
         <span class="mkt-meta-chip">Listed ${timeAgo(l.created_at)} ago</span>
+        ${l.seller_contact ? `<span class="mkt-meta-chip">📞 ${escapeHtml(l.seller_contact)}</span>` : ""}
       </div>
 
       ${isOwner
@@ -666,7 +648,6 @@ function openDetail(id) {
       <div id="buy-confirm-slot"></div>
     </div>`;
 
-  // ── Gallery wiring: swipe scroll <-> dots <-> thumbnails ──
   const sliderEl = document.getElementById("detail-slider");
   const dotsEl   = document.getElementById("detail-dots");
   const counterEl= document.getElementById("detail-counter");
@@ -708,6 +689,10 @@ function closeDetail() {
 }
 document.getElementById("detail-modal-bg").addEventListener("click", e => { if (e.target.id === "detail-modal-bg") closeDetail(); });
 
+/* ══════════════════════════════════════════
+   BUY CONFIRM — now requires a shipping address
+   before the purchase can be completed.
+══════════════════════════════════════════ */
 function renderBuyConfirm(l) {
   const balance = Number(ME.coinBalance ?? ME.coin_balance ?? 0);
   const enough  = balance >= l.price_coins;
@@ -717,21 +702,30 @@ function renderBuyConfirm(l) {
       <div class="mkt-confirm-row"><span>Your balance</span><strong>🪙 ${formatCoins(balance)}</strong></div>
       <div class="mkt-confirm-row total"><span>Total to pay</span><strong>🪙 ${formatCoins(l.price_coins)}</strong></div>
       ${!enough ? `<div class="mkt-low-balance">Not enough coins for this purchase. Top up on the Coins page to continue.</div>` : ""}
+      <div class="form-group" style="margin-top:14px;">
+        <label>Shipping address</label>
+        <textarea id="buy-shipping-address" rows="2" placeholder="Full delivery address…"></textarea>
+      </div>
       <div class="mkt-detail-cta-row" style="margin-top:14px;">
         <button class="mkt-btn-primary" id="confirm-buy-btn" ${enough?"":"disabled"}>${enough ? "Confirm purchase" : "Top up coins"}</button>
       </div>
     </div>`;
   document.getElementById("confirm-buy-btn").addEventListener("click", () => {
     if (!enough) { window.location.href = "coins.html"; return; }
-    completePurchase(l);
+    const shippingAddress = document.getElementById("buy-shipping-address").value.trim();
+    if (!shippingAddress) { showToast("Please add a shipping address"); return; }
+    completePurchase(l, shippingAddress);
   });
 }
 
-async function completePurchase(l) {
+async function completePurchase(l, shippingAddress) {
   const btn = document.getElementById("confirm-buy-btn");
   btn.disabled = true; btn.textContent = "Processing…";
   try {
-    const res = await api.request(`/marketplace/listings/${l.id}/buy`, { method: "POST", body: JSON.stringify({ quantity: 1 }) });
+    const res = await api.request(`/marketplace/listings/${l.id}/buy`, {
+      method: "POST",
+      body: JSON.stringify({ quantity: 1, shippingAddress }),
+    });
     const newBalance = res.data?.buyerCoinBalance;
     if (newBalance != null) persistCurrentUser({ coinBalance: newBalance, coin_balance: newBalance });
   } catch (err) {
@@ -811,12 +805,6 @@ function renderOrders() {
     el.innerHTML = `<div class="mkt-empty"><div class="icon">🧾</div><h3 style="font-size:15px;font-weight:700;">No orders yet</h3></div>`;
     return;
   }
-  // ✅ FIX: the backend returns the listing's full image array as
-  // `listing_images` (see marketplaceService.ordersForBuyer/Seller —
-  // `l.images AS listing_images`). This page used to read the
-  // non-existent singular `o.listing_image`, so order thumbnails
-  // were always blank. Now we normalize `listing_images` and use
-  // the first photo, same as everywhere else on this page.
   el.innerHTML = items.map(o => {
     const imgs  = normalizeImages(o.listing_images);
     const thumb = imgs[0]?.url || `https://ui-avatars.com/api/?name=${encodeURIComponent(o.listing_title||'Item')}&size=200`;
@@ -847,12 +835,11 @@ function openListingSheet(existing) {
   document.getElementById("listing-sheet-title").textContent = existing ? "Edit listing" : "Sell an item";
   document.getElementById("listing-title").value    = existing?.title || "";
   document.getElementById("listing-desc").value     = existing?.description || "";
+  document.getElementById("listing-contact").value  = existing?.seller_contact || "";
   document.getElementById("listing-category").value = existing?.category || "fashion";
   document.getElementById("listing-condition").value= existing?.condition || "new";
   document.getElementById("listing-price").value    = existing?.price_coins || "";
   document.getElementById("listing-qty").value      = existing?.quantity || 1;
-  // Normalizes both old plain-string image arrays and the current
-  // {url,type} object arrays into plain URL strings for the editor.
   listingImages = normalizeImages(existing?.images).map(im => im.url);
   listingNewFiles = [];
   renderImageSlots();
@@ -900,12 +887,14 @@ document.getElementById("listing-file-input").addEventListener("change", (e) => 
 document.getElementById("listing-save-btn").addEventListener("click", async () => {
   const title    = document.getElementById("listing-title").value.trim();
   const desc     = document.getElementById("listing-desc").value.trim();
+  const contact  = document.getElementById("listing-contact").value.trim();
   const category = document.getElementById("listing-category").value;
   const condition= document.getElementById("listing-condition").value;
   const price    = Number(document.getElementById("listing-price").value);
   const qty      = Number(document.getElementById("listing-qty").value) || 1;
 
   if (!title) return showToast("Give your item a title");
+  if (!contact) return showToast("Add a contact number so buyers can reach you");
   if (!price || price <= 0) return showToast("Enter a valid price in coins");
 
   const btn = document.getElementById("listing-save-btn");
@@ -914,6 +903,7 @@ document.getElementById("listing-save-btn").addEventListener("click", async () =
   const fd = new FormData();
   fd.append("title", title);
   fd.append("description", desc);
+  fd.append("seller_contact", contact);
   fd.append("category", category);
   fd.append("condition", condition);
   fd.append("price_coins", price);

@@ -1,6 +1,7 @@
 const db = require('../config/db');
+const WalletService = require('./walletService');
 
-const PLATFORM_FEE_PCT = 10; // % kept by the platform on every sale
+const PLATFORM_FEE_PCT = 10;
 
 const MarketplaceService = {
   // ── Categories ──────────────────────────────────────────
@@ -32,7 +33,7 @@ const MarketplaceService = {
 
     const { rows } = await db.query(
       `SELECT l.id, l.title, l.description, l.category, l.condition, l.price_coins,
-              l.quantity, l.images, l.status, l.created_at,
+              l.quantity, l.images, l.status, l.seller_contact, l.created_at,
               u.id AS seller_id, u.username AS seller_username,
               u.display_name AS seller_name, u.avatar_url AS seller_avatar
        FROM marketplace_listings l
@@ -65,12 +66,15 @@ const MarketplaceService = {
   },
 
   // ── Create / update / delete (seller-owned) ────────────
-  async createListing(sellerId, { title, description, category, condition, price_coins, quantity, images }) {
+  async createListing(sellerId, { title, description, category, condition, price_coins, quantity, images, seller_contact }) {
+    if (!seller_contact || !String(seller_contact).trim()) {
+      throw Object.assign(new Error('A contact number is required so buyers can reach you'), { status: 400 });
+    }
     const { rows } = await db.query(
-      `INSERT INTO marketplace_listings (seller_id, title, description, category, condition, price_coins, quantity, images)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO marketplace_listings (seller_id, title, description, category, condition, price_coins, quantity, images, seller_contact)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING *`,
-      [sellerId, title, description || null, category, condition || 'new', price_coins, quantity || 1, JSON.stringify(images || [])]
+      [sellerId, title, description || null, category, condition || 'new', price_coins, quantity || 1, JSON.stringify(images || []), seller_contact]
     );
     return rows[0];
   },
@@ -82,7 +86,7 @@ const MarketplaceService = {
       throw Object.assign(new Error('You do not own this listing'), { status: 403 });
     }
 
-    const allowed = ['title', 'description', 'category', 'condition', 'price_coins', 'quantity', 'images', 'status'];
+    const allowed = ['title', 'description', 'category', 'condition', 'price_coins', 'quantity', 'images', 'status', 'seller_contact'];
     const sets = [];
     const params = [];
     for (const key of allowed) {
@@ -107,20 +111,21 @@ const MarketplaceService = {
     if (String(existing.seller_id) !== String(sellerId)) {
       throw Object.assign(new Error('You do not own this listing'), { status: 403 });
     }
-    // Soft delete — keeps order history intact for past buyers.
     await db.query(`UPDATE marketplace_listings SET status = 'removed' WHERE id = $1`, [listingId]);
     return true;
   },
 
-  // ── Purchase flow ───────────────────────────────────────
-  // Wraps the coin transfer + stock decrement + order creation in a
-  // single DB transaction, the same defensive pattern used for gifts:
-  // every amount is derived server-side from the committed listing
-  // row, never trusted from the client.
-  async buyListing({ buyerId, listingId, quantity = 1 }) {
+  // ── Purchase flow — requires shippingAddress; every coin movement
+  // goes through WalletService so wallet_ledger stays the single
+  // source of truth (marketplace earnings tagged 'marketplace_sale',
+  // never mixed with 'gift_received').
+  async buyListing({ buyerId, listingId, quantity = 1, shippingAddress }) {
     if (quantity < 1) throw Object.assign(new Error('Quantity must be at least 1'), { status: 400 });
+    if (!shippingAddress || !shippingAddress.trim()) {
+      throw Object.assign(new Error('A shipping address is required'), { status: 400 });
+    }
 
-    const client = await db.getClient(); // expects a pg Pool wrapper exposing getClient()
+    const client = await db.getClient();
     try {
       await client.query('BEGIN');
 
@@ -143,20 +148,41 @@ const MarketplaceService = {
       const platformFeeCoins = Math.round(totalCoins * (PLATFORM_FEE_PCT / 100));
       const sellerPayout     = totalCoins - platformFeeCoins;
 
-      const { rows: buyerRows } = await client.query(
-        `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
-        [buyerId]
+      const { rows: orderRows } = await client.query(
+        `INSERT INTO marketplace_orders
+           (listing_id, buyer_id, seller_id, quantity, unit_price_coins, total_coins,
+            platform_fee_pct, platform_fee_coins, seller_payout_coins, status, shipping_address)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10)
+         RETURNING *`,
+        [listingId, buyerId, listing.seller_id, quantity, listing.price_coins, totalCoins,
+         PLATFORM_FEE_PCT, platformFeeCoins, sellerPayout, shippingAddress.trim()]
       );
-      const buyerBalance = Number(buyerRows[0]?.coin_balance || 0);
-      if (buyerBalance < totalCoins) {
-        throw Object.assign(new Error('Insufficient coin balance'), { status: 400 });
-      }
+      const order = orderRows[0];
 
-      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [totalCoins, buyerId]);
-      await client.query(
-        `UPDATE users SET earnings_balance = COALESCE(earnings_balance,0) + $1 WHERE id = $2`,
-        [sellerPayout, listing.seller_id]
-      );
+      await WalletService.debitCoins(client, {
+        userId: buyerId,
+        amount: totalCoins,
+        type: 'marketplace_purchase',
+        referenceType: 'marketplace_order',
+        referenceId: order.id,
+        description: `Purchase: ${listing.title}`,
+      });
+
+      await WalletService.creditEarnings(client, {
+        userId: listing.seller_id,
+        amount: sellerPayout,
+        type: 'marketplace_sale',
+        referenceType: 'marketplace_order',
+        referenceId: order.id,
+        description: `Sale: ${listing.title}`,
+      });
+
+      await WalletService.creditPlatform(client, {
+        amount: platformFeeCoins,
+        referenceType: 'marketplace_order',
+        referenceId: order.id,
+        description: `Platform fee: ${listing.title}`,
+      });
 
       const newQuantity = listing.quantity - quantity;
       await client.query(
@@ -164,20 +190,10 @@ const MarketplaceService = {
         [newQuantity, newQuantity <= 0 ? 'sold' : 'active', listingId]
       );
 
-      const { rows: orderRows } = await client.query(
-        `INSERT INTO marketplace_orders
-           (listing_id, buyer_id, seller_id, quantity, unit_price_coins, total_coins,
-            platform_fee_pct, platform_fee_coins, seller_payout_coins, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')
-         RETURNING *`,
-        [listingId, buyerId, listing.seller_id, quantity, listing.price_coins, totalCoins,
-         PLATFORM_FEE_PCT, platformFeeCoins, sellerPayout]
-      );
-
       await client.query('COMMIT');
 
       const { rows: freshBuyer } = await db.query(`SELECT coin_balance FROM users WHERE id = $1`, [buyerId]);
-      return { order: orderRows[0], buyerCoinBalance: Number(freshBuyer[0]?.coin_balance || 0) };
+      return { order, buyerCoinBalance: Number(freshBuyer[0]?.coin_balance || 0) };
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -189,7 +205,7 @@ const MarketplaceService = {
   // ── Orders ──────────────────────────────────────────────
   async ordersForBuyer(buyerId) {
     const { rows } = await db.query(
-      `SELECT o.*, l.title AS listing_title, l.images AS listing_images,
+      `SELECT o.*, l.title AS listing_title, l.images AS listing_images, l.seller_contact,
               u.display_name AS seller_name, u.username AS seller_username
        FROM marketplace_orders o
        JOIN marketplace_listings l ON l.id = o.listing_id
