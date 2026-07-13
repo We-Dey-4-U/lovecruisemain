@@ -94,15 +94,20 @@
 .mkt-row-info strong { font-size: 13.5px; font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mkt-row-info .mkt-row-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
 .mkt-row-info .mkt-row-price { font-size: 13px; font-weight: 900; color: #ffc857; margin-top: 5px; }
+.mkt-row-info .mkt-row-address { font-size: 11.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 9px; }
+.mkt-row-info .mkt-row-address b { color: var(--text); font-weight: 800; }
 .mkt-status-pill { align-self: flex-start; font-size: 9.5px; font-weight: 800; padding: 3px 9px; border-radius: 8px; text-transform: uppercase; letter-spacing: .03em; flex: none; }
 .mkt-status-active { background: rgba(0,217,181,.15); color: #00d9b5; }
 .mkt-status-sold, .mkt-status-delivered { background: rgba(160,90,255,.15); color: #a05aff; }
 .mkt-status-pending { background: rgba(255,200,87,.15); color: #ffc857; }
+.mkt-status-approved { background: rgba(100,181,246,.15); color: #64b5f6; }
 .mkt-status-shipped { background: rgba(33,150,243,.15); color: #64b5f6; }
 .mkt-status-cancelled { background: rgba(255,68,85,.15); color: #ff4455; }
-.mkt-row-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.mkt-row-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
 .mkt-row-actions button { background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 10.5px; font-weight: 700; padding: 5px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
 .mkt-row-actions button.danger { color: #ff4455; border-color: rgba(255,68,85,.25); }
+.mkt-row-actions button.approve-order-btn { color: #00d9b5; border-color: rgba(0,217,181,.3); }
+.mkt-row-actions button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ══ LISTING DETAIL MODAL ══ */
 .mkt-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 300; display: none; align-items: flex-end; justify-content: center; }
@@ -181,7 +186,7 @@
 .toast { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: 600; z-index: 400; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
 .toast.show { opacity: 1; }
 </style>
-  <script type="module" crossorigin src="/assets/marketplace-BoXNN7Sk.js"></script>
+  <script type="module" crossorigin src="/assets/marketplace-CLSEhJ_D.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-By3Wcv2E.js">
   <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
 </head>

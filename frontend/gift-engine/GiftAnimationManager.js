@@ -12,179 +12,705 @@
    payload fields used (all optional/defensive):
      { name, senderId, avatar, giftName, giftEmoji, amount }
    ============================================================ */
+/* ============================================================
+   gift-engine/GiftAnimationManager.js
+   PART 1
+
+   FIX (this pass): `_playBasic` previously called
+   `GiftFactory.buildMesh()` (an async function) WITHOUT
+   awaiting it, then immediately called `.position.set(...)` on
+   the returned Promise object. Every basic-tier gift (Rose,
+   Heart, Clap, Bouquet, Cake, Kiss) would throw here in
+   production. `_playBasic` is now async and properly awaits
+   the mesh. Basic gifts now also play their sound via
+   SoundManager, matching the original spec (previously only
+   premium/legendary gifts played sound).
+   ============================================================ */
+
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+
 import { ThreeRenderer } from "./ThreeRenderer.js";
 import { GiftFactory } from "./GiftFactory.js";
 import { SoundManager } from "./SoundManager.js";
 import { UIOverlay } from "./UIOverlay.js";
 import { QueueManager } from "./QueueManager.js";
 import { ComboManager, COMBO_STEPS } from "./ComboManager.js";
-import { resolveGiftConfig } from "./giftConfig.js";
+import { resolveGiftConfig, GIFT_REGISTRY } from "./giftConfig.js";
 
 export class GiftAnimationManager {
-  constructor(rootEl, { maxBasicConcurrent = 12 } = {}) {
-    if (!rootEl) throw new Error("GiftAnimationManager requires a root container element");
-    this.rootEl = rootEl;
-    this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    try {
-      this.renderer = new ThreeRenderer(rootEl);
-    } catch (err) {
-      console.error("[GiftAnimationManager] WebGL init failed — gifts will be silently skipped, livestream unaffected:", err);
-      this.renderer = null;
+    constructor(
+        rootEl,
+        {
+            maxBasicConcurrent = 12,
+            preloadAssets = true
+        } = {}
+    ) {
+
+        if (!rootEl) {
+
+            throw new Error(
+                "GiftAnimationManager requires a root element"
+            );
+
+        }
+
+        this.rootEl = rootEl;
+
+        this.reducedMotion =
+            window.matchMedia(
+                "(prefers-reduced-motion: reduce)"
+            ).matches;
+
+        try {
+
+            this.renderer = new ThreeRenderer(rootEl);
+
+        } catch (err) {
+
+            console.error(
+                "[GiftAnimationManager] WebGL init failed:",
+                err
+            );
+
+            this.renderer = null;
+
+        }
+
+        this.sound = new SoundManager();
+
+        this.ui = new UIOverlay(rootEl);
+
+        this.combo = new ComboManager();
+
+        this.basicActiveCount = 0;
+
+        this.maxBasicConcurrent = maxBasicConcurrent;
+
+        this.totalAnimationsPlayed = 0;
+
+        this.queue = new QueueManager({
+
+            onPlayPremium: item =>
+                this._playPremium(item),
+
+            onPlayBasic: item =>
+                this._playBasic(item),
+
+            onQueueStart: () => {
+
+                this.queueRunning = true;
+
+            },
+
+            onQueueEnd: () => {
+
+                this.queueRunning = false;
+
+            }
+
+        });
+
+        if (preloadAssets) {
+
+            try {
+
+                GiftFactory.preload(
+                    Object.values(GIFT_REGISTRY)
+                );
+
+            } catch (err) {
+
+                console.warn(
+                    "[GiftAnimationManager] preload failed",
+                    err
+                );
+
+            }
+
+        }
+
     }
 
-    this.sound = new SoundManager();
-    this.ui = new UIOverlay(rootEl);
-    this.combo = new ComboManager();
-    this.basicActiveCount = 0;
-    this.maxBasicConcurrent = maxBasicConcurrent;
+    /* ========================================================
+       PUBLIC API
+       ======================================================== */
 
-    this.queue = new QueueManager({
-      onPlayPremium: (item) => this._playPremium(item),
-      onPlayBasic: (item) => this._playBasic(item),
-    });
-  }
+    playGift(payload = {}) {
 
-  /**
-   * Call this from the existing `socket.on("giftReceived", ...)` handler.
-   * Safe to call as often as needed — never throws.
-   */
-  playGift(payload) {
-    try {
-      const giftName = payload.giftName || payload.gift?.name || "Gift";
-      const cfg = resolveGiftConfig(giftName);
-      const item = {
-        sender: payload.name || payload.senderName || "Someone",
-        senderId: payload.senderId || payload.sender_id,
-        receiver: payload.receiverName || "Host",
-        giftKey: giftName.toLowerCase(),
-        giftTitle: cfg.label,
-        quantity: payload.quantity || 1,
-        cfg,
-        tierInfo: cfg.tierInfo,
-      };
+        try {
 
-      if (item.tierInfo.allowOverlap) {
-        this.queue.push(item);
-        return;
-      }
+            const giftName =
+                payload.giftName ||
+                payload.name ||
+                payload.gift?.name ||
+                "Gift";
 
-      // premium/legendary: merge rapid repeats into a combo instead of
-      // re-triggering the full cinematic each time
-      const result = this.combo.register(item, (finalized) => {
-        this.queue.push({ ...finalized, isComboFinal: true });
-      });
-      if (result.type === "merged") {
-        this.ui.showCombo(result.count);
-      }
-    } catch (err) {
-      // requirement #13: never crash the livestream on a bad/asset-missing gift
-      console.error("[GiftAnimationManager] playGift failed, continuing stream:", err);
+            const cfg =
+                resolveGiftConfig(giftName);
+
+            const item = {
+
+                sender:
+                    payload.senderName ||
+                    payload.name ||
+                    "Someone",
+
+                senderId:
+                    payload.senderId ||
+                    payload.sender_id,
+
+                receiver:
+                    payload.receiverName ||
+                    payload.receiver ||
+                    "Host",
+
+                receiverId:
+                    payload.receiverId ||
+                    payload.receiver_id,
+
+                avatar:
+                    payload.avatar,
+
+                giftKey:
+                    giftName.toLowerCase(),
+
+                giftTitle:
+                    cfg.label,
+
+                quantity:
+                    payload.quantity || 1,
+
+                amount:
+                    payload.amount || 0,
+
+                timestamp:
+                    Date.now(),
+
+                cfg,
+
+                tierInfo:
+                    cfg.tierInfo
+
+            };
+
+            if (item.tierInfo.allowOverlap) {
+
+                this.queue.push(item);
+
+                return;
+
+            }
+
+            const comboResult =
+                this.combo.register(
+                    item,
+                    finalized => {
+
+                        this.queue.push({
+
+                            ...finalized,
+
+                            isComboFinal: true
+
+                        });
+
+                    }
+                );
+
+            if (
+                comboResult &&
+                comboResult.type === "merged"
+            ) {
+
+                this.ui.showCombo(
+                    comboResult.count
+                );
+
+            }
+
+        } catch (err) {
+
+            console.error(
+                "[GiftAnimationManager] playGift error:",
+                err
+            );
+
+        }
+
     }
-  }
 
-  _playBasic(item) {
-    if (!this.renderer) return;
-    if (this.basicActiveCount >= this.maxBasicConcurrent) return; // graceful degrade under load
-    this.basicActiveCount++;
+    playMany(gifts = []) {
 
-    const mesh = GiftFactory.buildMesh(item.cfg);
-    mesh.position.set((Math.random() - 0.5) * 3, -2.5, 0);
-    this.renderer.addObject(mesh);
-    this.renderer.particles.burst({ origin: [mesh.position.x, -1, 0], count: 16, color: item.cfg.color, spread: 1.2 });
+        if (!Array.isArray(gifts))
+            return;
 
-    const start = performance.now();
-    const duration = this.reducedMotion ? 500 : item.tierInfo.durationMs;
-    const animate = (t) => {
-      const p = Math.min(1, (t - start) / duration);
-      mesh.position.y = -2.5 + p * 5;
-      mesh.rotation.y += 0.06;
-      mesh.material.opacity = 1 - p;
-      mesh.material.transparent = true;
-      if (p < 1) {
+        gifts.forEach(gift => {
+
+            this.playGift(gift);
+
+        });
+
+    }
+
+    clearQueue() {
+
+        this.queue.clear();
+
+    }
+
+    pauseQueue() {
+
+        this.queue.pause();
+
+    }
+
+    resumeQueue() {
+
+        this.queue.resume();
+
+    }
+
+    get pendingQueue() {
+
+        return this.queue.pending;
+
+    }
+
+    get isBusy() {
+
+        return this.queue.isBusy;
+
+    }
+
+    /* ========================================================
+       BASIC GIFT ANIMATION
+       ======================================================== */
+
+    async _playBasic(item) {
+
+        if (!this.renderer)
+            return;
+
+        if (this.basicActiveCount >= this.maxBasicConcurrent)
+            return;
+
+        this.basicActiveCount++;
+
+        this.totalAnimationsPlayed++;
+
+        let mesh;
+
+        try {
+
+            // FIX: buildMesh is async — must be awaited, otherwise
+            // `mesh` is a pending Promise and every call below
+            // (mesh.position, mesh.rotation, mesh.scale...) throws.
+            mesh = await GiftFactory.buildMesh(item.cfg);
+
+        } catch (err) {
+
+            console.warn(
+                "[GiftAnimationManager] basic buildMesh failed:",
+                err
+            );
+
+            mesh = null;
+
+        }
+
+        if (!mesh) {
+
+            this.basicActiveCount--;
+
+            return;
+
+        }
+
+        mesh.position.set(
+            (Math.random() - 0.5) * 4,
+            -2.8,
+            (Math.random() - 0.5) * 1
+        );
+
+        mesh.rotation.set(
+            Math.random(),
+            Math.random(),
+            Math.random()
+        );
+
+        this.renderer.addObject(mesh);
+
+        this.renderer.particles.burst({
+
+            origin: [
+                mesh.position.x,
+                mesh.position.y,
+                mesh.position.z
+            ],
+
+            count: 24,
+
+            color: item.cfg.color,
+
+            spread: 1.4,
+
+            speed: 1.6
+
+        });
+
+        // Basic gifts now play sound too (fire-and-forget, cloned/
+        // pooled by SoundManager so many overlapping roses etc.
+        // don't cut each other off).
+        if (item.cfg.sound) {
+
+            this.sound.play(item.cfg.sound, {
+
+                volume: 0.6,
+
+                fadeMs: 80
+
+            });
+
+        }
+
+        const duration = this.reducedMotion
+            ? 500
+            : item.tierInfo.durationMs;
+
+        const start = performance.now();
+
+        const animate = (time) => {
+
+            const progress = Math.min(
+                1,
+                (time - start) / duration
+            );
+
+            mesh.position.y =
+                -2.8 + progress * 5.5;
+
+            mesh.rotation.x += 0.04;
+            mesh.rotation.y += 0.06;
+            mesh.rotation.z += 0.02;
+
+            mesh.scale.setScalar(
+
+                0.6 +
+                Math.sin(progress * Math.PI) * 0.15
+
+            );
+
+            if (mesh.material) {
+
+                mesh.material.transparent = true;
+
+                mesh.material.opacity = 1 - progress;
+
+            }
+
+            if (progress < 1) {
+
+                requestAnimationFrame(animate);
+
+            } else {
+
+                this.renderer.removeObject(mesh);
+
+                this.basicActiveCount--;
+
+            }
+
+        };
+
         requestAnimationFrame(animate);
-      } else {
+
+    }
+
+    /* ========================================================
+       PREMIUM / LEGENDARY CINEMATIC
+       ======================================================== */
+
+    async _playPremium(item) {
+
+        if (!this.renderer)
+            return;
+
+        this.totalAnimationsPlayed++;
+
+        const cfg = item.cfg;
+
+        const comboCount =
+            item.comboCount ||
+            item.quantity ||
+            1;
+
+        const duration = this.reducedMotion
+            ? 1200
+            : item.tierInfo.durationMs;
+
+        this.ui.focusDim(true);
+
+        if (!this.reducedMotion) {
+
+            await this.renderer.panCameraTo(
+                0.6,
+                0.25,
+                5.2,
+                700
+            );
+
+        }
+
+        const mesh = await GiftFactory.buildMesh(cfg);
+
+        if (!mesh) {
+
+            this.ui.focusDim(false);
+
+            return;
+
+        }
+
+        mesh.scale.multiplyScalar(
+
+            1 +
+            Math.min(comboCount, 100) / 100
+
+        );
+
+        mesh.position.set(0, -3, 0);
+
+        this.renderer.addObject(mesh);
+
+        const glow = new THREE.PointLight(
+
+            cfg.color,
+
+            item.tierInfo.priority >= 10
+                ? 6
+                : 4,
+
+            10
+
+        );
+
+        glow.position.set(0, 0, 1);
+
+        this.renderer.scene.add(glow);
+
+        this.ui.showBanner({
+
+            sender: item.sender,
+
+            receiver: item.receiver,
+
+            giftTitle: cfg.label
+
+        });
+
+        if (comboCount >= COMBO_STEPS[0]) {
+
+            this.ui.showCombo(comboCount);
+
+        }
+
+        this.sound.play(cfg.sound, {
+
+            volume:
+                item.tierInfo.priority >= 10
+                    ? 1
+                    : 0.85
+
+        });
+
+        this.renderer.particles.burst({
+
+            origin: [0,0,0],
+
+            count:
+                item.tierInfo.priority >= 10
+                    ? 220
+                    : 120,
+
+            color: cfg.color,
+
+            spread:
+                item.tierInfo.priority >= 10
+                    ? 3
+                    : 2,
+
+            speed: 2.2
+
+        });
+
+        if (item.tierInfo.priority >= 10) {
+
+            this.renderer.particles.shockwave(
+                [0,0,0],
+                cfg.color
+            );
+
+        }
+
+        await new Promise(resolve => {
+
+            const start = performance.now();
+
+            const animate = (time) => {
+
+                const progress = Math.min(
+                    1,
+                    (time - start) / duration
+                );
+
+                mesh.position.y =
+                    -3 + Math.min(progress * 2,1) * 3;
+
+                mesh.rotation.y += 0.025;
+                mesh.rotation.x += 0.01;
+
+                mesh.scale.setScalar(
+
+                    (1 +
+                    Math.sin(progress * Math.PI) * 0.2) *
+
+                    (1 +
+                    Math.min(comboCount,100)/100)
+
+                );
+
+                glow.intensity =
+                    (item.tierInfo.priority >=10 ? 6 : 4)
+                    * (1-progress);
+
+                if(progress > .7 && mesh.material){
+
+                    mesh.material.transparent = true;
+
+                    mesh.material.opacity =
+                        1 -
+                        ((progress-.7)/.3);
+
+                }
+
+                if(progress < 1){
+
+                    requestAnimationFrame(animate);
+
+                }else{
+
+                    resolve();
+
+                }
+
+            };
+
+            requestAnimationFrame(animate);
+
+        });
+
         this.renderer.removeObject(mesh);
-        this.basicActiveCount--;
-      }
-    };
-    requestAnimationFrame(animate);
-  }
 
-  async _playPremium(item) {
-    if (!this.renderer) return;
-    const cfg = item.cfg;
-    const duration = this.reducedMotion ? 1200 : item.tierInfo.durationMs;
-    const comboCount = item.comboCount || item.quantity || 1;
+        this.renderer.scene.remove(glow);
 
-    // 1-2: assets are already resolved via cfg (sound preloaded lazily)
-    // 3: dim background, focus near "recipient" (center of viewport)
-    this.ui.focusDim(true);
-    if (!this.reducedMotion) {
-      await this.renderer.panCameraTo(0.6, 0.3, 5.2, 700);
+        this.ui.focusDim(false);
+
+        if (!this.reducedMotion) {
+
+            await this.renderer.resetCamera(500);
+
+        }
+
     }
 
-    // 5: build + drop in the 3D mesh with glow/bloom-like emissive material
-    const mesh = GiftFactory.buildMesh(cfg);
-    const scaleBoost = item.tierInfo.priority >= 10 ? 1.25 : 1;
-    mesh.scale.multiplyScalar(scaleBoost * (1 + Math.min(comboCount, 100) / 100));
-    mesh.position.set(0, -3, 0);
-    this.renderer.addObject(mesh);
+    /* ========================================================
+       AUDIO
+       ======================================================== */
 
-    const glow = new THREE.PointLight(cfg.color, 4, 8);
-    glow.position.set(0, 0, 1);
-    this.renderer.scene.add(glow);
+    setMuted(muted = true) {
 
-    // 6-8: sender / receiver / gift name
-    this.ui.showBanner({ sender: item.sender, receiver: item.receiver, giftTitle: cfg.label }, Math.min(duration, 3000));
-    if (comboCount >= COMBO_STEPS[0]) {
-      this.ui.showCombo(comboCount);
+        this.sound.setMuted(muted);
+
     }
 
-    // 9: synchronized sound
-    this.sound.play(cfg.sound, { volume: item.tierInfo.priority >= 10 ? 1 : 0.85 });
+    setMasterVolume(volume = 1) {
 
-    this.renderer.particles.burst({
-      origin: [0, 0, 0],
-      count: item.tierInfo.priority >= 10 ? 160 : 80,
-      color: cfg.color,
-      spread: item.tierInfo.priority >= 10 ? 2.6 : 1.8,
-    });
+        this.sound.setMasterVolume(volume);
 
-    await new Promise((resolve) => {
-      const start = performance.now();
-      const animate = (t) => {
-        const p = Math.min(1, (t - start) / duration);
-        mesh.position.y = -3 + Math.min(1, p * 2.2) * 3;
-        mesh.rotation.y += 0.02;
-        mesh.rotation.x = Math.sin(p * Math.PI * 2) * 0.1;
-        glow.intensity = 4 * (1 - p);
-        if (p > 0.7) {
-          mesh.material.transparent = true;
-          mesh.material.opacity = 1 - (p - 0.7) / 0.3;
+    }
+
+    /* ========================================================
+       RENDERER
+       ======================================================== */
+
+    resize() {
+
+        this.renderer?._resize();
+
+    }
+
+    /* ========================================================
+       QUEUE
+       ======================================================== */
+
+    stopAll() {
+
+        this.sound.stopAll();
+
+        this.queue.clear();
+
+        this.renderer?.particles.clear();
+
+        this.ui.focusDim(false);
+
+    }
+
+    /* ========================================================
+       STATS
+       ======================================================== */
+
+    getStats() {
+
+        return {
+
+            totalAnimationsPlayed: this.totalAnimationsPlayed,
+
+            activeBasicAnimations: this.basicActiveCount,
+
+            pendingQueue: this.queue.pending,
+
+            queueBusy: this.queue.isBusy,
+
+            reducedMotion: this.reducedMotion
+
+        };
+
+    }
+
+    /* ========================================================
+       DESTROY
+       ======================================================== */
+
+    destroy() {
+
+        try {
+
+            this.stopAll();
+
+            this.renderer?.dispose();
+
+            this.ui?.destroy();
+
+        } catch (err) {
+
+            console.warn(
+                "[GiftAnimationManager] destroy:",
+                err
+            );
+
         }
-        if (p < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          resolve();
-        }
-      };
-      requestAnimationFrame(animate);
-    });
 
-    // 10: cleanup
-    this.renderer.removeObject(mesh);
-    this.renderer.scene.remove(glow);
-    this.ui.focusDim(false);
-    if (!this.reducedMotion) await this.renderer.resetCamera(500);
-  }
+    }
 
-  setMuted(muted) {
-    this.sound.setMuted(muted);
-  }
-
-  destroy() {
-    this.renderer?.dispose();
-  }
 }

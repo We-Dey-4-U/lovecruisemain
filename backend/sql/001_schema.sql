@@ -834,9 +834,9 @@ CREATE TABLE IF NOT EXISTS marketplace_orders (
   total_coins         NUMERIC NOT NULL,           -- unit_price_coins * quantity
   platform_fee_pct    NUMERIC NOT NULL DEFAULT 10, -- % kept by the platform
   platform_fee_coins  NUMERIC NOT NULL,
-  seller_payout_coins NUMERIC NOT NULL,           -- total_coins - platform_fee_coins
+  seller_payout_coins NUMERIC NOT NULL,           -- total_coins - platform_fee_coins   approved
   status              VARCHAR(20) NOT NULL DEFAULT 'pending'
-                      CHECK (status IN ('pending','shipped','delivered','cancelled','refunded')),
+                      CHECK (status IN ('pending','shipped','delivered','cancelled','refunded','approved')),
   buyer_note          TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
