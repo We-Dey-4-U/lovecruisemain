@@ -231,8 +231,12 @@ const MarketplaceService = {
     return rows;
   },
 
+  // NOTE: 'approved' added — this is the seller-side action that moves an
+  // order out of 'pending' once they've reviewed the buyer's shipping info
+  // and are ready to fulfill it. Only the seller may approve/ship/deliver;
+  // only the buyer may cancel, and only while still pending.
   async updateOrderStatus(actorId, orderId, newStatus) {
-    const allowed = ['shipped', 'delivered', 'cancelled'];
+    const allowed = ['approved', 'shipped', 'delivered', 'cancelled'];
     if (!allowed.includes(newStatus)) {
       throw Object.assign(new Error('Invalid status'), { status: 400 });
     }
@@ -246,8 +250,11 @@ const MarketplaceService = {
     if (newStatus === 'cancelled' && !isBuyer && order.status !== 'pending') {
       throw Object.assign(new Error('Only the buyer can cancel, and only while pending'), { status: 403 });
     }
-    if ((newStatus === 'shipped' || newStatus === 'delivered') && !isSeller) {
-      throw Object.assign(new Error('Only the seller can update shipping status'), { status: 403 });
+    if ((newStatus === 'approved' || newStatus === 'shipped' || newStatus === 'delivered') && !isSeller) {
+      throw Object.assign(new Error('Only the seller can update this order\'s status'), { status: 403 });
+    }
+    if (newStatus === 'approved' && order.status !== 'pending') {
+      throw Object.assign(new Error('Only pending orders can be approved'), { status: 400 });
     }
 
     const { rows: updated } = await db.query(

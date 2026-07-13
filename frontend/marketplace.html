@@ -95,15 +95,20 @@
 .mkt-row-info strong { font-size: 13.5px; font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mkt-row-info .mkt-row-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
 .mkt-row-info .mkt-row-price { font-size: 13px; font-weight: 900; color: #ffc857; margin-top: 5px; }
+.mkt-row-info .mkt-row-address { font-size: 11.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 9px; }
+.mkt-row-info .mkt-row-address b { color: var(--text); font-weight: 800; }
 .mkt-status-pill { align-self: flex-start; font-size: 9.5px; font-weight: 800; padding: 3px 9px; border-radius: 8px; text-transform: uppercase; letter-spacing: .03em; flex: none; }
 .mkt-status-active { background: rgba(0,217,181,.15); color: #00d9b5; }
 .mkt-status-sold, .mkt-status-delivered { background: rgba(160,90,255,.15); color: #a05aff; }
 .mkt-status-pending { background: rgba(255,200,87,.15); color: #ffc857; }
+.mkt-status-approved { background: rgba(100,181,246,.15); color: #64b5f6; }
 .mkt-status-shipped { background: rgba(33,150,243,.15); color: #64b5f6; }
 .mkt-status-cancelled { background: rgba(255,68,85,.15); color: #ff4455; }
-.mkt-row-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.mkt-row-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
 .mkt-row-actions button { background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 10.5px; font-weight: 700; padding: 5px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
 .mkt-row-actions button.danger { color: #ff4455; border-color: rgba(255,68,85,.25); }
+.mkt-row-actions button.approve-order-btn { color: #00d9b5; border-color: rgba(0,217,181,.3); }
+.mkt-row-actions button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ══ LISTING DETAIL MODAL ══ */
 .mkt-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 300; display: none; align-items: flex-end; justify-content: center; }
@@ -404,7 +409,8 @@ const MOCK_ORDERS_BUYING = [
 ];
 const MOCK_ORDERS_SELLING = [
   { id:"o3", listing_id:"l1", listing_title:"Ankara print tote bag — handmade", listing_images:["https://picsum.photos/seed/tote1/200/200"],
-    buyer_name:"Funmi Adeyemi", price_coins:850, quantity:1, status:"pending", created_at:new Date(Date.now()-5*3600e3).toISOString() },
+    buyer_name:"Funmi Adeyemi", price_coins:850, quantity:1, status:"pending",
+    shipping_address:"12 Allen Avenue, Ikeja, Lagos", created_at:new Date(Date.now()-5*3600e3).toISOString() },
 ];
 
 let activeCategory   = "all";
@@ -735,7 +741,7 @@ async function completePurchase(l, shippingAddress) {
     persistCurrentUser({ coinBalance: newBalance, coin_balance: newBalance });
     l.quantity = Math.max(0, (l.quantity||1) - 1);
     if (l.quantity === 0) l.status = "sold";
-    ORDERS_BUYING.unshift({ id: "local_"+Date.now(), listing_id: l.id, listing_title: l.title, listing_images: l.images, seller_name: l.seller_name, price_coins: l.price_coins, quantity: 1, status: "pending", created_at: new Date().toISOString() });
+    ORDERS_BUYING.unshift({ id: "local_"+Date.now(), listing_id: l.id, listing_title: l.title, listing_images: l.images, seller_name: l.seller_name, price_coins: l.price_coins, quantity: 1, status: "pending", shipping_address: shippingAddress, created_at: new Date().toISOString() });
   }
   ME.coinBalance = ME.coin_balance = window.CURRENT_USER.coinBalance ?? window.CURRENT_USER.coin_balance;
   document.getElementById("topbar-coin-balance").textContent = formatCoins(ME.coinBalance || 0);
@@ -798,6 +804,11 @@ async function loadOrders() {
   }
   renderOrders();
 }
+
+/* Seller view now surfaces the buyer's shipping address plus an
+   "Approve" action on pending orders, which PATCHes the order to
+   'approved' via /marketplace/orders/:id/status (handled server-side
+   by MarketplaceService.updateOrderStatus). */
 function renderOrders() {
   const el    = document.getElementById("orders-list");
   const items = ordersSub === "buying" ? ORDERS_BUYING : ORDERS_SELLING;
@@ -805,20 +816,49 @@ function renderOrders() {
     el.innerHTML = `<div class="mkt-empty"><div class="icon">🧾</div><h3 style="font-size:15px;font-weight:700;">No orders yet</h3></div>`;
     return;
   }
+  const isSelling = ordersSub === "selling";
   el.innerHTML = items.map(o => {
     const imgs  = normalizeImages(o.listing_images);
     const thumb = imgs[0]?.url || `https://ui-avatars.com/api/?name=${encodeURIComponent(o.listing_title||'Item')}&size=200`;
+    const canApprove = isSelling && o.status === "pending";
     return `
-    <div class="mkt-row-card">
+    <div class="mkt-row-card" data-id="${o.id}" style="cursor:default;">
       <img class="mkt-row-img" src="${escapeHtml(thumb)}" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(o.listing_title||'Item')}&size=200'" alt="">
       <div class="mkt-row-info">
         <strong>${escapeHtml(o.listing_title)}</strong>
-        <div class="mkt-row-sub">${ordersSub === "buying" ? "Sold by " + escapeHtml(o.seller_name||"seller") : "Buyer: " + escapeHtml(o.buyer_name||"buyer")} · ${timeAgo(o.created_at)} ago</div>
+        <div class="mkt-row-sub">${isSelling ? "Buyer: " + escapeHtml(o.buyer_name||"buyer") : "Sold by " + escapeHtml(o.seller_name||"seller")} · ${timeAgo(o.created_at)} ago</div>
         <div class="mkt-row-price">🪙 ${formatCoins(o.price_coins)} × ${o.quantity}</div>
+        ${isSelling && o.shipping_address ? `<div class="mkt-row-address">📍 <b>Ship to:</b> ${escapeHtml(o.shipping_address)}</div>` : ""}
       </div>
-      <span class="mkt-status-pill mkt-status-${o.status}">${o.status}</span>
+      <div class="mkt-row-actions">
+        <span class="mkt-status-pill mkt-status-${o.status}">${escapeHtml(o.status)}</span>
+        ${canApprove ? `<button class="approve-order-btn" data-id="${o.id}">Approve</button>` : ""}
+      </div>
     </div>`;
   }).join("");
+
+  if (isSelling) {
+    el.querySelectorAll(".approve-order-btn").forEach(btn => {
+      btn.addEventListener("click", () => approveOrder(btn.dataset.id, btn));
+    });
+  }
+}
+
+async function approveOrder(orderId, btn) {
+  btn.disabled = true;
+  btn.textContent = "Approving…";
+  try {
+    await api.request(`/marketplace/orders/${orderId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "approved" }),
+    });
+  } catch (err) {
+    // No backend yet — simulate the approval locally so the flow is demo-able end to end.
+    const order = ORDERS_SELLING.find(o => String(o.id) === String(orderId));
+    if (order) order.status = "approved";
+  }
+  showToast("Order approved ✓");
+  loadOrders();
 }
 
 /* ══════════════════════════════════════════

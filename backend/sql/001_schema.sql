@@ -1068,3 +1068,18 @@ COMMIT;
 --      PayPal, Square/Cash App, NOWPayments, Appwrite, Google/FB
 --      OAuth) before enabling those routes in production.
 -- ============================================================
+
+
+
+
+-- backend/migrations/xxxx_add_withdrawals_and_marketplace_fields.sql
+
+BEGIN;
+
+ALTER TABLE marketplace_listings ADD COLUMN IF NOT EXISTS seller_contact VARCHAR(50);
+ALTER TABLE marketplace_orders   ADD COLUMN IF NOT EXISTS shipping_address TEXT;
+ALTER TABLE withdrawal_requests  ALTER COLUMN cash_amount DROP NOT NULL;
+
+COMMIT;
+
+
