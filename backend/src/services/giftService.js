@@ -7,6 +7,9 @@ const PLATFORM_SHARE_PCT = 0.30;
 
 const GiftService = {
   async listCatalog() {
+    // icon_url is the PNG used both by the gift-selector grid and by
+    // the 2D gift-animation engine (giftController.send() forwards it
+    // as `giftIcon` on the socket broadcast — see giftController.js).
     const { rows } = await db.query(
       `SELECT id, name, emoji, icon_url, animation_url, price_coins, category, sort_order, is_golden_love
        FROM gifts WHERE is_active = TRUE ORDER BY sort_order ASC, price_coins ASC`
@@ -33,6 +36,9 @@ const GiftService = {
 
       await AntiFraudService.assertGiftAllowed(client, { senderId, receiverId });
 
+      // SELECT * so `gift.icon_url` (and every other column) is
+      // available on the returned `result.gift` for the controller
+      // to forward to the socket payload.
       const { rows: giftRows } = await client.query(
         'SELECT * FROM gifts WHERE id = $1 AND is_active = TRUE',
         [giftId]
@@ -115,16 +121,9 @@ const GiftService = {
       client.release();
     }
 
-    // NOTE: Host Academy qualification tracking is intentionally NOT
-    // triggered here. It's fired by the controller (giftController.send)
-    // right after this resolves, since the controller already has `io`
-    // via req.app.get('io') and this keeps giftService decoupled from
-    // Socket.IO. See giftController.js — it checks `gift.is_golden_love`
-    // on the returned result and calls HostAcademyService.recordGoldenLoveGift.
-
     return {
       transaction: tx,
-      gift,
+      gift, // includes icon_url — used by giftController.send() for the socket payload
       totalCoins: tx.total_coins,
       hostShare,
       platformShare,
@@ -133,7 +132,7 @@ const GiftService = {
 
   async receivedHistory(userId, { limit = 50, offset = 0 } = {}) {
     const { rows } = await db.query(
-      `SELECT gt.*, g.name AS gift_name, g.emoji, u.username AS sender_username
+      `SELECT gt.*, g.name AS gift_name, g.emoji, g.icon_url, u.username AS sender_username
        FROM gift_transactions gt
        JOIN gifts g ON g.id = gt.gift_id
        JOIN users u ON u.id = gt.sender_id
@@ -146,7 +145,7 @@ const GiftService = {
 
   async sentHistory(userId, { limit = 50, offset = 0 } = {}) {
     const { rows } = await db.query(
-      `SELECT gt.*, g.name AS gift_name, g.emoji, u.username AS receiver_username
+      `SELECT gt.*, g.name AS gift_name, g.emoji, g.icon_url, u.username AS receiver_username
        FROM gift_transactions gt
        JOIN gifts g ON g.id = gt.gift_id
        JOIN users u ON u.id = gt.receiver_id

@@ -1,1178 +1,180 @@
 /* ============================================================
-   gift-engine/giftConfig.js
-   PHASE 1 - PART 1
-   Upgraded Gift Configuration
+   gift-engine/giftAnimConfig.js
+   ------------------------------------------------------------
+   Replaces the old giftConfig.js (which pointed at .glb models).
 
-   Backward Compatible
-   Ready for:
-   ✓ GLB Models
-   ✓ PNG Fallbacks
-   ✓ Custom Animations
-   ✓ Particle Presets
-   ✓ Bloom
-   ✓ Lighting
-   ✓ Shadows
-   ✓ Cinematic Effects
+   Every gift is still shown to the viewer as its own PNG
+   (gifts.icon_url) — this file only decides HOW that PNG moves
+   (the animation name), what particles surround it, what color
+   the glow/particles use, and which tier it belongs to (which
+   controls queueing/overlap behavior via QueueManager).
+
+   Keys are lowercased gift `name` values — must match exactly
+   what's in the `gifts` table (see the reset migration).
    ============================================================ */
 
-export const GIFT_TIERS = {
-  basic: {
-    priority: 1,
-    durationMs: 1600,
-    allowOverlap: true,
-    bloom: 0.2,
-    cameraFx: false,
-    particles: true,
-  },
+export const ANIM_TIERS = {
+  // Basic: fire-and-forget, many can play at once, short & cheap.
+  basic: { priority: 1, durationMs: 1700, allowOverlap: true },
 
-  premium: {
-    priority: 5,
-    durationMs: 4500,
-    allowOverlap: false,
-    bloom: 0.8,
-    cameraFx: true,
-    particles: true,
-  },
+  // Premium: one at a time, screen-dim + banner, medium length.
+  premium: { priority: 5, durationMs: 4200, allowOverlap: false },
 
-  legendary: {
-    priority: 10,
-    durationMs: 6500,
-    allowOverlap: false,
-    bloom: 1.5,
-    cameraFx: true,
-    particles: true,
-  },
+  // Legendary: one at a time, biggest/longest, full-focus cinematic.
+  legendary: { priority: 10, durationMs: 6000, allowOverlap: false },
 };
 
-/* ============================================================
-   Default Configuration
-   ============================================================ */
-
-export const DEFAULT_GIFT_CONFIG = {
-
-  tier: "basic",
-
-  label: "Gift",
-
-  color: 0xffffff,
-
-  shape: "sphere",
-
-  modelUrl: null,
-
-  textureUrl: null,
-
+const DEFAULT_ANIM = {
+  tier: 'basic',
+  animation: 'popGlow',
+  particle: 'sparkles',
+  color: '#ffffff',
   sound: null,
-
-  animation: "basic",
-
-  particlePreset: "sparkles",
-
-  rarity: "common",
-
-  scale: 1,
-
-  bloomIntensity: 0.25,
-
-  emissiveIntensity: 0.15,
-
-  metallic: 0.35,
-
-  roughness: 0.45,
-
-  castShadow: true,
-
-  receiveShadow: true,
-
-  useModel: false,
-
-  useHDR: false,
-
-  useGlow: false,
-
-  useParticles: true,
-
-  useScreenFX: false,
-
-  useCameraFX: false,
-
-  useLightingFX: false,
 };
 
-/* ============================================================
-   Helper
-   ============================================================ */
-
-function createGift(config) {
-
-  const tierInfo = GIFT_TIERS[config.tier] || GIFT_TIERS.basic;
-
-  return {
-
-    ...DEFAULT_GIFT_CONFIG,
-
-    ...config,
-
-    tierInfo,
-
-  };
+function define(cfg) {
+  const tierInfo = ANIM_TIERS[cfg.tier] || ANIM_TIERS.basic;
+  return { ...DEFAULT_ANIM, ...cfg, tierInfo };
 }
 
 /* ============================================================
-   Gift Registry
+   REGISTRY — one entry per gift in the reset migration
    ============================================================ */
+export const GIFT_ANIM_REGISTRY = {
 
-export const GIFT_REGISTRY = {
-
-  /* ============================================================
-     BASIC GIFTS
-     ============================================================ */
-
-  "rose": createGift({
-
-    tier: "basic",
-
-    label: "Rose",
-
-    color: 0xff3d7f,
-
-    shape: "heart",
-
-    modelUrl: "assets/gifts/models/rose.glb",
-
-    textureUrl: "assets/gifts/textures/rose.png",
-
-    sound: "assets/gifts/sounds/rose.mp3",
-
-    animation: "rose",
-
-    particlePreset: "rosePetals",
-
-    rarity: "common",
-
-    useModel: true,
-
-    useGlow: true,
-
-    bloomIntensity: 0.35,
-
+  /* ── Basic (overlap, ~1.7s) ── */
+  'rose': define({
+    tier: 'basic',
+    animation: 'flyInGrow',
+    particle: 'petals',
+    color: '#ff3d7f',
+    sound: '/assets/gifts/sounds/rose.mp3',
   }),
 
-  "heart": createGift({
-
-    tier: "basic",
-
-    label: "Heart",
-
-    color: 0xff4d8d,
-
-    shape: "heart",
-
-    modelUrl: "assets/gifts/models/heart.glb",
-
-    textureUrl: "assets/gifts/textures/heart.png",
-
-    animation: "heart",
-
-    particlePreset: "hearts",
-
-    sound: "assets/gifts/sounds/heart.mp3",
-
-    useModel: true,
-
-    useGlow: true,
-
+  'heart': define({
+    tier: 'basic',
+    animation: 'pulseFloat',
+    particle: 'hearts',
+    color: '#ff4d8d',
+    sound: '/assets/gifts/sounds/heart.mp3',
   }),
 
-  "kiss": createGift({
-
-    tier: "basic",
-
-    label: "Kiss",
-
-    color: 0xff75a8,
-
-    shape: "heart",
-
-    modelUrl: "assets/gifts/models/kiss.glb",
-
-    textureUrl: "assets/gifts/textures/kiss.png",
-
-    animation: "kiss",
-
-    particlePreset: "heartBurst",
-
-    sound: "assets/gifts/sounds/kiss.mp3",
-
-    useModel: true,
-
-    useGlow: true,
-
+  'like': define({
+    tier: 'basic',
+    animation: 'bounceScale',
+    particle: 'trailDots',
+    color: '#3d9bff',
   }),
 
-  "clap": createGift({
-
-    tier: "basic",
-
-    label: "Clap",
-
-    color: 0xffc857,
-
-    shape: "star",
-
-    modelUrl: "assets/gifts/models/clap.glb",
-
-    textureUrl: "assets/gifts/textures/clap.png",
-
-    animation: "clap",
-
-    particlePreset: "goldSparkles",
-
-    sound: "assets/gifts/sounds/clap.mp3",
-
-    useModel: true,
-
+  'kiss': define({
+    tier: 'basic',
+    animation: 'flyAcrossTilt',
+    particle: 'lipTrail',
+    color: '#ff75a8',
+    sound: '/assets/gifts/sounds/kiss.mp3',
   }),
 
-  "bouquet": createGift({
-
-    tier: "basic",
-
-    label: "Bouquet",
-
-    color: 0xff82b9,
-
-    shape: "flower",
-
-    modelUrl: "assets/gifts/models/bouquet.glb",
-
-    textureUrl: "assets/gifts/textures/bouquet.png",
-
-    animation: "bouquet",
-
-    particlePreset: "petals",
-
-    sound: "assets/gifts/sounds/bouquet.mp3",
-
-    useModel: true,
-
-    bloomIntensity: 0.45,
-
+  /* ── Premium (queued, ~3.5-4.5s) ── */
+  'golden love': define({
+    tier: 'premium',
+    animation: 'spin3d',
+    particle: 'goldSparkles',
+    color: '#ffc857',
+    sound: '/assets/gifts/sounds/golden-love.mp3',
   }),
 
-  "birthday cake": createGift({
-
-    tier: "basic",
-
-    label: "Birthday Cake",
-
-    color: 0xffd479,
-
-    shape: "cake",
-
-    modelUrl: "assets/gifts/models/cake.glb",
-
-    textureUrl: "assets/gifts/textures/cake.png",
-
-    animation: "cake",
-
-    particlePreset: "confetti",
-
-    sound: "assets/gifts/sounds/birthday.mp3",
-
-    useModel: true,
-
-    bloomIntensity: 0.55,
-
+  'teddy bear': define({
+    tier: 'premium',
+    animation: 'jumpSpin',
+    particle: 'hearts',
+    color: '#c98a4b',
   }),
 
-
-    /* ============================================================
-     PREMIUM GIFTS
-     ============================================================ */
-
-  "golden love": createGift({
-
-    tier: "premium",
-
-    label: "Golden Love",
-
-    color: 0xffc857,
-
-    shape: "heart",
-
-    modelUrl: "assets/gifts/models/goldenLove.glb",
-
-    textureUrl: "assets/gifts/textures/goldenLove.png",
-
-    sound: "assets/gifts/sounds/premium_chime.mp3",
-
-    animation: "goldenLove",
-
-    particlePreset: "goldHearts",
-
-    rarity: "rare",
-
-    scale: 1.15,
-
-    bloomIntensity: 0.9,
-
-    emissiveIntensity: 0.6,
-
-    metallic: 0.85,
-
-    roughness: 0.18,
-
-    castShadow: true,
-
-    receiveShadow: true,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
+  'bouquet': define({
+    tier: 'premium',
+    animation: 'bloomScale',
+    particle: 'petals',
+    color: '#ff82b9',
   }),
 
-  "teddy bear": createGift({
-
-    tier: "premium",
-
-    label: "Teddy Bear",
-
-    color: 0xc98a4b,
-
-    shape: "box",
-
-    modelUrl: "assets/gifts/models/teddyBear.glb",
-
-    textureUrl: "assets/gifts/textures/teddyBear.png",
-
-    sound: "assets/gifts/sounds/premium_chime.mp3",
-
-    animation: "teddyBear",
-
-    particlePreset: "hearts",
-
-    rarity: "rare",
-
-    scale: 1.1,
-
-    bloomIntensity: 0.75,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useCameraFX: true,
-
+  'diamond ring': define({
+    tier: 'premium',
+    animation: 'spinShine',
+    particle: 'diamondSparkle',
+    color: '#ffe9a8',
+    sound: '/assets/gifts/sounds/ring.mp3',
   }),
 
-  "ring": createGift({
-
-    tier: "premium",
-
-    label: "Diamond Ring",
-
-    color: 0xffe9a8,
-
-    shape: "ring",
-
-    modelUrl: "assets/gifts/models/ring.glb",
-
-    textureUrl: "assets/gifts/textures/ring.png",
-
-    sound: "assets/gifts/sounds/ring.mp3",
-
-    animation: "ring",
-
-    particlePreset: "diamondExplosion",
-
-    rarity: "epic",
-
-    scale: 1.2,
-
-    bloomIntensity: 1.2,
-
-    emissiveIntensity: 0.8,
-
-    metallic: 1,
-
-    roughness: 0.05,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
+  'diamond': define({
+    tier: 'premium',
+    animation: 'spinShine',
+    particle: 'rainbowShards',
+    color: '#9ff0ff',
   }),
 
-  "diamond": createGift({
-
-    tier: "premium",
-
-    label: "Diamond",
-
-    color: 0x9ff0ff,
-
-    shape: "diamond",
-
-    modelUrl: "assets/gifts/models/diamond.glb",
-
-    textureUrl: "assets/gifts/textures/diamond.png",
-
-    sound: "assets/gifts/sounds/diamond.mp3",
-
-    animation: "diamond",
-
-    particlePreset: "diamondShards",
-
-    rarity: "epic",
-
-    scale: 1.25,
-
-    bloomIntensity: 1.4,
-
-    emissiveIntensity: 0.9,
-
-    metallic: 1,
-
-    roughness: 0,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
+  'birthday cake': define({
+    tier: 'premium',
+    animation: 'popIn',
+    particle: 'confetti',
+    color: '#ffd479',
+    sound: '/assets/gifts/sounds/birthday.mp3',
   }),
 
-  "sports car": createGift({
-
-    tier: "premium",
-
-    label: "Sports Car",
-
-    color: 0xff3d3d,
-
-    shape: "box",
-
-    modelUrl: "assets/gifts/models/sportsCar.glb",
-
-    textureUrl: "assets/gifts/textures/sportsCar.png",
-
-    sound: "assets/gifts/sounds/car.mp3",
-
-    animation: "sportsCar",
-
-    particlePreset: "tireSmoke",
-
-    rarity: "epic",
-
-    scale: 1.4,
-
-    bloomIntensity: 1,
-
-    metallic: 0.9,
-
-    roughness: 0.2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
+  /* ── Legendary (queued, ~5-6s, full-screen focus) ── */
+  'crown': define({
+    tier: 'legendary',
+    animation: 'floatBob',
+    particle: 'goldStars',
+    color: '#ffd479',
   }),
 
-  "yacht": createGift({
-
-    tier: "premium",
-
-    label: "Luxury Yacht",
-
-    color: 0x9fd8ff,
-
-    shape: "box",
-
-    modelUrl: "assets/gifts/models/yacht.glb",
-
-    textureUrl: "assets/gifts/textures/yacht.png",
-
-    sound: "assets/gifts/sounds/yacht.mp3",
-
-    animation: "yacht",
-
-    particlePreset: "waterSplash",
-
-    rarity: "epic",
-
-    scale: 1.35,
-
-    bloomIntensity: 1,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
+  'sports car': define({
+    tier: 'legendary',
+    animation: 'driveAcross',
+    particle: 'smokeTrail',
+    color: '#ff3d3d',
   }),
 
-  "rocket": createGift({
-
-    tier: "premium",
-
-    label: "Rocket",
-
-    color: 0xff8a3d,
-
-    shape: "cone",
-
-    modelUrl: "assets/gifts/models/rocket.glb",
-
-    textureUrl: "assets/gifts/textures/rocket.png",
-
-    sound: "assets/gifts/sounds/rocket_launch.mp3",
-
-    animation: "rocket",
-
-    particlePreset: "rocketSmoke",
-
-    rarity: "epic",
-
-    scale: 1.3,
-
-    bloomIntensity: 1.3,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
+  'yacht': define({
+    tier: 'legendary',
+    animation: 'sailAcross',
+    particle: 'waterSplash',
+    color: '#9fd8ff',
   }),
 
-  "love bomb": createGift({
-
-    tier: "premium",
-
-    label: "Love Bomb",
-
-    color: 0xff3d7f,
-
-    shape: "diamond",
-
-    modelUrl: "assets/gifts/models/loveBomb.glb",
-
-    textureUrl: "assets/gifts/textures/loveBomb.png",
-
-    sound: "assets/gifts/sounds/loveBomb.mp3",
-
-    animation: "loveBomb",
-
-    particlePreset: "heartExplosion",
-
-    rarity: "epic",
-
-    scale: 1.25,
-
-    bloomIntensity: 1.2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
+  'private jet': define({
+    tier: 'legendary',
+    animation: 'flyAcross',
+    particle: 'cloudTrail',
+    color: '#dfe8ff',
   }),
 
-  "magic wand": createGift({
-
-    tier: "premium",
-
-    label: "Magic Wand",
-
-    color: 0xb38aff,
-
-    shape: "cone",
-
-    modelUrl: "assets/gifts/models/magicWand.glb",
-
-    textureUrl: "assets/gifts/textures/magicWand.png",
-
-    sound: "assets/gifts/sounds/magic.mp3",
-
-    animation: "magicWand",
-
-    particlePreset: "magicDust",
-
-    rarity: "epic",
-
-    scale: 1.2,
-
-    bloomIntensity: 1.2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
+  'castle': define({
+    tier: 'legendary',
+    animation: 'riseUp',
+    particle: 'fireworks',
+    color: '#ffd479',
   }),
 
-  "fireworks": createGift({
-
-    tier: "premium",
-
-    label: "Fireworks",
-
-    color: 0xffe9a8,
-
-    shape: "star",
-
-    modelUrl: "assets/gifts/models/fireworks.glb",
-
-    textureUrl: "assets/gifts/textures/fireworks.png",
-
-    sound: "assets/gifts/sounds/fireworks.mp3",
-
-    animation: "fireworks",
-
-    particlePreset: "fireworks",
-
-    rarity: "epic",
-
-    scale: 1.4,
-
-    bloomIntensity: 1.5,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
+  'fireworks': define({
+    tier: 'legendary',
+    animation: 'expandPulse',
+    particle: 'fireworks',
+    color: '#ffe9a8',
+    sound: '/assets/gifts/sounds/fireworks.mp3',
   }),
-
-  "private jet": createGift({
-
-    tier: "premium",
-
-    label: "Private Jet",
-
-    color: 0xdfe8ff,
-
-    shape: "plane",
-
-    modelUrl: "assets/gifts/models/privateJet.glb",
-
-    textureUrl: "assets/gifts/textures/privateJet.png",
-
-    sound: "assets/gifts/sounds/privateJet.mp3",
-
-    animation: "privateJet",
-
-    particlePreset: "jetSmoke",
-
-    rarity: "legendary",
-
-    scale: 1.6,
-
-    bloomIntensity: 1.5,
-
-    emissiveIntensity: 0.9,
-
-    metallic: 1,
-
-    roughness: 0.08,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-
-    /* ============================================================
-     LEGENDARY GIFTS
-     ============================================================ */
-
-  "crown": createGift({
-
-    tier: "legendary",
-
-    label: "King's Crown",
-
-    color: 0xffd479,
-
-    shape: "crown",
-
-    modelUrl: "assets/gifts/models/crown.glb",
-
-    textureUrl: "assets/gifts/textures/crown.png",
-
-    sound: "assets/gifts/sounds/legendary_fanfare.mp3",
-
-    animation: "crown",
-
-    particlePreset: "goldExplosion",
-
-    rarity: "legendary",
-
-    scale: 1.6,
-
-    bloomIntensity: 1.8,
-
-    emissiveIntensity: 1,
-
-    metallic: 1,
-
-    roughness: 0.05,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "money bag": createGift({
-
-    tier: "legendary",
-
-    label: "Money Bag",
-
-    color: 0x6dff8a,
-
-    shape: "bag",
-
-    modelUrl: "assets/gifts/models/moneyBag.glb",
-
-    textureUrl: "assets/gifts/textures/moneyBag.png",
-
-    sound: "assets/gifts/sounds/moneyBag.mp3",
-
-    animation: "moneyBag",
-
-    particlePreset: "coinRain",
-
-    rarity: "legendary",
-
-    scale: 1.5,
-
-    bloomIntensity: 1.6,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "treasure chest": createGift({
-
-    tier: "legendary",
-
-    label: "Treasure Chest",
-
-    color: 0xd4a23a,
-
-    shape: "chest",
-
-    modelUrl: "assets/gifts/models/treasureChest.glb",
-
-    textureUrl: "assets/gifts/textures/treasureChest.png",
-
-    sound: "assets/gifts/sounds/treasure.mp3",
-
-    animation: "treasureChest",
-
-    particlePreset: "goldCoins",
-
-    rarity: "legendary",
-
-    scale: 1.5,
-
-    bloomIntensity: 1.8,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "dragon": createGift({
-
-    tier: "legendary",
-
-    label: "Golden Dragon",
-
-    color: 0xffae42,
-
-    shape: "dragon",
-
-    modelUrl: "assets/gifts/models/dragon.glb",
-
-    textureUrl: "assets/gifts/textures/dragon.png",
-
-    sound: "assets/gifts/sounds/dragon.mp3",
-
-    animation: "dragon",
-
-    particlePreset: "dragonFire",
-
-    rarity: "mythic",
-
-    scale: 2,
-
-    bloomIntensity: 2,
-
-    emissiveIntensity: 1.2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "angel wings": createGift({
-
-    tier: "legendary",
-
-    label: "Angel Wings",
-
-    color: 0xffffff,
-
-    shape: "wings",
-
-    modelUrl: "assets/gifts/models/angel.glb",
-
-    textureUrl: "assets/gifts/textures/angel.png",
-
-    sound: "assets/gifts/sounds/angel.mp3",
-
-    animation: "angel",
-
-    particlePreset: "feathers",
-
-    rarity: "mythic",
-
-    scale: 1.7,
-
-    bloomIntensity: 1.9,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "galaxy": createGift({
-
-    tier: "legendary",
-
-    label: "Galaxy",
-
-    color: 0xb38aff,
-
-    shape: "galaxy",
-
-    modelUrl: "assets/gifts/models/galaxy.glb",
-
-    textureUrl: "assets/gifts/textures/galaxy.png",
-
-    sound: "assets/gifts/sounds/galaxy.mp3",
-
-    animation: "galaxy",
-
-    particlePreset: "galaxyStars",
-
-    rarity: "mythic",
-
-    scale: 2,
-
-    bloomIntensity: 2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "love castle": createGift({
-
-    tier: "legendary",
-
-    label: "Love Castle",
-
-    color: 0xff3d7f,
-
-    shape: "castle",
-
-    modelUrl: "assets/gifts/models/loveCastle.glb",
-
-    textureUrl: "assets/gifts/textures/loveCastle.png",
-
-    sound: "assets/gifts/sounds/castle.mp3",
-
-    animation: "loveCastle",
-
-    particlePreset: "heartRain",
-
-    rarity: "mythic",
-
-    scale: 2,
-
-    bloomIntensity: 2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "infinity heart": createGift({
-
-    tier: "legendary",
-
-    label: "Infinity Heart",
-
-    color: 0xff3d7f,
-
-    shape: "heart",
-
-    modelUrl: "assets/gifts/models/infinityHeart.glb",
-
-    textureUrl: "assets/gifts/textures/infinityHeart.png",
-
-    sound: "assets/gifts/sounds/infinity.mp3",
-
-    animation: "infinityHeart",
-
-    particlePreset: "heartUniverse",
-
-    rarity: "mythic",
-
-    scale: 1.8,
-
-    bloomIntensity: 2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
-  "castle": createGift({
-
-    tier: "legendary",
-
-    label: "Castle",
-
-    color: 0xffd479,
-
-    shape: "castle",
-
-    modelUrl: "assets/gifts/models/castle.glb",
-
-    textureUrl: "assets/gifts/textures/castle.png",
-
-    sound: "assets/gifts/sounds/castle.mp3",
-
-    animation: "castle",
-
-    particlePreset: "castleFireworks",
-
-    rarity: "mythic",
-
-    scale: 2,
-
-    bloomIntensity: 2,
-
-    useModel: true,
-
-    useGlow: true,
-
-    useHDR: true,
-
-    useCameraFX: true,
-
-    useLightingFX: true,
-
-    useScreenFX: true,
-
-  }),
-
 };
 
-/* ============================================================
-   Public Resolver
-   ============================================================ */
-
-export function resolveGiftConfig(giftNameRaw) {
-
-    const key = String(giftNameRaw || "")
-        .trim()
-        .toLowerCase();
-
-    const config =
-        GIFT_REGISTRY[key] ||
-        DEFAULT_GIFT_CONFIG;
-
-    return {
-
-        ...config,
-
-        tierInfo:
-            GIFT_TIERS[config.tier] ||
-            GIFT_TIERS.basic,
-
-    };
-
+/**
+ * Resolves a gift name (any case/spacing) to its animation profile.
+ * Falls back to a generic pop+glow+sparkles basic animation for any
+ * gift added to the DB later that hasn't been given a bespoke profile.
+ */
+export function resolveGiftAnim(giftNameRaw) {
+  const key = String(giftNameRaw || '').trim().toLowerCase();
+  return GIFT_ANIM_REGISTRY[key] || define(DEFAULT_ANIM);
 }
 
-export function getGiftConfig(name) {
-    return resolveGiftConfig(name);
+export function hasGiftAnim(name) {
+  return !!GIFT_ANIM_REGISTRY[String(name || '').trim().toLowerCase()];
 }
-
-export function getAllGiftConfigs() {
-    return GIFT_REGISTRY;
-}
-
-export function hasGift(name) {
-    return !!GIFT_REGISTRY[String(name).trim().toLowerCase()];
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

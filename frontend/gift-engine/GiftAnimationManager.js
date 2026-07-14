@@ -1,134 +1,74 @@
 /* ============================================================
-   gift-engine/GiftAnimationManager.js   [NEW FILE]
+   gift-engine/GiftAnimationManager.js
    ------------------------------------------------------------
-   PUBLIC API — this is the ONLY thing live.js imports/calls.
-   It does not touch sockets, wallet, or DB logic — it only
-   reacts to gift payloads handed to it.
+   REWRITE: PNG-based 2D engine (replaces the old Three.js/GLB
+   engine). Public API is UNCHANGED, so live.html/podcast-live.html
+   don't need any edits — same import path, same constructor call:
 
      import { GiftAnimationManager } from "./gift-engine/GiftAnimationManager.js";
      const giftEngine = new GiftAnimationManager(document.getElementById("gift-engine-root"));
      giftEngine.playGift(payload); // payload = whatever giftReceived already sends
 
    payload fields used (all optional/defensive):
-     { name, senderId, avatar, giftName, giftEmoji, amount }
-   ============================================================ */
-/* ============================================================
-   gift-engine/GiftAnimationManager.js
-   PART 1
+     { name, senderId, avatar, giftName, giftEmoji, giftIcon, amount, quantity }
 
-   FIX (this pass): `_playBasic` previously called
-   `GiftFactory.buildMesh()` (an async function) WITHOUT
-   awaiting it, then immediately called `.position.set(...)` on
-   the returned Promise object. Every basic-tier gift (Rose,
-   Heart, Clap, Bouquet, Cake, Kiss) would throw here in
-   production. `_playBasic` is now async and properly awaits
-   the mesh. Basic gifts now also play their sound via
-   SoundManager, matching the original spec (previously only
-   premium/legendary gifts played sound).
+   `giftIcon` (gifts.icon_url, forwarded by giftController.send())
+   is what actually gets animated — the viewer sees the EXACT PNG
+   from the gift catalog fly/spin/pulse/drive across the screen,
+   not a substitute 3D shape. If giftIcon is missing/fails to load,
+   it falls back to giftEmoji automatically (see GiftSpriteAnimator.js).
+
+   Still reused UNCHANGED from the old engine (both are generic,
+   never touched Three.js): ComboManager.js, QueueManager.js,
+   SoundManager.js, UIOverlay.js.
    ============================================================ */
 
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-
-import { ThreeRenderer } from "./ThreeRenderer.js";
-import { GiftFactory } from "./GiftFactory.js";
 import { SoundManager } from "./SoundManager.js";
 import { UIOverlay } from "./UIOverlay.js";
-import { QueueManager } from "./QueueManager.js";
 import { ComboManager, COMBO_STEPS } from "./ComboManager.js";
-import { resolveGiftConfig, GIFT_REGISTRY } from "./giftConfig.js";
+import { QueueManager } from "./QueueManager.js";
+import { ParticleLayer2D } from "./ParticleLayer2D.js";
+import { playSprite } from "./GiftSpriteAnimator.js";
+import { resolveGiftAnim } from "./giftAnimConfig.js";
 
 export class GiftAnimationManager {
 
-    constructor(
-        rootEl,
-        {
-            maxBasicConcurrent = 12,
-            preloadAssets = true
-        } = {}
-    ) {
+    constructor(rootEl, { maxBasicConcurrent = 14 } = {}) {
 
         if (!rootEl) {
-
-            throw new Error(
-                "GiftAnimationManager requires a root element"
-            );
-
+            throw new Error("GiftAnimationManager requires a root element");
         }
 
         this.rootEl = rootEl;
+        this.rootEl.style.cssText = `
+            position:fixed;
+            inset:0;
+            pointer-events:none;
+            z-index:15;
+            overflow:hidden;
+        `;
 
         this.reducedMotion =
-            window.matchMedia(
-                "(prefers-reduced-motion: reduce)"
-            ).matches;
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-        try {
-
-            this.renderer = new ThreeRenderer(rootEl);
-
-        } catch (err) {
-
-            console.error(
-                "[GiftAnimationManager] WebGL init failed:",
-                err
-            );
-
-            this.renderer = null;
-
-        }
-
+        this.particles = new ParticleLayer2D(rootEl);
         this.sound = new SoundManager();
-
         this.ui = new UIOverlay(rootEl);
-
         this.combo = new ComboManager();
 
         this.basicActiveCount = 0;
-
         this.maxBasicConcurrent = maxBasicConcurrent;
-
         this.totalAnimationsPlayed = 0;
 
         this.queue = new QueueManager({
 
-            onPlayPremium: item =>
-                this._playPremium(item),
+            onPlayPremium: item => this._playFeatured(item),
+            onPlayBasic: item => this._playBasic(item),
 
-            onPlayBasic: item =>
-                this._playBasic(item),
-
-            onQueueStart: () => {
-
-                this.queueRunning = true;
-
-            },
-
-            onQueueEnd: () => {
-
-                this.queueRunning = false;
-
-            }
+            onQueueStart: () => { this.queueRunning = true; },
+            onQueueEnd: () => { this.queueRunning = false; },
 
         });
-
-        if (preloadAssets) {
-
-            try {
-
-                GiftFactory.preload(
-                    Object.values(GIFT_REGISTRY)
-                );
-
-            } catch (err) {
-
-                console.warn(
-                    "[GiftAnimationManager] preload failed",
-                    err
-                );
-
-            }
-
-        }
 
     }
 
@@ -146,8 +86,7 @@ export class GiftAnimationManager {
                 payload.gift?.name ||
                 "Gift";
 
-            const cfg =
-                resolveGiftConfig(giftName);
+            const cfg = resolveGiftAnim(giftName);
 
             const item = {
 
@@ -176,7 +115,18 @@ export class GiftAnimationManager {
                     giftName.toLowerCase(),
 
                 giftTitle:
-                    cfg.label,
+                    giftName,
+
+                // The actual PNG to animate — server-authoritative,
+                // sourced from gifts.icon_url via giftController.send().
+                giftIcon:
+                    payload.giftIcon ||
+                    payload.iconUrl ||
+                    payload.icon_url ||
+                    null,
+
+                giftEmoji:
+                    payload.giftEmoji || "🎁",
 
                 quantity:
                     payload.quantity || 1,
@@ -190,7 +140,7 @@ export class GiftAnimationManager {
                 cfg,
 
                 tierInfo:
-                    cfg.tierInfo
+                    cfg.tierInfo,
 
             };
 
@@ -284,84 +234,17 @@ export class GiftAnimationManager {
     }
 
     /* ========================================================
-       BASIC GIFT ANIMATION
+       BASIC GIFT ANIMATION (overlapping, e.g. Rose/Heart/Like/Kiss)
        ======================================================== */
 
     async _playBasic(item) {
-
-        if (!this.renderer)
-            return;
 
         if (this.basicActiveCount >= this.maxBasicConcurrent)
             return;
 
         this.basicActiveCount++;
-
         this.totalAnimationsPlayed++;
 
-        let mesh;
-
-        try {
-
-            // FIX: buildMesh is async — must be awaited, otherwise
-            // `mesh` is a pending Promise and every call below
-            // (mesh.position, mesh.rotation, mesh.scale...) throws.
-            mesh = await GiftFactory.buildMesh(item.cfg);
-
-        } catch (err) {
-
-            console.warn(
-                "[GiftAnimationManager] basic buildMesh failed:",
-                err
-            );
-
-            mesh = null;
-
-        }
-
-        if (!mesh) {
-
-            this.basicActiveCount--;
-
-            return;
-
-        }
-
-        mesh.position.set(
-            (Math.random() - 0.5) * 4,
-            -2.8,
-            (Math.random() - 0.5) * 1
-        );
-
-        mesh.rotation.set(
-            Math.random(),
-            Math.random(),
-            Math.random()
-        );
-
-        this.renderer.addObject(mesh);
-
-        this.renderer.particles.burst({
-
-            origin: [
-                mesh.position.x,
-                mesh.position.y,
-                mesh.position.z
-            ],
-
-            count: 24,
-
-            color: item.cfg.color,
-
-            spread: 1.4,
-
-            speed: 1.6
-
-        });
-
-        // Basic gifts now play sound too (fire-and-forget, cloned/
-        // pooled by SoundManager so many overlapping roses etc.
-        // don't cut each other off).
         if (item.cfg.sound) {
 
             this.sound.play(item.cfg.sound, {
@@ -378,67 +261,41 @@ export class GiftAnimationManager {
             ? 500
             : item.tierInfo.durationMs;
 
-        const start = performance.now();
+        try {
 
-        const animate = (time) => {
+            await playSprite({
 
-            const progress = Math.min(
-                1,
-                (time - start) / duration
-            );
+                rootEl: this.rootEl,
+                particles: this.particles,
 
-            mesh.position.y =
-                -2.8 + progress * 5.5;
+                iconUrl: item.giftIcon,
+                emoji: item.giftEmoji,
 
-            mesh.rotation.x += 0.04;
-            mesh.rotation.y += 0.06;
-            mesh.rotation.z += 0.02;
+                animation: this.reducedMotion ? "popGlow" : item.cfg.animation,
+                color: item.cfg.color,
+                particlePreset: item.cfg.particle,
 
-            mesh.scale.setScalar(
+                durationMs: duration,
+                sizePx: 72,
+                basic: true,
 
-                0.6 +
-                Math.sin(progress * Math.PI) * 0.15
+            });
 
-            );
+        } finally {
 
-            if (mesh.material) {
+            this.basicActiveCount--;
 
-                mesh.material.transparent = true;
-
-                mesh.material.opacity = 1 - progress;
-
-            }
-
-            if (progress < 1) {
-
-                requestAnimationFrame(animate);
-
-            } else {
-
-                this.renderer.removeObject(mesh);
-
-                this.basicActiveCount--;
-
-            }
-
-        };
-
-        requestAnimationFrame(animate);
+        }
 
     }
 
     /* ========================================================
-       PREMIUM / LEGENDARY CINEMATIC
+       PREMIUM / LEGENDARY CINEMATIC (queued, one at a time)
        ======================================================== */
 
-    async _playPremium(item) {
-
-        if (!this.renderer)
-            return;
+    async _playFeatured(item) {
 
         this.totalAnimationsPlayed++;
-
-        const cfg = item.cfg;
 
         const comboCount =
             item.comboCount ||
@@ -449,63 +306,19 @@ export class GiftAnimationManager {
             ? 1200
             : item.tierInfo.durationMs;
 
+        // Slightly bigger sprite the higher the combo, capped.
+        const sizePx = Math.min(
+            260,
+            140 + Math.min(comboCount, 100) * 0.6
+        );
+
         this.ui.focusDim(true);
-
-        if (!this.reducedMotion) {
-
-            await this.renderer.panCameraTo(
-                0.6,
-                0.25,
-                5.2,
-                700
-            );
-
-        }
-
-        const mesh = await GiftFactory.buildMesh(cfg);
-
-        if (!mesh) {
-
-            this.ui.focusDim(false);
-
-            return;
-
-        }
-
-        mesh.scale.multiplyScalar(
-
-            1 +
-            Math.min(comboCount, 100) / 100
-
-        );
-
-        mesh.position.set(0, -3, 0);
-
-        this.renderer.addObject(mesh);
-
-        const glow = new THREE.PointLight(
-
-            cfg.color,
-
-            item.tierInfo.priority >= 10
-                ? 6
-                : 4,
-
-            10
-
-        );
-
-        glow.position.set(0, 0, 1);
-
-        this.renderer.scene.add(glow);
 
         this.ui.showBanner({
 
             sender: item.sender,
-
             receiver: item.receiver,
-
-            giftTitle: cfg.label
+            giftTitle: item.giftTitle,
 
         });
 
@@ -515,112 +328,38 @@ export class GiftAnimationManager {
 
         }
 
-        this.sound.play(cfg.sound, {
+        if (item.cfg.sound) {
 
-            volume:
-                item.tierInfo.priority >= 10
-                    ? 1
-                    : 0.85
+            this.sound.play(item.cfg.sound, {
 
-        });
+                volume:
+                    item.tierInfo.priority >= 10
+                        ? 1
+                        : 0.85
 
-        this.renderer.particles.burst({
-
-            origin: [0,0,0],
-
-            count:
-                item.tierInfo.priority >= 10
-                    ? 220
-                    : 120,
-
-            color: cfg.color,
-
-            spread:
-                item.tierInfo.priority >= 10
-                    ? 3
-                    : 2,
-
-            speed: 2.2
-
-        });
-
-        if (item.tierInfo.priority >= 10) {
-
-            this.renderer.particles.shockwave(
-                [0,0,0],
-                cfg.color
-            );
+            });
 
         }
 
-        await new Promise(resolve => {
+        await playSprite({
 
-            const start = performance.now();
+            rootEl: this.rootEl,
+            particles: this.particles,
 
-            const animate = (time) => {
+            iconUrl: item.giftIcon,
+            emoji: item.giftEmoji,
 
-                const progress = Math.min(
-                    1,
-                    (time - start) / duration
-                );
+            animation: this.reducedMotion ? "popGlow" : item.cfg.animation,
+            color: item.cfg.color,
+            particlePreset: item.cfg.particle,
 
-                mesh.position.y =
-                    -3 + Math.min(progress * 2,1) * 3;
-
-                mesh.rotation.y += 0.025;
-                mesh.rotation.x += 0.01;
-
-                mesh.scale.setScalar(
-
-                    (1 +
-                    Math.sin(progress * Math.PI) * 0.2) *
-
-                    (1 +
-                    Math.min(comboCount,100)/100)
-
-                );
-
-                glow.intensity =
-                    (item.tierInfo.priority >=10 ? 6 : 4)
-                    * (1-progress);
-
-                if(progress > .7 && mesh.material){
-
-                    mesh.material.transparent = true;
-
-                    mesh.material.opacity =
-                        1 -
-                        ((progress-.7)/.3);
-
-                }
-
-                if(progress < 1){
-
-                    requestAnimationFrame(animate);
-
-                }else{
-
-                    resolve();
-
-                }
-
-            };
-
-            requestAnimationFrame(animate);
+            durationMs: duration,
+            sizePx,
+            basic: false,
 
         });
-
-        this.renderer.removeObject(mesh);
-
-        this.renderer.scene.remove(glow);
 
         this.ui.focusDim(false);
-
-        if (!this.reducedMotion) {
-
-            await this.renderer.resetCamera(500);
-
-        }
 
     }
 
@@ -641,27 +380,24 @@ export class GiftAnimationManager {
     }
 
     /* ========================================================
-       RENDERER
+       RENDERER (canvas resize passthrough)
        ======================================================== */
 
     resize() {
 
-        this.renderer?._resize();
+        this.particles?.resize();
 
     }
 
     /* ========================================================
-       QUEUE
+       QUEUE / STOP
        ======================================================== */
 
     stopAll() {
 
         this.sound.stopAll();
-
         this.queue.clear();
-
-        this.renderer?.particles.clear();
-
+        this.particles?.clear();
         this.ui.focusDim(false);
 
     }
@@ -697,9 +433,7 @@ export class GiftAnimationManager {
         try {
 
             this.stopAll();
-
-            this.renderer?.dispose();
-
+            this.particles?.dispose();
             this.ui?.destroy();
 
         } catch (err) {

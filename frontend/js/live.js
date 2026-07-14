@@ -1,8 +1,21 @@
 //
 //   GIFT-ENGINE: giftReceived handler also forwards the payload
-//         to window.__giftEngine?.playGift(payload) so the 3D gift engine
-//         (gift-engine/GiftAnimationManager.js, wired up in live.html) can
-//         render a cinematic on top of the stream.
+//         to window.__giftEngine?.playGift(payload) so the 2D PNG-based
+//         gift engine (gift-engine/GiftAnimationManager.js, wired up in
+//         live.html) can render the gift's own icon animated on top of
+//         the stream.
+//
+//   PNG-ICON FIX (this pass): GIFT_CATALOG now carries `icon`
+//         (= gifts.icon_url) alongside `emoji`, and renderGiftGrid()
+//         renders that PNG in the gift-selector tiles instead of the
+//         emoji, matching the premium look of Bigo/TikTok-style gift
+//         boxes. If a PNG 404s, the tile silently falls back to the
+//         emoji so a missing asset never breaks the gift sheet.
+//         launchGiftBanner() (the on-screen "X sent Y" banner) prefers
+//         payload.giftIcon for the same reason — the 3D/2D animation
+//         engine itself already reads payload.giftIcon directly, no
+//         change needed there since giftController.send() now includes
+//         it on every broadcast (see giftController.js).
 //
 //   ANTI-FRAUD/DEDUP FIX: sendSelectedGift() no longer emits a
 //         client-side "sendGift" socket event after the REST call.
@@ -10,55 +23,40 @@
 //         "topGiftersUpdated", and "battleScoreUpdated" to
 //         room:{roomId} itself, once the gift transaction commits.
 //
+//   ── GIFT-ENGINE LIFECYCLE ───────────────────────
+//   FIX-D (GPU/battery leak): the gift engine (renderer, particle
+//         pool, queued animations) was created once in live.html and
+//         never torn down. leaveRoom() now calls
+//         window.__giftEngine?.destroy() so render loops stop and
+//         resources are freed deterministically instead of relying on
+//         GC/tab teardown timing.
+//   FIX-E (stale animations during redirect): on "liveEnded" the
+//         page waits ~2s before redirecting to discover.html. We call
+//         window.__giftEngine?.stopAll() immediately so the queue and
+//         any in-flight cinematic are cleared right away.
+//   FIX-F (background tab cost): a live room left open in a
+//         background tab kept rendering particles/cinematics at full
+//         rate. We pause the gift engine's queue when the tab is
+//         hidden and resume it when visible again — this does not
+//         touch mediasoup/audio, only the visual queue.
+//   FIX-G (mute hook): exposes window.setGiftSoundMuted(bool) so any
+//         future UI control can mute/unmute gift sound effects
+//         independently of the mediasoup mic/audio-boost pipeline.
+//
 //   ── BLACK-SCREEN / AUDIO FIXES ──────────────────────────────
-//   FIX-A (black screen root cause #1): iceTransportPolicy was hard-forced
-//         to "relay" on every transport, but buildIceServers() falls
-//         back to STUN-only when TURN credentials fail to load. Relay
-//         policy + no TURN candidates = zero usable ICE candidates =
-//         the connection can never establish, so the <video> element
-//         never receives a frame. getIceTransportPolicy() now only
-//         forces "relay" when a real turn:/turns: server was actually
-//         loaded; otherwise it uses "all" so STUN/host candidates can
-//         still form a connection (weaker NAT traversal, but a real
-//         connection instead of a guaranteed dead one).
-//   FIX-B (audio silent/unclear): remote audio tracks used to be
-//         attached directly to <video> elements with muted=false.
-//         Browsers block unmuted autoplay without a prior user
-//         gesture, so audio frequently never started at all — the
-//         .play().catch() silently swallowed the rejection. Audio is
-//         now routed through a Web Audio GainNode + DynamicsCompressor
-//         chain (setupAudioBoost) straight to the speakers, which is
-//         both louder/clearer AND decoupled from the <video> element's
-//         autoplay-with-sound restriction. Video elements are always
-//         explicitly muted so they reliably render (guaranteed-allowed
-//         autoplay) instead of freezing on a black frame. A "Tap for
-//         sound" banner primes the AudioContext on first user gesture,
-//         which browsers require before ANY audio graph can play.
-//   FIX-C (black screen root cause #2 — THE REAL ONE for viewers who
-//         never publish): `deviceReady` used to only resolve INSIDE
-//         the try block, AFTER `await publishStream()` succeeded:
-//
-//             await loadDevice(rtpCapabilities);
-//             await publishStream();       // <- throws if camera/mic
-//                                              denied or unavailable
-//             _deviceReadyResolve();       // <- never reached on error
-//
-//         Every consumeProducer() call (which is what actually renders
-//         the HOST's video for a viewer) starts with `await deviceReady`.
-//         So: a viewer who denies the camera/mic permission prompt, has
-//         no camera, or is on a browser that blocks a non-gesture
-//         getUserMedia() call would have publishStream() throw — and
-//         deviceReady would then NEVER resolve. Every future
-//         consumeProducer() call (including the one meant to show them
-//         the host) hangs forever on that await. Mediasoup, TURN, and
-//         the server-side isHost logic were all fine; the viewer just
-//         silently never got far enough to attach any video at all.
-//
-//         Fix: resolve deviceReady as soon as the mediasoup Device is
-//         loaded (all consumeProducer() actually needs), and run
-//         publishStream() as a SEPARATE try/catch after that. A viewer
-//         who can't/won't publish their own camera can now still watch
-//         the host — they just don't get a local self-tile.
+//   FIX-A: iceTransportPolicy is only forced to "relay" when a real
+//         turn:/turns: server actually loaded; otherwise "all" is
+//         used so STUN/host candidates can still form a connection.
+//   FIX-B: remote audio is routed through a Web Audio GainNode +
+//         DynamicsCompressor chain (setupAudioBoost) instead of an
+//         unmuted <video> element, which browsers frequently block
+//         from autoplaying with sound. Video elements are always
+//         explicitly muted so they reliably render.
+//   FIX-C: `deviceReady` resolves as soon as the mediasoup Device is
+//         loaded (all consumeProducer() actually needs), and
+//         publishStream() runs afterward in its own try/catch — a
+//         viewer who can't/won't publish their own camera can still
+//         watch the host.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -68,16 +66,11 @@ import "./app.js";
 /* ── Device ── */
 let device = null;
 
-// ── FIX-1: deviceReady resolves once the mediasoup Device is loaded.
-// (FIX-C, above, is what makes this resolve independently of whether
-// this peer's OWN camera/mic publish succeeds.) ──
 let _deviceReadyResolve;
 const deviceReady = new Promise((resolve) => { _deviceReadyResolve = resolve; });
 
 /* ── Transports ── */
 let sendTransport = null;
-
-// ── FIX-2: recvTransport singleton — prevents duplicate transports ──
 let recvTransport         = null;
 let recvTransportPromise  = null;
 
@@ -94,7 +87,7 @@ const peerStreams = new Map();
 /* ── Audio boost graph — consumerId → { source, gainNode, compressor, socketId } ── */
 const audioBoosts = new Map();
 let audioCtx = null;
-const AUDIO_BOOST_GAIN = 1.7; // perceived-loudness multiplier for remote voices
+const AUDIO_BOOST_GAIN = 1.7;
 
 /* ── State ── */
 let localStream   = null;
@@ -126,11 +119,6 @@ function $(id) { return document.getElementById(id); }
 
 /* ============================================================
    AUDIO CONTEXT / "TAP FOR SOUND"
-   Browsers require a user gesture before an AudioContext can
-   actually produce sound. We create it lazily, try to resume it
-   on the very first pointer interaction anywhere on the page,
-   and show a small persistent pill if it's still suspended by
-   the time we have real audio to play.
    ============================================================ */
 function getAudioContext() {
   if (!audioCtx) {
@@ -156,16 +144,13 @@ function resumeAudioContext() {
 }
 
 function initAudioUnlock() {
-  // Any tap anywhere unlocks audio — standard, unavoidable browser policy.
   const unlock = () => { resumeAudioContext(); };
   document.addEventListener("pointerdown", unlock, { passive: true });
   $("tap-for-sound")?.addEventListener("click", unlock);
 }
 
 /* ============================================================
-   AUDIO BOOST — GainNode + DynamicsCompressor straight to output
-   Louder AND clearer than raw playback, and independent of the
-   <video> element's unmuted-autoplay restriction.
+   AUDIO BOOST
    ============================================================ */
 function setupAudioBoost(track, consumerId, socketId) {
   try {
@@ -175,8 +160,6 @@ function setupAudioBoost(track, consumerId, socketId) {
     const gainNode    = ctx.createGain();
     gainNode.gain.value = AUDIO_BOOST_GAIN;
 
-    // Compressor keeps the boosted signal from clipping/distorting —
-    // this is what makes the boost sound "clear" instead of harsh.
     const compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -14;
     compressor.knee.value      = 18;
@@ -265,10 +248,6 @@ function getPreferredVideoCodec() {
 
 /* ============================================================
    ICE SERVERS
-   FIX-A: iceTransportPolicy is only forced to "relay" when a real
-   turn:/turns: server actually loaded. Forcing relay with STUN-only
-   fallback guarantees zero usable ICE candidates — a permanent
-   black screen, not a quality tradeoff.
    ============================================================ */
 function buildIceServers() {
   if (window.__turnConfig && Array.isArray(window.__turnConfig)) {
@@ -291,8 +270,6 @@ function hasRealTurnServer() {
 }
 
 function getIceTransportPolicy() {
-  // Only guarantee-fail into relay-only mode if we actually have a
-  // relay to use. Otherwise "all" lets host/STUN candidates try.
   const policy = hasRealTurnServer() ? "relay" : "all";
   console.log(`[getIceTransportPolicy] using "${policy}" (real TURN server present: ${hasRealTurnServer()})`);
   return policy;
@@ -341,7 +318,7 @@ async function createSendTransport() {
 }
 
 /* ============================================================
-   RECV TRANSPORT — FIX-2: singleton with in-flight guard
+   RECV TRANSPORT
    ============================================================ */
 async function ensureRecvTransport() {
   if (recvTransport) return recvTransport;
@@ -395,7 +372,7 @@ async function publishStream() {
   const localVideo = $("local-video");
   if (localVideo) {
     localVideo.srcObject = localStream;
-    localVideo.muted = true; // always — this is your own mic, never play it back to you
+    localVideo.muted = true;
   }
   const localTile = $("local-tile");
   if (localTile) localTile.style.display = "flex";
@@ -411,7 +388,7 @@ async function publishStream() {
     const stageVideo = $("stage-video");
     if (stageVideo) {
       stageVideo.srcObject = localStream;
-      stageVideo.muted = true; // self-preview — never echo your own mic back
+      stageVideo.muted = true;
     }
     const offlineEl = $("stage-offline");
     if (offlineEl) offlineEl.style.display = "none";
@@ -442,8 +419,6 @@ async function publishStream() {
       appData: { type: "video", isHost }
     };
 
-    // FIX-7: L1T3 = 1 spatial layer, 3 temporal layers (correct for a single track)
-    // L3T3 was wrong — it claims 3 spatial layers which mediasoup rejects
     if (codec === "VP9") {
       produceOptions.encodings = [{ maxBitrate: 4_000_000, scalabilityMode: "L1T3" }];
     } else {
@@ -520,9 +495,6 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
             attachTrackToParticipantTile(consumer.track, socketId, userId);
           }
         } else if (consumer.kind === "audio") {
-          // FIX-B: audio is routed through the Web Audio boost graph,
-          // not the <video> element — louder, clearer, and unaffected
-          // by unmuted-autoplay restrictions.
           setupAudioBoost(consumer.track, consumer.id, socketId);
         }
 
@@ -559,12 +531,6 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
 
 /* ============================================================
    TRACK ROUTING HELPERS
-   FIX-B: video elements are always explicitly muted. Audio for
-   remote peers never touches these elements — see setupAudioBoost.
-   Muted autoplay is guaranteed by every major browser, which is
-   exactly why this stops the "connected but black screen" failure
-   mode (unmuted autoplay can be silently blocked, leaving the
-   element frozen on its first/blank frame).
    ============================================================ */
 function attachTrackToStage(track) {
   console.log("[attachTrackToStage] Attaching video track to #stage-video");
@@ -594,9 +560,6 @@ function getOrCreateParticipantTile(socketId, userId) {
     const video = document.createElement("video");
     video.autoplay    = true;
     video.playsInline = true;
-    // FIX-B: always muted — audio comes from the Web Audio boost graph
-    // (setupAudioBoost), never from this element, so muted autoplay is
-    // guaranteed to succeed instead of silently failing.
     video.muted        = true;
     video.style.cssText = "width:72px;height:96px;border-radius:12px;object-fit:cover;border:2px solid rgba(255,255,255,.15);background:#111;display:block;";
 
@@ -655,10 +618,6 @@ function removeParticipantVideo(socketId) {
 
 /* ============================================================
    SIMULCAST / SVC ENCODINGS
-   FIX-6: scalabilityMode removed from simulcast rids.
-   S1T3 on each rid told mediasoup the stream had spatial layers,
-   contradicting the simulcast setup and causing the consume error.
-   For VP8/H264 simulcast, rids must NOT have scalabilityMode.
    ============================================================ */
 function buildSimulcastEncodings(width, height) {
   if (width >= 1280) {
@@ -675,7 +634,7 @@ function buildSimulcastEncodings(width, height) {
 }
 
 /* ============================================================
-   AUDIO LEVEL MONITOR (host mic meter — unrelated to playback)
+   AUDIO LEVEL MONITOR
    ============================================================ */
 function startAudioLevelMonitor(audioTrack) {
   try {
@@ -858,6 +817,7 @@ async function leaveRoom() {
   if (recvTransport) { try { recvTransport.close(); } catch (e) {} }
   if (localStream)   localStream.getTracks().forEach(t => t.stop());
   cleanupAllAudioBoosts();
+
   try {
     await window.api.request(`/live/${roomId}/leave`, { method: "POST" });
     socket.emit("leaveRoom", { roomId });
@@ -865,25 +825,17 @@ async function leaveRoom() {
 }
 
 /* ============================================================
+   GIFT ENGINE — DELIBERATE-EXIT TEARDOWN ONLY
+   ============================================================ */
+function destroyGiftEngineForRealExit() {
+  try { window.__giftEngine?.destroy(); } catch (e) {}
+}
+
+/* ============================================================
    SOCKET EVENTS
    ============================================================ */
 function initSocket() {
 
-  // ── FIX-C (the real black-screen root cause) ───────────────
-  // `deviceReady` now resolves as soon as loadDevice() succeeds —
-  // that is genuinely all consumeProducer() needs to watch the
-  // host. publishStream() (which requires camera/mic permission)
-  // runs afterward in its own try/catch, so a viewer who denies
-  // that permission, has no camera, or is on a browser that blocks
-  // the getUserMedia() prompt can still watch — they simply don't
-  // get a local self-tile / don't publish their own video.
-  //
-  // Before this fix, publishStream() throwing meant
-  // _deviceReadyResolve() was NEVER called, so every future
-  // `await deviceReady` inside consumeProducer() — including the
-  // one needed to show the HOST's stream — hung forever. That is
-  // what produced the permanent black screen for affected viewers,
-  // even though sockets/mediasoup/TURN were all working correctly.
   socket.on("routerRtpCapabilities", async ({ rtpCapabilities }) => {
     console.log("[socket] routerRtpCapabilities received");
 
@@ -894,15 +846,12 @@ function initSocket() {
     } catch (err) {
       console.error("[socket] loadDevice failed — cannot consume OR publish:", err);
       window.showToast("Failed to connect: " + err.message);
-      return; // genuinely unrecoverable without a loaded device
+      return;
     }
 
     try {
       await publishStream();
     } catch (err) {
-      // Camera/mic denied, unavailable, or blocked — not fatal.
-      // This peer can still watch the host; they just won't publish
-      // their own video/audio or show a local self-tile.
       console.warn("[socket] publishStream failed — continuing in watch-only mode:", err.message);
       window.showToast("Watching only (camera unavailable)");
     }
@@ -958,18 +907,23 @@ function initSocket() {
   socket.on("newReaction", ({ emoji }) => { spawnFloatParticle(emoji); });
 
   // ──────────────────────────────────────────────────────────
-  // GIFT-ENGINE INTEGRATION — unchanged
+  // GIFT-ENGINE INTEGRATION
+  // payload now includes giftIcon (gifts.icon_url) — see
+  // giftController.js. The gift engine reads it directly to
+  // animate the gift's own PNG; the on-screen banner here also
+  // prefers it over the emoji.
   // ──────────────────────────────────────────────────────────
   socket.on("giftReceived", (payload) => {
     appendComment({ avatar: payload.avatar, name: payload.name,
                     text: `sent ${payload.giftEmoji} ${payload.giftName}`, type: "gift" });
     launchGiftBanner(payload);
-    window.__giftEngine?.playGift(payload); // NEW — triggers 3D cinematic, never throws
+    window.__giftEngine?.playGift(payload); // triggers the PNG sprite animation, never throws
   });
 
   socket.on("topGiftersUpdated", (gifters) => { renderTopGifters(gifters); });
 
   socket.on("liveEnded", () => {
+    try { window.__giftEngine?.stopAll(); } catch (e) {}
     window.showToast("This live has ended");
     setTimeout(() => { window.location.href = "discover.html"; }, 2000);
   });
@@ -1038,12 +992,21 @@ function spawnFloatParticle(emoji) {
 
 /* ============================================================
    GIFTS
+   PNG-ICON FIX: GIFT_CATALOG now carries `icon` (gifts.icon_url)
+   alongside `emoji`, so the gift-selector grid can render the
+   real gift PNG instead of an emoji, and so the animation engine
+   always has an icon to fall back on if a socket payload is ever
+   missing giftIcon for some reason.
    ============================================================ */
 async function loadGiftCatalog() {
   try {
     const response = await window.api.request("/gifts");
     GIFT_CATALOG   = (response.data || []).map(g => ({
-      id: g.id, name: g.name, emoji: g.emoji, price: g.price_coins
+      id: g.id,
+      name: g.name,
+      emoji: g.emoji,
+      icon: g.icon_url || null,
+      price: g.price_coins
     }));
     renderGiftGrid();
   } catch (err) {
@@ -1054,13 +1017,29 @@ async function loadGiftCatalog() {
 function renderGiftGrid() {
   const grid = $("gift-grid");
   if (!grid) return;
+
   grid.innerHTML = GIFT_CATALOG.map(gift => `
     <button class="gift-tile" id="gift-${gift.id}" data-gift-id="${gift.id}">
-      <span class="emoji">${gift.emoji}</span>
+      ${gift.icon
+        ? `<img class="gift-icon-img" src="${gift.icon}" alt="${window.escapeHtml(gift.name)}" data-fallback-emoji="${window.escapeHtml(gift.emoji || "🎁")}">`
+        : `<span class="emoji">${gift.emoji || "🎁"}</span>`}
       <span class="name">${window.escapeHtml(gift.name)}</span>
       <span class="price">${gift.price}</span>
     </button>
   `).join("");
+
+  // PNG → emoji fallback: if a gift's icon_url 404s or fails to
+  // decode, swap it for the emoji span in place so the tile never
+  // shows a broken-image icon.
+  grid.querySelectorAll(".gift-icon-img").forEach(img => {
+    img.addEventListener("error", () => {
+      const span = document.createElement("span");
+      span.className = "emoji";
+      span.textContent = img.dataset.fallbackEmoji || "🎁";
+      img.replaceWith(span);
+    }, { once: true });
+  });
+
   grid.querySelectorAll(".gift-tile").forEach(tile => {
     tile.addEventListener("click", () => selectGift(tile.dataset.giftId));
   });
@@ -1074,7 +1053,7 @@ function selectGift(giftId) {
   const btn = $("send-gift-btn");
   if (btn) {
     btn.disabled    = false;
-    btn.textContent = `Send ${selectedGift.emoji} ${selectedGift.name} (${selectedGift.price} coins)`;
+    btn.textContent = `Send ${selectedGift.emoji || "🎁"} ${selectedGift.name} (${selectedGift.price} coins)`;
   }
 }
 
@@ -1101,7 +1080,7 @@ async function sendSelectedGift() {
     const balEl = $("sheet-coin-balance");
     if (balEl) balEl.textContent = window.formatCoins(coinBalance);
     closeGiftSheet();
-    window.showToast(`${selectedGift.emoji} Gift sent!`);
+    window.showToast(`${selectedGift.emoji || "🎁"} Gift sent!`);
   } catch (err) {
     window.showToast(err.message || "Gift failed");
   }
@@ -1124,8 +1103,13 @@ function launchGiftBanner(payload) {
   if (!layer) return;
   const banner = document.createElement("div");
   banner.className = "gift-banner";
+
+  const avatarHtml = payload.giftIcon
+    ? `<img class="gift-banner-icon" src="${payload.giftIcon}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'gift-banner-avatar',textContent:'${(payload.giftEmoji || "🎁").replace(/'/g, "\\'")}'}))">`
+    : `<span class="gift-banner-avatar">${payload.giftEmoji || "🎁"}</span>`;
+
   banner.innerHTML = `
-    <span class="gift-banner-avatar">${payload.giftEmoji}</span>
+    ${avatarHtml}
     <div class="gift-banner-text">
       <strong>${window.escapeHtml(payload.name)}</strong>
       sent <em>${window.escapeHtml(payload.giftName)}</em>
@@ -1183,6 +1167,7 @@ async function endLive() {
     await window.api.request(`/live/${roomId}/end`, { method: "POST" });
     socket.emit("liveEnded", { roomId });
     await leaveRoom();
+    destroyGiftEngineForRealExit();
     window.location.href = "discover.html";
   } catch (err) {
     window.showToast("Failed to end live");
@@ -1201,6 +1186,19 @@ function tickClock() {
 }
 
 /* ============================================================
+   GIFT ENGINE — TAB VISIBILITY
+   ============================================================ */
+function initGiftEngineVisibilityHandling() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      window.__giftEngine?.pauseQueue?.();
+    } else {
+      window.__giftEngine?.resumeQueue?.();
+    }
+  });
+}
+
+/* ============================================================
    UI LISTENERS
    ============================================================ */
 function attachUIListeners() {
@@ -1209,6 +1207,7 @@ function attachUIListeners() {
 
   $("close-btn")?.addEventListener("click", async () => {
     await leaveRoom();
+    destroyGiftEngineForRealExit();
     window.location.href = "discover.html";
   });
 
@@ -1245,13 +1244,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   attachUIListeners();
   initAudioUnlock();
+  initGiftEngineVisibilityHandling();
 
   if (window.CURRENT_USER.id) {
     socket.emit("registerUser", window.CURRENT_USER.id);
   }
 
-  // Fetch TURN credentials BEFORE any transport is created —
-  // buildIceServers()/getIceTransportPolicy() both read window.__turnConfig.
   try {
     const turnRes = await window.api.request("/live/turn-credentials");
     if (turnRes?.data) {
@@ -1304,3 +1302,7 @@ window.endLive          = endLive;
 window.sendSelectedGift = sendSelectedGift;
 window.selectGift       = selectGift;
 window.leaveRoom        = leaveRoom;
+
+window.setGiftSoundMuted = (muted = true) => {
+  window.__giftEngine?.setMuted(muted);
+};
