@@ -1,9 +1,9 @@
 /* ============================================================
    gift-engine/GiftAnimationManager.js
    ------------------------------------------------------------
-   REWRITE: PNG-based 2D engine (replaces the old Three.js/GLB
-   engine). Public API is UNCHANGED, so live.html/podcast-live.html
-   don't need any edits — same import path, same constructor call:
+   PNG-based 2D engine. Public API is UNCHANGED, so live.html/
+   podcast-live.html don't need any edits — same import path,
+   same constructor call:
 
      import { GiftAnimationManager } from "./gift-engine/GiftAnimationManager.js";
      const giftEngine = new GiftAnimationManager(document.getElementById("gift-engine-root"));
@@ -18,9 +18,17 @@
    not a substitute 3D shape. If giftIcon is missing/fails to load,
    it falls back to giftEmoji automatically (see GiftSpriteAnimator.js).
 
-   Still reused UNCHANGED from the old engine (both are generic,
-   never touched Three.js): ComboManager.js, QueueManager.js,
-   SoundManager.js, UIOverlay.js.
+   ─────────────────────────────────────────────────────────────
+   SHARPNESS/QUALITY PASS (this pass): paired with the
+   GiftSpriteAnimator.js fix (which now pre-renders the gift PNG
+   onto a device-pixel-accurate canvas instead of animating a raw
+   <img>), sprite sizes were nudged up slightly so gifts read as
+   bolder/more premium on screen without looking soft:
+     - basic gifts: 72px -> 84px
+     - legendary combo cap: 260px -> 300px
+   Still reused UNCHANGED: ComboManager.js, QueueManager.js,
+   SoundManager.js, UIOverlay.js, ParticleLayer2D.js,
+   GiftSpriteAnimator.js, giftAnimConfig.js.
    ============================================================ */
 
 import { SoundManager } from "./SoundManager.js";
@@ -276,7 +284,7 @@ export class GiftAnimationManager {
                 particlePreset: item.cfg.particle,
 
                 durationMs: duration,
-                sizePx: 72,
+                sizePx: 84,
                 basic: true,
 
             });
@@ -308,8 +316,8 @@ export class GiftAnimationManager {
 
         // Slightly bigger sprite the higher the combo, capped.
         const sizePx = Math.min(
-            260,
-            140 + Math.min(comboCount, 100) * 0.6
+            300,
+            160 + Math.min(comboCount, 100) * 0.65
         );
 
         this.ui.focusDim(true);

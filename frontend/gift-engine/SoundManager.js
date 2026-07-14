@@ -1,15 +1,106 @@
 /* ============================================================
-   gift-engine/SoundManager.js   [NEW FILE]
+   gift-engine/SoundManager.js
+   ------------------------------------------------------------
    Plays multiple gift sounds concurrently without cutting each
    other off, with fade in/out and a master volume control.
-   ============================================================ */
-/* ============================================================
-   gift-engine/SoundManager.js
-   High-performance audio manager with pooling, fading,
-   overlapping playback and master controls.
+
+   ─────────────────────────────────────────────────────────────
+   FIX (this pass) — THIS is the reason gift animations were not
+   displaying at all, for every gift, on every send:
+
+   This file used to do:
+       import { AssetLoader } from "./AssetLoader.js";
+   purely to load/cache <audio> elements. But AssetLoader.js also
+   imports THREE.js AND ModelLoader.js (GLTFLoader/DRACOLoader)
+   from a CDN — all leftovers from the OLD 3D/GLB gift engine
+   that this 2D PNG-based engine (GiftAnimationManager.js) no
+   longer uses.
+
+   ES module imports are static and all-or-nothing: if that CDN
+   import ever failed (ad-blocker, CSP, offline dev, network
+   policy, slow connection, etc.), the failure propagated straight
+   up the import chain:
+
+       GiftAnimationManager.js
+         -> SoundManager.js
+           -> AssetLoader.js
+             -> THREE.js (CDN) + ModelLoader.js (CDN)
+
+   That made GiftAnimationManager.js fail to load AT ALL, so
+   `new GiftAnimationManager(...)` in live.html never ran,
+   `window.__giftEngine` was NEVER created, and every later call
+   to `window.__giftEngine?.playGift(payload)` silently did
+   nothing — no crash, no console error, because of the `?.`
+   optional chaining swallowing the missing object. That's why
+   nothing ever animated, for any gift, with zero visible symptoms.
+
+   FIX: SoundManager now loads/caches its own <audio> elements
+   directly. Zero dependency on AssetLoader / THREE / GLTFLoader /
+   DRACOLoader. The entire 2D gift engine is now fully decoupled
+   from the old 3D engine's import graph.
    ============================================================ */
 
-import { AssetLoader } from "./AssetLoader.js";
+const audioElementCache = new Map();
+
+/**
+ * Loads (and caches) a base <audio> element for a URL. Never
+ * throws — resolves to null on failure so a missing/broken sound
+ * file can never break gift playback.
+ */
+async function loadAudioElement(url) {
+
+    if (!url)
+        return null;
+
+    if (audioElementCache.has(url))
+        return audioElementCache.get(url);
+
+    try {
+
+        const audio = new Audio(url);
+
+        audio.preload = "auto";
+
+        await new Promise((resolve, reject) => {
+
+            audio.addEventListener(
+                "canplaythrough",
+                resolve,
+                { once: true }
+            );
+
+            audio.addEventListener(
+                "error",
+                reject,
+                { once: true }
+            );
+
+            // Never block gift playback waiting on a slow/flaky
+            // network — fall through and let it buffer in the
+            // background while the gift animation still plays.
+            setTimeout(resolve, 1500);
+
+        });
+
+        audioElementCache.set(url, audio);
+
+        return audio;
+
+    } catch (err) {
+
+        console.warn(
+            "[SoundManager] Audio failed to preload:",
+            url,
+            err
+        );
+
+        audioElementCache.set(url, null);
+
+        return null;
+
+    }
+
+}
 
 export class SoundManager {
 
@@ -66,11 +157,8 @@ export class SoundManager {
         {
 
             volume = 1,
-
             fadeMs = 150,
-
             playbackRate = 1,
-
             loop = false
 
         } = {}
@@ -80,7 +168,7 @@ export class SoundManager {
         if (this.muted || !url)
             return null;
 
-        const base = await AssetLoader.loadAudio(url);
+        const base = await loadAudioElement(url);
 
         if (!base)
             return null;

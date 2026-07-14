@@ -1,20 +1,26 @@
 /* ============================================================
-   gift-engine/ComboManager.js   [NEW FILE]
-   Detects rapid repeated gifts from the same sender+gift and
-   merges them into a combo (2x/5x/10x/20x/50x/100x) instead of
-   re-playing the full cinematic each time (req #6).
-   ============================================================ */
-
-/* ============================================================
    gift-engine/ComboManager.js
-   Updated Version
    ------------------------------------------------------------
-   - Combo merging
-   - Combo expiration
-   - Highest combo tracking
-   - Progress callback
-   - Reset/Clear support
-   - Cleanup support
+   Detects rapid repeated gifts from the same sender+gift and
+   merges them into a live combo counter (2x/5x/10x/20x/50x/100x)
+   instead of re-playing the full cinematic on every single send.
+
+   ─────────────────────────────────────────────────────────────
+   FIX (this pass): the previous version deferred the FIRST play
+   of every premium/legendary gift until the 1.5s combo window
+   closed — and every additional send inside that window RESET
+   the timer. If gifts arrived faster than the window, the
+   animation never played at all. That's the bug behind
+   "gift animations aren't showing."
+
+   Correct behavior (matches TikTok/Chatta/Bigo):
+     - First gift of a type   -> plays IMMEDIATELY (onImmediatePlay)
+     - Repeats inside window  -> bump the on-screen "xN" counter
+                                  (onComboUpdated), don't replay
+     - Window closes          -> onComboFinalized fires once, for
+                                  analytics/leaderboard, no replay
+                                  needed since the visual already
+                                  played on receipt #1.
    ============================================================ */
 
 const COMBO_WINDOW_MS = 1500;
@@ -44,10 +50,23 @@ export class ComboManager {
 
     }
 
+    /**
+     * @param {object} item - the gift item being registered
+     * @param {function} onImmediatePlay - called ONCE, synchronously,
+     *        the first time this sender+gift combo is seen. This is
+     *        what should actually trigger the animation.
+     * @param {function} [onComboUpdated] - called on every repeat
+     *        inside the combo window, for updating the "xN" HUD.
+     * @param {function} [onComboFinalized] - called once the combo
+     *        window closes with no further repeats. Use this for
+     *        analytics/leaderboard totals, NOT for replaying the
+     *        animation (it already played via onImmediatePlay).
+     */
     register(
         item,
-        onComboFinalized,
-        onComboUpdated
+        onImmediatePlay,
+        onComboUpdated,
+        onComboFinalized
     ) {
 
         const key = this._key(item);
@@ -145,6 +164,12 @@ export class ComboManager {
             this.highestCombo,
             entry.count
         );
+
+        // ── THE FIX ──────────────────────────────────────────
+        // Play right now. Don't wait for the combo window to
+        // close — that's what was starving every premium/
+        // legendary gift's animation.
+        onImmediatePlay?.(item);
 
         return {
 
