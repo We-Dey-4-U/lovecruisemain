@@ -33,7 +33,7 @@
 //   so js/live-mic-ring.js can call them from its click handlers.
 //   No WebRTC/transport logic involved.
 //
-//   ── MIC SEATS (NEW) — "empty seat → tap → mic on" flow ─────
+//   ── MIC SEATS — "empty seat → tap → mic on" flow ─────
 //   This is the core of the room-layout spec: a viewer is pure
 //   audience (no camera, no mic, nothing published) until they tap
 //   a vacant circular seat. At that point:
@@ -52,6 +52,22 @@
 //   None of this touches host behavior: the host still auto-
 //   publishes camera+mic immediately, since they're always the
 //   center broadcaster, never a seat occupant.
+//
+//   ── FIX-11 (LATE-JOIN SEAT SNAPSHOT — NEW) ──────────────────
+//   Root-cause fix for "seat placeholders missing when a viewer joins
+//   an already-active livestream": the server always sends a full
+//   guestSeatsUpdated / micSeatsUpdated snapshot to every joiner right
+//   after routerRtpCapabilities (see stream.socket.js), but previously
+//   that snapshot only ever reached the visual layer (live-mic-ring.js)
+//   through the CustomEvent dispatched below — so if the snapshot
+//   arrived before that module finished registering its listener
+//   (possible on a fast/warm connection), it was silently missed and
+//   the seat row rendered with occupancy state unapplied. Now the raw
+//   snapshot is cached on window.__lastMicSeats / window.__lastGuestSeats
+//   *before* the event is dispatched, and live-mic-ring.js reads that
+//   cache once on its own init — guaranteeing every viewer sees the
+//   exact same, fully-populated seat layout the moment the arena
+//   renders, regardless of join timing.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -98,7 +114,7 @@ let isMicMuted    = false;
 let isCameraOff   = false;
 let GIFT_CATALOG  = [];
 
-/* ── Mic-seat state (NEW) — which of the 8 circular seats, if any,
+/* ── Mic-seat state — which of the 8 circular seats, if any,
    the local user currently occupies. null = pure audience. ── */
 let mySeatIndex = null;
 
@@ -501,7 +517,7 @@ async function publishStream() {
 }
 
 /* ============================================================
-   MIC SEATS (NEW) — "empty seat → tap → mic activates" flow
+   MIC SEATS — "empty seat → tap → mic activates" flow
    ------------------------------------------------------------
    Anyone who isn't the host starts as pure audience: no camera,
    no mic, nothing published, nothing shown in the ring. Tapping a
@@ -1142,12 +1158,19 @@ function initSocket() {
 
   // ── GUEST SEATS (matchmaker slots) — relay server truth to the
   // visual layer. No DOM/layout logic lives here.
+  // FIX-11: cache the raw snapshot on window BEFORE dispatching, so
+  // live-mic-ring.js can read it on its own init() even if that
+  // module's listener wasn't registered yet when this event landed
+  // (e.g. a fast/warm connection where the server's post-join
+  // snapshot round-trips before the visual layer finishes wiring up).
   socket.on("guestSeatsUpdated", (seats) => {
+    window.__lastGuestSeats = seats;
     window.dispatchEvent(new CustomEvent("guestSeatsChanged", { detail: seats }));
   });
 
-  // ── MIC SEATS (the 8 circular seats) — same relay pattern.
+  // ── MIC SEATS (the 8 circular seats) — same relay + cache pattern.
   socket.on("micSeatsUpdated", (seats) => {
+    window.__lastMicSeats = seats;
     window.dispatchEvent(new CustomEvent("micSeatsChanged", { detail: seats }));
   });
 

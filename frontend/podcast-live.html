@@ -15,11 +15,14 @@
    violet/purple palette so it reads as a sibling of the main
    live room rather than a copy.
 
-   RESPONSIVE PASS (NEW): the host card, guest frames, and mic
-   seats used to be fixed pixel sizes with the seats positioned
-   trigonometrically in a horseshoe wrapped tightly around the
-   host — which looked fine at one reference width but jammed
-   everything together on small/narrow screens.
+   RESPONSIVE PASS — THIS IS THE CANONICAL, FIXED LAYOUT:
+   Earlier iterations positioned the 8 mic seats in a trigonometric
+   horseshoe wrapped tightly around the host card. That looked
+   fine at one reference width but jammed everything together on
+   narrow/short screens, since the arc's radius scaled with the
+   arena box while the host/guest circles' pixel sizes stayed
+   comparatively fixed — producing exactly the overlap/crowding
+   this task calls out.
 
    Fix, two parts:
      1. Host card / guest frames now use clamp() so they shrink
@@ -363,14 +366,14 @@ body, .app-shell, .live-screen {
 }
 
 /* ══════════════════════════
-   MIC SEAT ROW (REWRITE) — the 8 permanent seat slots, created
-   dynamically by js/live-mic-ring.js, now live in their own
-   flex-wrap row pinned to the bottom of the arena instead of a
-   circle wrapped around the host. This is what actually fixes
-   the small-screen crowding: seats can never collide with the
-   host card or guest frames above because they occupy a wholly
-   separate region, and the row just wraps to more lines on
-   narrow screens rather than shrinking radius/overlapping.
+   MIC SEAT ROW — the 8 permanent seat slots, created dynamically
+   by js/live-mic-ring.js, live in their own flex-wrap row pinned
+   to the bottom of the arena instead of a circle wrapped around
+   the host. This is what actually fixes small-screen crowding:
+   seats can never collide with the host card or guest frames
+   above because they occupy a wholly separate region, and the
+   row just wraps to more lines on narrow screens rather than
+   shrinking radius/overlapping.
 ══════════════════════════ */
 #participants-strip {
   position: absolute;
@@ -490,13 +493,16 @@ body, .app-shell, .live-screen {
 }
 
 /* ══════════════════════════
-   SEAT SLOTS (NEW) — the 8 permanent mic-seat placeholders
-   created by js/live-mic-ring.js, laid out as plain flex-wrap
-   children of #participants-strip (no absolute positioning, no
-   trigonometry — this is what keeps them clear of the host/guest
-   area on every screen size). Vacant slots are dashed and
-   tappable ("+" + seat number); once occupied, the placeholder
-   hides and the real tile fills the same flex slot.
+   SEAT SLOTS — the 8 permanent mic-seat placeholders created by
+   js/live-mic-ring.js, laid out as plain flex-wrap children of
+   #participants-strip (no absolute positioning, no trigonometry —
+   this is what keeps them clear of the host/guest area on every
+   screen size). Vacant slots are dashed and tappable ("+" + seat
+   number); once occupied, the placeholder hides and the real tile
+   fills the same flex slot. These ARE the "seat placeholders" that
+   must be visible for every viewer, including one joining after the
+   stream has already started — they are created once on page load,
+   independent of when/whether a socket event has arrived yet.
 ══════════════════════════ */
 .seat-slot {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -789,8 +795,9 @@ body, .app-shell, .live-screen {
          ever overlapping the host/guest area, on any screen size.
          The seat-slot elements themselves (vacant "+" circles /
          occupied hosts for docked tiles) are created dynamically
-         by js/live-mic-ring.js so the same file works unmodified
-         on both live.html and this page. -->
+         by js/live-mic-ring.js on page load — every viewer sees the
+         same 8 placeholders immediately, before any socket event
+         even arrives. -->
     <div id="participants-strip">
       <div id="local-tile">
         <div class="seat-frame">
