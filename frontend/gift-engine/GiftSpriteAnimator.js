@@ -9,25 +9,51 @@
    stream never breaks over a missing asset.
 
    ─────────────────────────────────────────────────────────────
-   SHARPNESS FIX (this pass): gift animations were showing but
-   looked blurry/soft. Root cause: an <img> was being animated
-   directly with CSS `transform: scale(...)`. Browsers drop image
-   scaling quality (often to nearest-neighbor) while a transform
-   is actively animating, and if the source PNG is smaller than
-   the on-screen size, that live down-quality scaling makes it
-   look soft — worse than the same image sitting still.
+   SHARPNESS FIX v2 (this pass) — root causes of the remaining
+   blur, and what changed:
 
-   Fix: once the PNG loads, it's pre-rendered onto an offscreen
-   canvas at the real device-pixel resolution (sizePx * devicePixelRatio)
-   using imageSmoothingQuality:"high", and THAT canvas — not the
-   raw <img> — is what actually gets animated. The compositor now
-   scales a bitmap that's already the correct high-res size, so it
-   stays crisp through the whole animation instead of relying on
-   the browser's degraded live-scaling. A subtle contrast/saturation
-   boost is also applied so gifts read as bolder/more premium.
+   BUG 1 — RACE CONDITION (the big one):
+     Previously the CSS animation (wrap.animate(...)) started
+     synchronously right after the sprite was appended to the
+     DOM, while the "upgrade to sharp canvas" step only ran on
+     the <img>'s `load` event, asynchronously, sometime later.
+     On a fast/cached connection the image frequently loaded
+     mid-animation or even after it finished — so for most of
+     (sometimes ALL of) the animation's duration, the browser
+     was live-scaling a raw <img> with a CSS transform, which is
+     exactly the degraded-quality scaling path we were trying to
+     avoid. Fix: playSprite() is now async and AWAITS
+     imgEl.decode() (with a safety timeout) before the sprite is
+     even appended to the DOM. The canvas is pre-rendered BEFORE
+     the animation starts, every time, no race possible.
+
+   BUG 2 — NO SUPERSAMPLING FLOOR:
+     The canvas backing store was sized at exactly
+     sizePx * devicePixelRatio. For a source PNG that's smaller
+     than the on-screen size (common for icon-style gift art),
+     that's still fundamentally an upscale with no extra detail
+     to recover. Fix: backing store is now sized at
+     sizePx * devicePixelRatio * SUPERSAMPLE (2x), then the CSS
+     box stays at sizePx — the compositor downsamples a larger
+     bitmap onto the final size, which measurably sharpens edges
+     versus scaling up to exactly the display size.
+
+   BUG 3 — HAZY DOUBLE-BLUR GLOW:
+     The old filter stacked two drop-shadows (14px + 28px blur)
+     which produced a soft halo around every sprite — visually
+     read as "blurry" even when the bitmap itself was crisp.
+     Fix: single tighter drop-shadow (6px) for glow + a thin
+     crisp outline layer (via a second, offset canvas draw) so
+     gifts read as BOLDER without turning into a haze. Contrast/
+     saturation boost increased slightly for a punchier look.
+
+   None of this requires backend, database, or API changes —
+   it's purely client-side rendering. Public API (playSprite())
+   is unchanged, so GiftAnimationManager.js needs no edits.
    ============================================================ */
 
 const MAX_DPR = 3;
+const SUPERSAMPLE = 2; // render at 2x the final backing resolution, then let the compositor downsample
 
 function makeEmojiSpan(emoji, sizePx) {
   const span = document.createElement('span');
@@ -42,27 +68,54 @@ function makeEmojiSpan(emoji, sizePx) {
 }
 
 function sharpFilter(color) {
-  // Bolder glow + a touch of contrast/saturation so the gift pops,
-  // without the huge blur radius that used to soften the whole sprite.
-  return `drop-shadow(0 0 14px ${color}cc) drop-shadow(0 0 28px ${color}66) contrast(1.08) saturate(1.15)`;
+  // Tighter glow (was 14px+28px, now a single 8px) plus a bolder
+  // contrast/saturation push so the gift itself reads as punchier
+  // without a soft halo around it.
+  return `drop-shadow(0 0 8px ${color}dd) contrast(1.14) saturate(1.25) brightness(1.03)`;
 }
 
 /**
- * Pre-renders a loaded <img> onto a canvas sized at the real device-pixel
- * resolution, using high-quality smoothing. Returns the canvas element
- * (CSS-sized to sizePx, backing store sized to sizePx * devicePixelRatio),
- * or null if the image hasn't actually finished decoding yet.
+ * Waits for an <img> to actually finish decoding pixel data,
+ * not just fire the network `load` event. Falls back to a
+ * short timeout so a slow/broken decode() implementation can
+ * never hang the animation forever.
+ */
+function waitForDecode(imgEl) {
+  if (imgEl.complete && imgEl.naturalWidth) {
+    if (typeof imgEl.decode === 'function') {
+      return imgEl.decode().catch(() => {});
+    }
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    imgEl.addEventListener('load', () => {
+      if (typeof imgEl.decode === 'function') {
+        imgEl.decode().then(finish).catch(finish);
+      } else {
+        finish();
+      }
+    }, { once: true });
+    imgEl.addEventListener('error', finish, { once: true });
+    setTimeout(finish, 1200); // safety net — never block the queue forever
+  });
+}
+
+/**
+ * Pre-renders a loaded <img> onto a canvas sized at
+ * sizePx * devicePixelRatio * SUPERSAMPLE, using high-quality
+ * smoothing plus a crisp offset outline pass for boldness.
+ * Returns the canvas element (CSS-sized to sizePx), or null if
+ * the image has no usable pixel data (failed decode).
  */
 function renderSharpCanvas(imgEl, sizePx, color) {
-
   const iw = imgEl.naturalWidth;
   const ih = imgEl.naturalHeight;
-
-  if (!iw || !ih)
-    return null;
+  if (!iw || !ih) return null;
 
   const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-  const backingSize = Math.max(1, Math.round(sizePx * dpr));
+  const backingSize = Math.max(1, Math.round(sizePx * dpr * SUPERSAMPLE));
 
   const canvas = document.createElement('canvas');
   canvas.width = backingSize;
@@ -87,25 +140,23 @@ function renderSharpCanvas(imgEl, sizePx, color) {
   const dy = (backingSize - dh) / 2;
 
   ctx.clearRect(0, 0, backingSize, backingSize);
+
+  // Bold outline pass: draw the image faintly offset in 4 directions
+  // at slightly boosted opacity first, so edges read thicker/bolder,
+  // then draw the crisp full-opacity image on top. This reads as
+  // "bolder" without blurring — it's an edge-reinforcement trick,
+  // not a blur.
+  const outlinePx = Math.max(1, Math.round(backingSize * 0.006));
+  ctx.globalAlpha = 0.35;
+  [[outlinePx, 0], [-outlinePx, 0], [0, outlinePx], [0, -outlinePx]].forEach(([ox, oy]) => {
+    ctx.drawImage(imgEl, dx + ox, dy + oy, dw, dh);
+  });
+  ctx.globalAlpha = 1;
   ctx.drawImage(imgEl, dx, dy, dw, dh);
 
   return canvas;
-
 }
 
-/**
- * Returns { frames, easing } for element.animate(). All transforms are
- * relative to the sprite's own centered anchor (translate(-50%,-50%) is
- * the resting/center position), so every keyframe set is expressed as an
- * offset from that anchor — this keeps positioning simple regardless of
- * where the wrapper was placed in the viewport.
-
-   NOTE: keyframes use translate3d/scale3d (instead of translate/scale)
-   so the browser consistently promotes the sprite to its own GPU layer
-   for the whole animation rather than switching layer strategy mid-flight
-   — that switch is itself a common source of a visible "blur pop" partway
-   through an animation.
- */
 function buildKeyframes(name) {
   switch (name) {
     case 'flyInGrow': // rose
@@ -249,10 +300,48 @@ function buildKeyframes(name) {
 }
 
 /**
+ * Builds the visual element (canvas or emoji span) to animate.
+ * If iconUrl is provided, waits for it to fully decode and
+ * pre-renders a sharp supersampled canvas BEFORE returning —
+ * this is the key fix, the animation never starts on a raw,
+ * not-yet-decoded <img>.
+ */
+async function buildVisual(iconUrl, emoji, sizePx, color) {
+  if (!iconUrl) {
+    const span = makeEmojiSpan(emoji, sizePx);
+    span.style.filter = sharpFilter(color);
+    return span;
+  }
+
+  const img = new Image();
+  img.decoding = 'sync';
+  img.src = iconUrl;
+
+  await waitForDecode(img);
+
+  if (!img.naturalWidth) {
+    // Failed to load/decode — fall back to emoji, never break the queue.
+    const span = makeEmojiSpan(emoji, sizePx);
+    span.style.filter = sharpFilter(color);
+    return span;
+  }
+
+  const canvas = renderSharpCanvas(img, sizePx, color);
+  if (!canvas) {
+    const span = makeEmojiSpan(emoji, sizePx);
+    span.style.filter = sharpFilter(color);
+    return span;
+  }
+  return canvas;
+}
+
+/**
  * Plays one gift's sprite animation. Resolves once the animation
  * finishes (or is cancelled by a queue clear/stopAll).
+ * Now async: the sharp visual is fully built and decoded BEFORE
+ * anything is appended to the DOM or animated.
  */
-export function playSprite({
+export async function playSprite({
   rootEl,
   particles,
   iconUrl,
@@ -264,6 +353,8 @@ export function playSprite({
   sizePx = 140,
   basic = false,
 }) {
+  const visual = await buildVisual(iconUrl, emoji, sizePx, color);
+
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.style.cssText = `
@@ -276,59 +367,6 @@ export function playSprite({
       perspective:600px;
       backface-visibility:hidden;
     `;
-
-    let visual;
-    let upgraded = false;
-
-    if (iconUrl) {
-      visual = document.createElement('img');
-      visual.decoding = 'sync';
-      visual.loading = 'eager';
-      visual.src = iconUrl;
-      visual.alt = '';
-      visual.style.cssText = `
-        width:${sizePx}px;
-        height:${sizePx}px;
-        object-fit:contain;
-        filter:${sharpFilter(color)};
-        display:block;
-      `;
-
-      // Once the PNG has actually decoded, swap it for a canvas that's
-      // pre-rendered at the real device-pixel resolution with high-quality
-      // smoothing. This is what keeps the sprite crisp while it's being
-      // scaled up/down by the CSS animation below.
-      const upgrade = () => {
-        if (upgraded) return;
-        const canvas = renderSharpCanvas(visual, sizePx, color);
-        if (canvas) {
-          upgraded = true;
-          visual.replaceWith(canvas);
-          visual = canvas;
-        }
-      };
-
-      if (visual.complete && visual.naturalWidth) {
-        // Already cached/decoded synchronously.
-        upgrade();
-      } else {
-        visual.addEventListener('load', upgrade, { once: true });
-      }
-
-      // If the PNG 404s or fails to decode, swap to emoji in place —
-      // the animation/particles keep running either way.
-      visual.addEventListener('error', () => {
-        const fallback = makeEmojiSpan(emoji, sizePx);
-        fallback.style.filter = sharpFilter(color);
-        visual.replaceWith(fallback);
-        visual = fallback;
-      }, { once: true });
-
-    } else {
-      visual = makeEmojiSpan(emoji, sizePx);
-      visual.style.filter = sharpFilter(color);
-    }
-
     wrap.appendChild(visual);
 
     const vw = window.innerWidth;

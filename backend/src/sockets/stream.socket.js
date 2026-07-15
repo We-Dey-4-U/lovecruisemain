@@ -10,17 +10,40 @@
 //         "giftReceived" — untrusted amount/giftName/giftEmoji, and a
 //         second, duplicate emission on top of the one already sent
 //         by giftController.send() after the REST transaction commits.
-//         That made every gift banner/animation fire twice, and let a
-//         malicious client fabricate fake gift broadcasts (inflated
-//         amounts, fake gifts) with zero server-side validation, since
-//         nothing here confirmed a real gift_transactions row existed.
 //         "giftReceived" / "topGiftersUpdated" / "battleScoreUpdated"
 //         are now emitted exclusively from giftController.send(),
 //         built from the committed DB transaction. See that file.
+//   FIX-6 (GUEST SEATS): added the matchmaker "male"/"female" guest-seat
+//         slots. State lives on the in-memory `room` object (not in
+//         room.js) so mediasoup internals stay untouched. Fully synced
+//         across all clients via "guestSeatsUpdated", and cleaned up
+//         automatically on leave/disconnect.
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
 const { createRouter } = require("../mediasoup/router");
+
+/* ══════════════════════════════════════════════════════
+   GUEST SEATS (matchmaker male/female slots)
+   Not part of mediasoup Room state — tracked here so no
+   changes to room.js are needed.
+   Shape: { male: {socketId,userId}|null, female: {...}|null }
+══════════════════════════════════════════════════════ */
+function getGuestSeats(room) {
+  if (!room.guestSeats) room.guestSeats = { male: null, female: null };
+  return room.guestSeats;
+}
+function broadcastGuestSeats(io, roomId, room) {
+  io.to(`room:${roomId}`).emit("guestSeatsUpdated", getGuestSeats(room));
+}
+function clearGuestSeatsForSocket(room, socketId) {
+  const seats = getGuestSeats(room);
+  let changed = false;
+  for (const key of ["male", "female"]) {
+    if (seats[key]?.socketId === socketId) { seats[key] = null; changed = true; }
+  }
+  return changed;
+}
 
 module.exports = (io, socket) => {
 
@@ -48,15 +71,6 @@ module.exports = (io, socket) => {
 
       // ── FIX-8 (ROOT CAUSE): host must be resolved from the DB's
       // live_rooms.host_id, never from "first socket to connect".
-      // The previous `if (!room.hostSocketId) room.setHost(socket.id)`
-      // logic meant a viewer whose socket happened to connect before
-      // the real host's (e.g. while the host is still awaiting
-      // getUserMedia / TURN credentials) would get permanently bound
-      // as hostSocketId for the room's lifetime — so the real host's
-      // producers would later be tagged isHost=false and get routed
-      // to a participant tile instead of the stage. Always re-check
-      // against DB truth and (re)assign whenever the actual host's
-      // socket shows up, including on reconnect.
       const { rows: roomRows } = await db.query(
         `SELECT host_id FROM live_rooms WHERE id = $1`,
         [roomId]
@@ -68,9 +82,6 @@ module.exports = (io, socket) => {
         room.setHost(socket.id);
         console.log(`[joinRoom] Host (re)assigned from DB truth: socket=${socket.id} user=${userId}`);
       } else if (!room.hostSocketId && !dbHostId) {
-        // Fallback only when the room has no recorded host at all
-        // (shouldn't normally happen — live_rooms.host_id is set at
-        // creation time — but avoids leaving hostSocketId unset forever).
         room.setHost(socket.id);
         console.log(`[joinRoom] No DB host_id found — falling back to first joiner: socket=${socket.id}`);
       }
@@ -110,14 +121,15 @@ module.exports = (io, socket) => {
       }
 
       console.log(`[joinRoom] Sending routerRtpCapabilities to socket=${socket.id}`);
-      // Step 1: send capabilities so client can load the device
       socket.emit("routerRtpCapabilities", {
         rtpCapabilities: room.router.rtpCapabilities
       });
 
-      // ── FIX-1 ───────────────────────────────────────────────────────────────
-      // Wait 150ms before sending existingProducers.
-      // ────────────────────────────────────────────────────────────────────────
+      // Guest-seat snapshot (matchmaker slots) — sent immediately so a
+      // fresh joiner sees who's already up without waiting on anything else.
+      socket.emit("guestSeatsUpdated", getGuestSeats(room));
+
+      // ── FIX-1 ── Wait 150ms before sending existingProducers.
       if (existingProducers.length > 0) {
         console.log(`[joinRoom] Scheduling existingProducers (${existingProducers.length}) with 150ms delay`);
         setTimeout(() => {
@@ -447,19 +459,39 @@ module.exports = (io, socket) => {
      The gift broadcast is now emitted exclusively from
      giftController.send() (see backend/src/controllers/
      giftController.js), immediately after the gift transaction
-     commits in the database. That gives three guarantees this
-     handler could not:
-       1. Exactly-once emission — no duplicate banners/animations,
-          since the client no longer separately emits a socket event.
-       2. Server-truth payload — giftName/giftEmoji/amount all come
-          from the gifts table + committed transaction row, not from
-          whatever the client claims.
-       3. No unauthenticated write path — a socket message alone can
-          never produce a "giftReceived" broadcast; only a real,
-          authenticated, coin-debited /api/gifts/send call can.
-     "topGiftersUpdated" and "battleScoreUpdated" for live_room gifts
-     are likewise now emitted from giftController.send().
+     commits in the database.
   ══════════════════════════════════════════════════════ */
+
+  /* ══════════════════════════════════════════════════════
+     GUEST SEATS (matchmaker male/female slots)
+  ══════════════════════════════════════════════════════ */
+  socket.on("requestGuestSeat", ({ roomId, slot }, callback) => {
+    try {
+      if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+
+      const seats = getGuestSeats(room);
+      clearGuestSeatsForSocket(room, socket.id); // hop between slots cleanly
+
+      if (seats[slot]) throw new Error("Seat already taken");
+
+      seats[slot] = { socketId: socket.id, userId: socket.currentUserId };
+      broadcastGuestSeats(io, roomId, room);
+      callback?.({ ok: true, slot });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
+  });
+
+  socket.on("leaveGuestSeat", ({ roomId }, callback) => {
+    const room = getRoom(roomId);
+    if (!room) return callback?.({ error: "Room not found" });
+    if (clearGuestSeatsForSocket(room, socket.id)) {
+      broadcastGuestSeats(io, roomId, room);
+    }
+    callback?.({ ok: true });
+  });
 
   /* ══════════════════════════════════════════════════════
      LIVE ENDED
@@ -543,6 +575,12 @@ module.exports = (io, socket) => {
     if (room) {
       const wasHost = room.hostSocketId === socket.id;
       room.removePeer(socket.id);
+
+      // FIX-6: free any guest seat this socket held, and tell everyone.
+      if (clearGuestSeatsForSocket(room, socket.id)) {
+        io.to(`room:${roomId}`).emit("guestSeatsUpdated", getGuestSeats(room));
+      }
+
       if (wasHost) {
         // FIX-9: without this, hostSocketId stays pointed at the now-
         // dead socket forever, and `joinRoom`'s `room.hostSocketId !== socket.id`

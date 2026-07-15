@@ -5,58 +5,33 @@
 //         live.html) can render the gift's own icon animated on top of
 //         the stream.
 //
-//   PNG-ICON FIX (this pass): GIFT_CATALOG now carries `icon`
-//         (= gifts.icon_url) alongside `emoji`, and renderGiftGrid()
-//         renders that PNG in the gift-selector tiles instead of the
-//         emoji, matching the premium look of Bigo/TikTok-style gift
-//         boxes. If a PNG 404s, the tile silently falls back to the
-//         emoji so a missing asset never breaks the gift sheet.
-//         launchGiftBanner() (the on-screen "X sent Y" banner) prefers
-//         payload.giftIcon for the same reason — the 3D/2D animation
-//         engine itself already reads payload.giftIcon directly, no
-//         change needed there since giftController.send() now includes
-//         it on every broadcast (see giftController.js).
+//   PNG-ICON FIX: GIFT_CATALOG now carries `icon` (= gifts.icon_url)
+//         alongside `emoji`, and renderGiftGrid() renders that PNG in
+//         the gift-selector tiles instead of the emoji. If a PNG 404s,
+//         the tile silently falls back to the emoji.
 //
 //   ANTI-FRAUD/DEDUP FIX: sendSelectedGift() no longer emits a
 //         client-side "sendGift" socket event after the REST call.
 //         The server (giftController.send) emits "giftReceived",
-//         "topGiftersUpdated", and "battleScoreUpdated" to
-//         room:{roomId} itself, once the gift transaction commits.
+//         "topGiftersUpdated", and "battleScoreUpdated" itself.
 //
 //   ── GIFT-ENGINE LIFECYCLE ───────────────────────
-//   FIX-D (GPU/battery leak): the gift engine (renderer, particle
-//         pool, queued animations) was created once in live.html and
-//         never torn down. leaveRoom() now calls
-//         window.__giftEngine?.destroy() so render loops stop and
-//         resources are freed deterministically instead of relying on
-//         GC/tab teardown timing.
-//   FIX-E (stale animations during redirect): on "liveEnded" the
-//         page waits ~2s before redirecting to discover.html. We call
-//         window.__giftEngine?.stopAll() immediately so the queue and
-//         any in-flight cinematic are cleared right away.
-//   FIX-F (background tab cost): a live room left open in a
-//         background tab kept rendering particles/cinematics at full
-//         rate. We pause the gift engine's queue when the tab is
-//         hidden and resume it when visible again — this does not
-//         touch mediasoup/audio, only the visual queue.
-//   FIX-G (mute hook): exposes window.setGiftSoundMuted(bool) so any
-//         future UI control can mute/unmute gift sound effects
-//         independently of the mediasoup mic/audio-boost pipeline.
+//   FIX-D/E/F/G — unchanged from previous pass (teardown, stopAll on
+//         liveEnded, tab-visibility pause/resume, mute hook).
 //
 //   ── BLACK-SCREEN / AUDIO FIXES ──────────────────────────────
-//   FIX-A: iceTransportPolicy is only forced to "relay" when a real
-//         turn:/turns: server actually loaded; otherwise "all" is
-//         used so STUN/host candidates can still form a connection.
-//   FIX-B: remote audio is routed through a Web Audio GainNode +
-//         DynamicsCompressor chain (setupAudioBoost) instead of an
-//         unmuted <video> element, which browsers frequently block
-//         from autoplaying with sound. Video elements are always
-//         explicitly muted so they reliably render.
-//   FIX-C: `deviceReady` resolves as soon as the mediasoup Device is
-//         loaded (all consumeProducer() actually needs), and
-//         publishStream() runs afterward in its own try/catch — a
-//         viewer who can't/won't publish their own camera can still
-//         watch the host.
+//   FIX-A/B/C — unchanged from previous pass.
+//
+//   ── SPEAKING-DETECTION HOOKS ─────────────────────
+//   Unchanged from previous pass — dispatches `speakingChanged`.
+//
+//   ── GUEST SEATS (matchmaker male/female slots) — NEW ─────────
+//   Adds the socket wiring for the matchmaker feature. live.js stays
+//   ignorant of DOM/layout: it just relays "guestSeatsUpdated" from
+//   the server into a `guestSeatsChanged` CustomEvent (same pattern
+//   as speakingChanged/giftLanded), and exposes window.requestGuestSeat(slot)
+//   / window.leaveGuestSeat() so js/live-mic-ring.js can call them from
+//   its click handlers. No WebRTC/transport logic involved.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -84,10 +59,11 @@ const consumers = new Map();
 /* ── Per-socket media streams (video only — audio is routed via Web Audio) ── */
 const peerStreams = new Map();
 
-/* ── Audio boost graph — consumerId → { source, gainNode, compressor, socketId } ── */
+/* ── Audio boost graph — consumerId → { source, gainNode, compressor, analyser, socketId, isHost, rafId } ── */
 const audioBoosts = new Map();
 let audioCtx = null;
 const AUDIO_BOOST_GAIN = 1.7;
+const SPEAKING_THRESHOLD = 18; // 0-255 scale, tuned for typical mic levels
 
 /* ── State ── */
 let localStream   = null;
@@ -115,7 +91,21 @@ const socket = io(window.API_BASE_URL.replace("/api", ""), {
   reconnectionDelay:   1000
 });
 
+// Exposed so the visual-only enhancement module (js/live-mic-ring.js)
+// can tell "my own tile" apart from remote ones, without needing any
+// access to the socket instance or WebRTC internals.
+socket.on("connect", () => { window.__mySocketId = socket.id; });
+
 function $(id) { return document.getElementById(id); }
+
+/* ============================================================
+   SPEAKING-DETECTION DISPATCH
+   ============================================================ */
+function dispatchSpeaking(socketId, isHostFlag, active) {
+  window.dispatchEvent(new CustomEvent("speakingChanged", {
+    detail: { socketId, isHost: !!isHostFlag, active: !!active }
+  }));
+}
 
 /* ============================================================
    AUDIO CONTEXT / "TAP FOR SOUND"
@@ -150,9 +140,9 @@ function initAudioUnlock() {
 }
 
 /* ============================================================
-   AUDIO BOOST
+   AUDIO BOOST (+ speaking-level analyser)
    ============================================================ */
-function setupAudioBoost(track, consumerId, socketId) {
+function setupAudioBoost(track, consumerId, socketId, isHostFlag = false) {
   try {
     const ctx = getAudioContext();
 
@@ -167,9 +157,30 @@ function setupAudioBoost(track, consumerId, socketId) {
     compressor.attack.value    = 0.003;
     compressor.release.value   = 0.25;
 
-    source.connect(gainNode).connect(compressor).connect(ctx.destination);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.6;
+    const analyserData = new Uint8Array(analyser.frequencyBinCount);
 
-    audioBoosts.set(consumerId, { source, gainNode, compressor, socketId });
+    source.connect(gainNode).connect(compressor).connect(ctx.destination);
+    compressor.connect(analyser);
+
+    let wasSpeaking = false;
+    function tick() {
+      const entry = audioBoosts.get(consumerId);
+      if (!entry) return; // cleaned up
+      analyser.getByteFrequencyData(analyserData);
+      const avg = analyserData.reduce((a, b) => a + b, 0) / analyserData.length;
+      const speaking = avg > SPEAKING_THRESHOLD;
+      if (speaking !== wasSpeaking) {
+        wasSpeaking = speaking;
+        dispatchSpeaking(socketId, isHostFlag, speaking);
+      }
+      entry.rafId = requestAnimationFrame(tick);
+    }
+    const rafId = requestAnimationFrame(tick);
+
+    audioBoosts.set(consumerId, { source, gainNode, compressor, analyser, socketId, isHost: isHostFlag, rafId });
 
     if (ctx.state === "suspended") showTapForSound();
   } catch (e) {
@@ -180,10 +191,13 @@ function setupAudioBoost(track, consumerId, socketId) {
 function cleanupAudioBoost(consumerId) {
   const entry = audioBoosts.get(consumerId);
   if (!entry) return;
+  if (entry.rafId) cancelAnimationFrame(entry.rafId);
   try { entry.source.disconnect(); } catch (e) {}
   try { entry.gainNode.disconnect(); } catch (e) {}
   try { entry.compressor.disconnect(); } catch (e) {}
+  try { entry.analyser.disconnect(); } catch (e) {}
   audioBoosts.delete(consumerId);
+  dispatchSpeaking(entry.socketId, entry.isHost, false);
 }
 
 function cleanupAudioBoostsForSocket(socketId) {
@@ -437,7 +451,7 @@ async function publishStream() {
       codecOptions: { opusDtx: true, opusFec: true, opusMaxPlaybackRate: 48000 },
       appData: { type: "audio", isHost }
     });
-    if (isHost) startAudioLevelMonitor(audioTrack);
+    startAudioLevelMonitor(audioTrack);
     console.log("[publishStream] ✅ audioProducer id=", audioProducer.id);
   }
 
@@ -495,7 +509,7 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
             attachTrackToParticipantTile(consumer.track, socketId, userId);
           }
         } else if (consumer.kind === "audio") {
-          setupAudioBoost(consumer.track, consumer.id, socketId);
+          setupAudioBoost(consumer.track, consumer.id, socketId, producerIsHost);
         }
 
         socket.emit("resumeConsumer", { consumerId: consumer.id }, (res) => {
@@ -557,11 +571,16 @@ function getOrCreateParticipantTile(socketId, userId) {
     tile.className = "participant-tile";
     tile.dataset.socketId = socketId;
 
+    const seatFrame = document.createElement("div");
+    seatFrame.className = "seat-frame";
+
     const video = document.createElement("video");
     video.autoplay    = true;
     video.playsInline = true;
     video.muted        = true;
-    video.style.cssText = "width:72px;height:96px;border-radius:12px;object-fit:cover;border:2px solid rgba(255,255,255,.15);background:#111;display:block;";
+
+    seatFrame.appendChild(video);
+    tile.appendChild(seatFrame);
 
     const nameEl = document.createElement("div");
     nameEl.className   = "ptile-name";
@@ -572,7 +591,6 @@ function getOrCreateParticipantTile(socketId, userId) {
     mutedBadge.textContent = "🔇";
     mutedBadge.style.display = "none";
 
-    tile.appendChild(video);
     tile.appendChild(mutedBadge);
     tile.appendChild(nameEl);
 
@@ -634,7 +652,8 @@ function buildSimulcastEncodings(width, height) {
 }
 
 /* ============================================================
-   AUDIO LEVEL MONITOR
+   AUDIO LEVEL MONITOR (local user — host or guest)
+   Also drives the local user's speaking-glow via speakingChanged.
    ============================================================ */
 function startAudioLevelMonitor(audioTrack) {
   try {
@@ -646,11 +665,18 @@ function startAudioLevelMonitor(audioTrack) {
     const data   = new Uint8Array(analyser.frequencyBinCount);
     const micBar = $("mic-level");
 
+    let wasSpeaking = false;
     function tick() {
       analyser.getByteFrequencyData(data);
       const avg = data.reduce((a, b) => a + b, 0) / data.length;
       const pct = Math.min(100, (avg / 128) * 100);
       if (micBar) micBar.style.height = pct + "%";
+
+      const speaking = avg > SPEAKING_THRESHOLD && !isMicMuted;
+      if (speaking !== wasSpeaking) {
+        wasSpeaking = speaking;
+        dispatchSpeaking(socket.id, isHost, speaking);
+      }
       requestAnimationFrame(tick);
     }
     tick();
@@ -696,6 +722,7 @@ function toggleMic() {
   if (hostBtn) hostBtn.textContent = isMicMuted ? "🔇" : "🎤";
 
   updateLocalMicButton(isMicMuted);
+  if (isMicMuted) dispatchSpeaking(socket.id, isHost, false);
 
   socket.emit("peerMicToggled", { roomId, socketId: socket.id, muted: isMicMuted });
   window.showToast(isMicMuted ? "Mic muted" : "Mic on");
@@ -707,9 +734,6 @@ function updateLocalMicButton(muted) {
   localMicBtn.textContent = muted ? "🔇" : "🎤";
   localMicBtn.classList.toggle("muted", muted);
   localMicBtn.title = muted ? "Unmute mic" : "Mute mic";
-
-  const localVideo = $("local-video");
-  if (localVideo) localVideo.style.borderColor = muted ? "rgba(255,255,255,.2)" : "#ff3d7f";
 }
 
 function toggleCamera() {
@@ -820,6 +844,7 @@ async function leaveRoom() {
 
   try {
     await window.api.request(`/live/${roomId}/leave`, { method: "POST" });
+    socket.emit("leaveGuestSeat", { roomId });
     socket.emit("leaveRoom", { roomId });
   } catch (e) {}
 }
@@ -890,8 +915,7 @@ function initSocket() {
     if (!tile) return;
     const badge = tile.querySelector(".ptile-muted-badge");
     if (badge) badge.style.display = muted ? "flex" : "none";
-    const video = tile.querySelector("video");
-    if (video) video.style.borderColor = muted ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.15)";
+    if (muted) dispatchSpeaking(socketId, false, false);
   });
 
   socket.on("viewerCountUpdated", ({ viewerCount: vc }) => {
@@ -908,19 +932,22 @@ function initSocket() {
 
   // ──────────────────────────────────────────────────────────
   // GIFT-ENGINE INTEGRATION
-  // payload now includes giftIcon (gifts.icon_url) — see
-  // giftController.js. The gift engine reads it directly to
-  // animate the gift's own PNG; the on-screen banner here also
-  // prefers it over the emoji.
   // ──────────────────────────────────────────────────────────
   socket.on("giftReceived", (payload) => {
     appendComment({ avatar: payload.avatar, name: payload.name,
                     text: `sent ${payload.giftEmoji} ${payload.giftName}`, type: "gift" });
     launchGiftBanner(payload);
     window.__giftEngine?.playGift(payload); // triggers the PNG sprite animation, never throws
+    window.dispatchEvent(new CustomEvent("giftLanded", { detail: payload })); // for connection-line pulse
   });
 
   socket.on("topGiftersUpdated", (gifters) => { renderTopGifters(gifters); });
+
+  // ── GUEST SEATS (matchmaker slots) — relay server truth to the
+  // visual layer. No DOM/layout logic lives here.
+  socket.on("guestSeatsUpdated", (seats) => {
+    window.dispatchEvent(new CustomEvent("guestSeatsChanged", { detail: seats }));
+  });
 
   socket.on("liveEnded", () => {
     try { window.__giftEngine?.stopAll(); } catch (e) {}
@@ -992,11 +1019,6 @@ function spawnFloatParticle(emoji) {
 
 /* ============================================================
    GIFTS
-   PNG-ICON FIX: GIFT_CATALOG now carries `icon` (gifts.icon_url)
-   alongside `emoji`, so the gift-selector grid can render the
-   real gift PNG instead of an emoji, and so the animation engine
-   always has an icon to fall back on if a socket payload is ever
-   missing giftIcon for some reason.
    ============================================================ */
 async function loadGiftCatalog() {
   try {
@@ -1028,9 +1050,6 @@ function renderGiftGrid() {
     </button>
   `).join("");
 
-  // PNG → emoji fallback: if a gift's icon_url 404s or fails to
-  // decode, swap it for the emoji span in place so the tile never
-  // shows a broken-image icon.
   grid.querySelectorAll(".gift-icon-img").forEach(img => {
     img.addEventListener("error", () => {
       const span = document.createElement("span");
@@ -1305,4 +1324,16 @@ window.leaveRoom        = leaveRoom;
 
 window.setGiftSoundMuted = (muted = true) => {
   window.__giftEngine?.setMuted(muted);
+};
+
+// ── GUEST SEATS (matchmaker male/female slots) ──────────────
+// Exposed so js/live-mic-ring.js (visual-only layer) can trigger
+// these without importing or touching the socket instance itself.
+window.requestGuestSeat = (slot) => {
+  socket.emit("requestGuestSeat", { roomId, slot }, (res) => {
+    if (res?.error) window.showToast(res.error);
+  });
+};
+window.leaveGuestSeat = () => {
+  socket.emit("leaveGuestSeat", { roomId });
 };
