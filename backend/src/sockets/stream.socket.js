@@ -18,7 +18,7 @@
 //         room.js) so mediasoup internals stay untouched. Fully synced
 //         across all clients via "guestSeatsUpdated", and cleaned up
 //         automatically on leave/disconnect.
-//   FIX-7 (MIC SEATS — NEW): added the 8 circular mic-seat slots from
+//   FIX-7 (MIC SEATS): added the 8 circular mic-seat slots from
 //         the room-layout spec ("Seat 2..10" in the diagram). Same
 //         pattern as guest seats: in-memory state on `room`, synced via
 //         "micSeatsUpdated", cleaned up on leave/disconnect. This is
@@ -27,6 +27,18 @@
 //         itself is just a reserved slot; the actual audio/video still
 //         flows over the existing mediasoup produce/consume pipeline
 //         above, unchanged.
+//   FIX-10 (SEAT-REQUEST VALIDATION — NEW): requestGuestSeat / leaveGuestSeat /
+//         requestMicSeat / leaveMicSeat now verify the roomId passed in
+//         matches the room this socket actually joined (socket.currentRoomId).
+//         Previously a client could pass an arbitrary roomId and mutate seat
+//         state in a room it was never a member of, which could also produce
+//         a mismatched/stale seat broadcast for real occupants of that room.
+//   FIX-11 (LATE-JOIN SEAT SNAPSHOT — see js/live.js / js/live-mic-ring.js):
+//         no server change was needed here — guestSeatsUpdated/micSeatsUpdated
+//         snapshots were already emitted synchronously to every new joiner
+//         right after routerRtpCapabilities (before the 150ms existingProducers
+//         delay). The "seats missing for late joiners" bug was a client-side
+//         race (see FIX-11 in live.js/live-mic-ring.js) — fixed there.
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
@@ -160,11 +172,15 @@ module.exports = (io, socket) => {
 
       // Guest-seat snapshot (matchmaker slots) — sent immediately so a
       // fresh joiner sees who's already up without waiting on anything else.
+      // This is the FULL current server-truth snapshot, identical to what
+      // every other client in the room currently has — a late joiner and
+      // the host always see the same occupied/vacant state.
       socket.emit("guestSeatsUpdated", getGuestSeats(room));
 
       // Mic-seat snapshot (the 8 circular seats) — same idea: a fresh
       // joiner sees which seats are already taken right away, so the
-      // vacant/occupied state of the ring is correct from frame one.
+      // vacant/occupied state of the ring is correct from frame one,
+      // regardless of how long the stream has been live.
       socket.emit("micSeatsUpdated", getMicSeats(room));
 
       // ── FIX-1 ── Wait 150ms before sending existingProducers.
@@ -502,9 +518,13 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      GUEST SEATS (matchmaker male/female slots)
+     FIX-10: roomId must match the room this socket actually
+     joined — otherwise a client could mutate (or read-then-race)
+     seat state for a room it was never a member of.
   ══════════════════════════════════════════════════════ */
   socket.on("requestGuestSeat", ({ roomId, slot }, callback) => {
     try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
       if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
       const room = getRoom(roomId);
       if (!room) throw new Error("Room not found");
@@ -523,6 +543,7 @@ module.exports = (io, socket) => {
   });
 
   socket.on("leaveGuestSeat", ({ roomId }, callback) => {
+    if (roomId !== socket.currentRoomId) return callback?.({ error: "Not a member of this room" });
     const room = getRoom(roomId);
     if (!room) return callback?.({ error: "Room not found" });
     if (clearGuestSeatsForSocket(room, socket.id)) {
@@ -534,9 +555,11 @@ module.exports = (io, socket) => {
   /* ══════════════════════════════════════════════════════
      MIC SEATS (the 8 circular seats — "empty seat, tap to
      activate mic" flow from the room-layout spec)
+     FIX-10: same roomId ownership check as guest seats above.
   ══════════════════════════════════════════════════════ */
   socket.on("requestMicSeat", ({ roomId, seatIndex }, callback) => {
     try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
       if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= MIC_SEAT_COUNT) {
         throw new Error("Invalid seat");
       }
@@ -557,6 +580,7 @@ module.exports = (io, socket) => {
   });
 
   socket.on("leaveMicSeat", ({ roomId }, callback) => {
+    if (roomId !== socket.currentRoomId) return callback?.({ error: "Not a member of this room" });
     const room = getRoom(roomId);
     if (!room) return callback?.({ error: "Room not found" });
     if (clearMicSeatForSocket(room, socket.id)) {

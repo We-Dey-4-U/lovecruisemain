@@ -22,22 +22,52 @@
    emit socket events — no transport/producer/consumer logic
    lives here.
 
-   ── SEAT SLOTS (NEW) ─────────────────────────────────────────
-   Previously this file only ever rendered a tile once someone was
-   already publishing media — there was nothing to tap. Now it
-   creates MIC_SEAT_COUNT permanent slot elements positioned around
-   the horseshoe arc, always present:
-     - vacant  → dashed circle + seat number, tappable to claim
-     - occupied → the real #local-tile / .participant-tile is
-       docked inside it (moved into the slot's DOM, sized/laid
-       out by the slot rather than by absolute left/top)
-   Seat truth comes entirely from the server via `micSeatsChanged`;
-   this file just reflects it and forwards taps to
-   window.claimMicSeat(seatIndex) / window.releaseMicSeat().
+   ── RESPONSIVE LAYOUT ────────────────────────────────────────
+   Earlier versions positioned the 8 mic seats in a trigonometric
+   horseshoe wrapped tightly around the host card. That looked
+   fine at one reference size but jammed into the host card and
+   guest frames on narrow/short screens, since the arc's radius
+   scaled with the arena box while the host/guest circles' pixel
+   sizes stayed comparatively fixed.
+
+   Seats are now laid out with plain CSS flex-wrap in their own
+   strip pinned to the bottom of the arena (see #participants-strip
+   in the page's CSS) — entirely separate from the host card and
+   guest frames, which live higher up. This can never overlap
+   regardless of screen size: on narrow phones the row simply
+   wraps to two rows of smaller circles; on wide screens it's one
+   loose row. Sizing itself (host card, guest frames, seat circles)
+   is handled by CSS clamp() in the page's stylesheet so it scales
+   continuously with viewport width instead of jumping.
+
+   This file no longer computes seat x/y — it just reads the real,
+   already-laid-out positions of occupied seats/guest frames via
+   getBoundingClientRect() to draw the host↔seat connection lines.
+
+   ── FIX-11 (LATE-JOIN SEAT SNAPSHOT — NEW) ────────────────────
+   Root cause of "seat placeholders missing for viewers joining an
+   existing livestream": the server already emits a full
+   guestSeatsUpdated / micSeatsUpdated snapshot to every joiner
+   immediately (see stream.socket.js), but this module only ever
+   *applied* that state through the micSeatsChanged/guestSeatsChanged
+   listeners registered below. On a fast/warm connection it's possible
+   for live.js to receive and cache that first snapshot before this
+   module's listeners are attached, in which case the snapshot would
+   be silently missed and the seat row would fall back to showing
+   only the always-rendered seat numbers with no occupancy state
+   applied — exactly the reported bug.
+   Fix: live.js now stores the latest snapshot it receives on
+   window.__lastMicSeats / window.__lastGuestSeats *before*
+   dispatching the CustomEvent. This module reads that cache once,
+   right after it creates the seat slots in init(), so every viewer —
+   regardless of exactly when they joined relative to script load —
+   renders the complete, correct seat layout on first paint, and then
+   stays in sync via the normal event listeners after that.
 
    Responsibilities:
      1. Particle canvas background (#arena-particles)
-     2. Fixed 8-slot horseshoe seat layout around the host card
+     2. 8 permanent seat slots — vacant (tappable "+" placeholder)
+        or occupied (docks the real tile), laid out by CSS flex-wrap
      3. Animated SVG "energy lines" linking the host card to every
         OCCUPIED seat and occupied guest frame, with a brief
         brighten/thicken pulse when a gift lands
@@ -46,14 +76,13 @@
      5. Guest-seat docking — when the server reports someone
         occupying the "male" or "female" matchmaker frame, that
         person's tile is docked into the frame instead of sitting
-        in the horseshoe ring. Tapping a vacant frame requests it;
+        in the seat row. Tapping a vacant frame requests it;
         tapping your own occupied frame steps you back down.
 
    Because live.html and podcast-live.html use slightly
-   different accent colors, the line/particle color is read
-   from a CSS custom property on #arena (--arena-accent /
-   --arena-accent-2) so each page can theme it without touching
-   this file.
+   different accent colors, the line color is read from a CSS
+   custom property on #arena (--arena-accent / --arena-accent-2)
+   so each page can theme it without touching this file.
    ============================================================ */
 
 (() => {
@@ -169,9 +198,11 @@
   }
 
   /* ============================================================
-     SEAT SLOTS — 8 permanent, always-visible slots placed in a
-     horseshoe arc around the host card. Vacant slots are tappable
-     placeholders; occupied slots dock the real tile.
+     SEAT SLOTS — 8 permanent slots, laid out by plain CSS
+     flex-wrap in the page's own #participants-strip styling
+     (bottom-of-arena row, wraps on narrow screens). We only
+     create them and toggle vacant/occupied state here; position
+     is entirely the browser's doing via flexbox.
      ============================================================ */
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
@@ -240,71 +271,48 @@
       if (!occupant) slot.classList.remove("speaking");
     });
 
-    layoutSeatSlots();
+    refreshConnectionLines();
   }
 
   window.addEventListener("micSeatsChanged", (e) => applyMicSeats(e.detail));
 
   /* ============================================================
-     LAYOUT — positions the 8 fixed seat slots in a horseshoe arc
-     so nothing overlaps the top bar, then feeds occupied-seat +
-     occupied-guest-frame points to the connection-line renderer.
+     CONNECTION LINES (host ↔ occupied seats / guest frames)
+     ------------------------------------------------------------
+     Positions are read directly from the real, already-laid-out
+     DOM (getBoundingClientRect), not computed — so they stay
+     correct no matter how the flex-wrap seat row reflows at any
+     screen size.
      ============================================================ */
-  function guestFramePoints() {
+  let pulseBoostUntil = 0;
+
+  function pointOf(el) {
     const arenaRect = arena.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left + r.width / 2 - arenaRect.left,
+      y: r.top + r.height / 2 - arenaRect.top
+    };
+  }
+
+  function occupiedSeatPoints() {
+    return seatSlotEls
+      .filter((slot) => slot.classList.contains("occupied"))
+      .map(pointOf);
+  }
+
+  function occupiedGuestPoints() {
     const pts = [];
     [guestFrameMale, guestFrameFemale].forEach((el) => {
-      if (el && el.classList.contains("occupied")) {
-        const r = el.getBoundingClientRect();
-        pts.push({
-          x: r.left + r.width / 2 - arenaRect.left,
-          y: r.top + r.height / 2 - arenaRect.top
-        });
-      }
+      if (el && el.classList.contains("occupied")) pts.push(pointOf(el));
     });
     return pts;
   }
 
-  function layoutSeatSlots() {
-    const rect = arena.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-
-    const cx = rect.width * 0.5;
-    const cy = rect.height * 0.47; // matches .host-card-wrap's CSS position
-
-    const maxRadius = Math.min(rect.width * 0.42, rect.height * 0.46);
-    const radius = Math.max(64, Math.min(maxRadius, Math.min(rect.width, rect.height) * 0.36));
-
-    // Horseshoe arc (degrees, measured clockwise from straight-up)
-    // skips the top ~70° sector so seats never sit under the top bar.
-    const arcStart = 35;
-    const arcSpan  = 290;
-    const n = MIC_SEAT_COUNT;
-
-    const seatPoints = [];
-    seatSlotEls.forEach((slot, i) => {
-      const theta = arcStart + (arcSpan * i) / (n - 1);
-      const rad = (theta * Math.PI) / 180;
-      const dx = radius * Math.sin(rad);
-      const dy = -radius * Math.cos(rad);
-
-      const marginX = 34;
-      const x = Math.max(marginX, Math.min(rect.width - marginX, cx + dx));
-      const y = Math.max(56, Math.min(rect.height - 12, cy + dy));
-
-      slot.style.left = `${x}px`;
-      slot.style.top  = `${y}px`;
-
-      if (slot.classList.contains("occupied")) seatPoints.push({ x, y });
-    });
-
-    drawConnectionLines(seatPoints.concat(guestFramePoints()));
+  function refreshConnectionLines() {
+    const points = occupiedSeatPoints().concat(occupiedGuestPoints());
+    drawConnectionLines(points);
   }
-
-  /* ============================================================
-     CONNECTION LINES (host ↔ occupied seats / guest frames)
-     ============================================================ */
-  let pulseBoostUntil = 0;
 
   function drawConnectionLines(points) {
     if (!svg) return;
@@ -317,13 +325,12 @@
     }
 
     const { a, b } = accentColors();
-    const hostX = rect.width * 0.5;
-    const hostY = rect.height * 0.47;
+    const host = pointOf(hostCardWrap);
 
     const lines = points
       .map(
         (p, i) => `<line class="energy-line" data-i="${i}"
-            x1="${hostX}" y1="${hostY}" x2="${p.x}" y2="${p.y}"
+            x1="${host.x}" y1="${host.y}" x2="${p.x}" y2="${p.y}"
             stroke="url(#energyGrad)" stroke-linecap="round" />`
       )
       .join("");
@@ -405,8 +412,8 @@
      Server truth arrives via `guestSeatsChanged`:
        { male: {socketId,userId}|null, female: {...}|null }
      We dock/undock tiles into #guest-frame-male / #guest-frame-female
-     to match, then re-run layoutSeatSlots() so the connection
-     lines pick up newly (un)occupied frames.
+     to match, then refresh the connection lines so newly (un)occupied
+     frames are picked up.
      ============================================================ */
   let guestSeatsState = { male: null, female: null };
 
@@ -439,7 +446,7 @@
       if (!occupant) frameEl.classList.remove("speaking");
     });
 
-    layoutSeatSlots();
+    refreshConnectionLines();
   }
 
   window.addEventListener("guestSeatsChanged", (e) => applyGuestSeats(e.detail));
@@ -461,16 +468,11 @@
   /* ============================================================
      DOM WATCHERS
      ------------------------------------------------------------
-     Tile visibility is now driven entirely by server-truth events
+     Tile visibility is driven entirely by server-truth events
      (micSeatsChanged / guestSeatsChanged) rather than by watching
      local media state, since a peer with no seat has nothing to
      show — pure audience, no camera/mic, nothing published.
      ============================================================ */
-
-  // Remote tiles are created/destroyed dynamically by live.js.
-  // We don't position them ourselves any more (seat slots do that),
-  // but a newly-created tile still needs to exist somewhere before
-  // the next micSeatsChanged/guestSeatsChanged event docks it.
   const stripObserver = new MutationObserver((mutations) => {
     let dirty = false;
     for (const m of mutations) {
@@ -483,13 +485,15 @@
   });
   stripObserver.observe(strip, { childList: true, subtree: true });
 
-  // Re-layout on resize / orientation change.
+  // Re-draw connection lines on resize / orientation change — the
+  // flex-wrap seat row reflows on its own via CSS, we just need to
+  // recompute line endpoints against the new positions.
   let resizeRaf = null;
   function scheduleResize() {
     if (resizeRaf) cancelAnimationFrame(resizeRaf);
     resizeRaf = requestAnimationFrame(() => {
       resizeCanvas();
-      layoutSeatSlots();
+      refreshConnectionLines();
     });
   }
 
@@ -513,7 +517,18 @@
     createSeatSlots();
     resizeCanvas();
     initParticles();
-    layoutSeatSlots();
+
+    // ── FIX-11 ── Apply any seat snapshot that live.js already
+    // received and cached on window before this module's own
+    // micSeatsChanged/guestSeatsChanged listeners were attached.
+    // This is what guarantees a viewer joining an already-active
+    // livestream sees the exact same, fully-populated seat layout
+    // as the host and every other viewer, on the very first paint —
+    // not just after the *next* seat change happens to broadcast.
+    if (window.__lastMicSeats)   applyMicSeats(window.__lastMicSeats);
+    if (window.__lastGuestSeats) applyGuestSeats(window.__lastGuestSeats);
+
+    refreshConnectionLines();
     requestAnimationFrame(loop);
   }
 

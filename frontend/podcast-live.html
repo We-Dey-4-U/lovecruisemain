@@ -15,21 +15,25 @@
    violet/purple palette so it reads as a sibling of the main
    live room rather than a copy.
 
-   SEAT-SLOT PASS (NEW): the mic-seat ring used to only render a
-   tile once someone was already publishing media — there was
-   nothing to tap. js/live-mic-ring.js now creates 8 permanent
-   `.seat-slot` elements and positions them around the horseshoe;
-   this file just supplies their look (vacant dashed circle with a
-   "+" and seat number vs. occupied, which hides the placeholder
-   and lets the real tile fill the slot).
+   RESPONSIVE PASS (NEW): the host card, guest frames, and mic
+   seats used to be fixed pixel sizes with the seats positioned
+   trigonometrically in a horseshoe wrapped tightly around the
+   host — which looked fine at one reference width but jammed
+   everything together on small/narrow screens.
 
-   SIZE PASS: host frame and the two matchmaker guest frames have
-   been enlarged a notch (host 150→168px, guest 100→116px) to make
-   better use of the arena. Anchor points (top:32% / top:55%) are
-   left unchanged so the mic-seat ring — which reads the host
-   card's position via cy = rect.height * 0.47 in live-mic-ring.js
-   — keeps its clearance and the horseshoe of seats around the
-   room still has room to breathe.
+   Fix, two parts:
+     1. Host card / guest frames now use clamp() so they shrink
+        continuously with viewport width instead of staying a
+        fixed size that a small screen can't accommodate.
+     2. The 8 mic seats are no longer positioned in a circle
+        around the host at all. They now live in their own
+        flex-wrap row pinned to the bottom of the arena
+        (#participants-strip), entirely separate from the host
+        and guest frames above. On narrow phones the row simply
+        wraps to two lines of smaller circles; on wide screens
+        it's one loose row. This makes overlap structurally
+        impossible regardless of screen size — js/live-mic-ring.js
+        no longer computes seat x/y at all, CSS flexbox does it.
 
    Palette:
      --arena-bg-1     #08050F  (near-black violet, base)
@@ -53,8 +57,9 @@ body, .app-shell, .live-screen {
 
 /* ══════════════════════════
    ARENA — gradient bg, particle canvas, energy lines, host card,
-   guest frames, mic-seat ring. Mirrors live.html; colors tuned
-   to podcast violet.
+   guest frames, mic-seat row. Mirrors live.html; colors tuned
+   to podcast violet. Shrinks a notch on short screens so the
+   host/guest/seat stack always has breathing room.
 ══════════════════════════ */
 .arena {
   position: relative; flex: 0 0 64%;
@@ -66,6 +71,9 @@ body, .app-shell, .live-screen {
     radial-gradient(circle at 12% 88%, rgba(160,90,255,.12) 0%, transparent 45%),
     radial-gradient(circle at 90% 80%, rgba(106,26,223,.14) 0%, transparent 42%),
     linear-gradient(180deg, #12081F 0%, #08050F 100%);
+}
+@media (max-height: 680px) {
+  .arena { flex-basis: 58%; }
 }
 
 #arena-particles {
@@ -208,16 +216,16 @@ body, .app-shell, .live-screen {
 
 /* ══════════════════════════
    HOST CARD — centerpiece, rotating aura ring (podcast violet).
-   ENLARGED a notch (150→168px) for better use of the arena.
-   The anchor point (top: 32%) is unchanged so live-mic-ring.js's
-   cy = rect.height * 0.47 assumption still lines up with where
-   this circle actually sits, keeping the connection lines and
-   the mic-seat horseshoe correctly centered on it.
+   Sized with clamp() so it scales continuously between a small
+   floor (narrow phones) and its original ceiling (wide screens)
+   instead of staying a fixed 168px that a small screen can't fit
+   alongside the guest frames and seat row.
 ══════════════════════════ */
 .host-card-wrap {
   position: absolute; z-index: 5;
-  left: 50%; top: 32%; transform: translate(-50%,-50%);
-  width: 168px; height: 168px;
+  left: 50%; top: 30%; transform: translate(-50%,-50%);
+  width: clamp(104px, 30vw, 168px);
+  height: clamp(104px, 30vw, 168px);
 }
 
 .host-aura {
@@ -278,8 +286,8 @@ body, .app-shell, .live-screen {
    frame when the host turns their camera off, showing cover art
    and a small soundwave instead. Detected via a MutationObserver
    watching #stage-video's inline opacity (set by live.js's
-   toggleCamera()). Cover art nudged up slightly (66→72px) to
-   match the larger host frame. */
+   toggleCamera()). Cover art clamps too so it never outgrows a
+   shrunk host frame on small screens. */
 .audio-mode-overlay {
   position: absolute; inset: 0; z-index: 4;
   display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -287,15 +295,17 @@ body, .app-shell, .live-screen {
 }
 .audio-mode-overlay.show { display: flex; }
 .pod-cover-art {
-  width: 72px; height: 72px; border-radius: 15px;
+  width: clamp(44px, 15vw, 72px); height: clamp(44px, 15vw, 72px);
+  border-radius: 15px;
   object-fit: cover; border: 2px solid rgba(160,90,255,.5);
   box-shadow: 0 6px 18px rgba(160,90,255,.3);
 }
 .pod-cover-fallback {
-  width: 72px; height: 72px; border-radius: 15px;
+  width: clamp(44px, 15vw, 72px); height: clamp(44px, 15vw, 72px);
+  border-radius: 15px;
   background: linear-gradient(135deg,#1c0c33,#2a0d4e);
   display: flex; align-items: center; justify-content: center;
-  font-size: 30px; border: 2px solid rgba(160,90,255,.35);
+  font-size: clamp(18px, 6vw, 30px); border: 2px solid rgba(160,90,255,.35);
 }
 .soundwave {
   display: flex; align-items: center; gap: 2px; height: 14px;
@@ -309,18 +319,19 @@ body, .app-shell, .live-screen {
 
 /* ══════════════════════════
    MATCHMAKING GUEST FRAMES — the two "hot seats" the host (as
-   matchmaker) brings people into. ENLARGED a notch (100→116px)
-   to match the bigger host card and make better use of the
-   arena's width. Anchor point (top: 55%) unchanged so they still
-   sit clear of the mic-seat horseshoe below.
+   matchmaker) brings people into. Also clamp()-sized so they
+   shrink in step with the host card rather than staying a fixed
+   116px that crowds a small screen.
 ══════════════════════════ */
 .guest-frames {
   position: absolute; z-index: 5;
-  left: 50%; top: 55%; transform: translate(-50%,-50%);
-  display: flex; align-items: center; gap: 18px;
+  left: 50%; top: 54%; transform: translate(-50%,-50%);
+  display: flex; align-items: center; gap: clamp(10px, 4vw, 18px);
 }
 .guest-frame {
-  position: relative; width: 116px; height: 116px; border-radius: 50%;
+  position: relative;
+  width: clamp(68px, 21vw, 116px); height: clamp(68px, 21vw, 116px);
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, rgba(160,90,255,.22), rgba(255,255,255,.05));
   border: 2px dashed rgba(160,90,255,.4);
@@ -336,72 +347,79 @@ body, .app-shell, .live-screen {
   box-shadow: 0 0 0 3px rgba(200,144,255,.25);
 }
 .guest-placeholder {
-  font-size: 36px; color: rgba(255,255,255,.32); pointer-events: none;
+  font-size: clamp(20px, 7vw, 36px); color: rgba(255,255,255,.32); pointer-events: none;
 }
 .guest-frame.occupied .guest-placeholder { display: none; }
 .guest-tag {
   position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%);
-  font-size: 9.5px; font-weight: 800; padding: 2px 9px; border-radius: 10px;
+  font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 10px;
   background: rgba(0,0,0,.6); color: #fff; white-space: nowrap; pointer-events: none;
 }
 .guest-frame[data-slot="male"] .guest-tag { color: #6FC7FF; }
 .guest-frame[data-slot="female"] .guest-tag { color: #FF8FD1; }
 .guest-link {
-  font-size: 22px; filter: drop-shadow(0 0 6px rgba(160,90,255,.6));
+  font-size: clamp(15px, 4.5vw, 22px); filter: drop-shadow(0 0 6px rgba(160,90,255,.6));
   animation: pulse-anim 1.8s ease-in-out infinite;
 }
 
 /* ══════════════════════════
-   MIC SEAT RING — same mechanism as live.html, positioned by
-   js/live-mic-ring.js. Podcast tiles are circular avatars too,
-   consistent with the shared design language.
+   MIC SEAT ROW (REWRITE) — the 8 permanent seat slots, created
+   dynamically by js/live-mic-ring.js, now live in their own
+   flex-wrap row pinned to the bottom of the arena instead of a
+   circle wrapped around the host. This is what actually fixes
+   the small-screen crowding: seats can never collide with the
+   host card or guest frames above because they occupy a wholly
+   separate region, and the row just wraps to more lines on
+   narrow screens rather than shrinking radius/overlapping.
 ══════════════════════════ */
 #participants-strip {
-  position: absolute; inset: 0; z-index: 4;
-  pointer-events: none;
+  position: absolute;
+  left: 6px; right: 6px; bottom: 6px; top: auto;
+  z-index: 4;
+  display: flex; flex-wrap: wrap;
+  justify-content: center; align-items: flex-end;
+  gap: 8px 10px;
+  pointer-events: none; /* re-enabled per-child below */
 }
+#participants-strip > * { pointer-events: auto; }
 
 #local-tile, .participant-tile {
-  position: absolute;
-  left: 50%; top: 88%;
-  transform: translate(-50%,-50%);
   display: none;
   flex-direction: column; align-items: center; gap: 0;
-  width: 58px; pointer-events: auto;
-  transition: left .45s cubic-bezier(.34,1.2,.64,1), top .45s cubic-bezier(.34,1.2,.64,1),
-              opacity .3s ease, transform .3s ease;
+  width: clamp(40px, 12vw, 58px);
+  flex: 0 0 auto;
 }
 #local-tile.seated, .participant-tile.seated {
   display: flex;
   animation: seat-in .38s cubic-bezier(.34,1.4,.64,1);
 }
 @keyframes seat-in {
-  from { opacity: 0; transform: translate(-50%,-50%) scale(.5); }
-  to   { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  from { opacity: 0; transform: scale(.5); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 /* Docked = parked inside a .guest-frame. The frame now owns
    position and size; the tile just fills it. */
 #local-tile.docked, .participant-tile.docked {
-  position: static; width: 100%; height: 100%; left: auto; top: auto;
-  transform: none; animation: seat-in .32s cubic-bezier(.34,1.4,.64,1);
+  width: 100%; height: 100%;
+  animation: seat-in .32s cubic-bezier(.34,1.4,.64,1);
 }
 #local-tile.docked .seat-frame, .participant-tile.docked .seat-frame {
   width: 100%; height: 100%;
 }
 
 /* Seat-docked = parked inside a .seat-slot (one of the 8 mic-seat
-   ring positions). Unlike guest-frame docking, seat slots don't
-   force the tile to fill 100% — the tile keeps its normal 58px
-   ring size; the slot only cancels the tile's own absolute
-   positioning so the slot's left/top (set by live-mic-ring.js)
-   takes over instead. */
+   row positions). The tile keeps its normal ring size — the slot
+   is just a plain flex child, so no extra positioning is needed
+   beyond what the base tile rule above already sets. */
 #local-tile.seat-docked, .participant-tile.seat-docked {
-  position: static; left: auto; top: auto; transform: none;
+  /* intentionally no overrides — flow layout handles it */
 }
 
 .seat-frame {
-  position: relative; width: 52px; height: 52px; border-radius: 50%;
+  position: relative;
+  width: clamp(34px, 10vw, 52px); height: clamp(34px, 10vw, 52px);
+  border-radius: 50%;
   padding: 2px;
   background: linear-gradient(135deg, rgba(160,90,255,.5), rgba(255,255,255,.08));
 }
@@ -435,8 +453,8 @@ body, .app-shell, .live-screen {
 }
 
 #local-name, .ptile-name {
-  font-size: 8.5px; color: rgba(255,255,255,.7); font-weight: 700;
-  text-align: center; max-width: 58px; margin-top: 3px;
+  font-size: clamp(7px, 2vw, 8.5px); color: rgba(255,255,255,.7); font-weight: 700;
+  text-align: center; max-width: clamp(40px, 12vw, 58px); margin-top: 3px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -466,28 +484,28 @@ body, .app-shell, .live-screen {
 }
 
 .strip-empty-hint {
-  /* Superseded by the always-visible seat-slot ring below — kept
-     in the DOM for backwards compatibility but hidden. */
+  /* Superseded by the always-visible seat row below — kept in the
+     DOM for backwards compatibility but hidden. */
   display: none;
 }
 
 /* ══════════════════════════
-   SEAT SLOTS (NEW) — the 8 permanent, always-visible mic-seat
-   placeholders created by js/live-mic-ring.js. Vacant slots are
-   dashed and tappable ("+" + seat number); once occupied, the
-   placeholder hides and the real tile (docked via .seat-docked)
-   fills the same ring position.
+   SEAT SLOTS (NEW) — the 8 permanent mic-seat placeholders
+   created by js/live-mic-ring.js, laid out as plain flex-wrap
+   children of #participants-strip (no absolute positioning, no
+   trigonometry — this is what keeps them clear of the host/guest
+   area on every screen size). Vacant slots are dashed and
+   tappable ("+" + seat number); once occupied, the placeholder
+   hides and the real tile fills the same flex slot.
 ══════════════════════════ */
 .seat-slot {
-  position: absolute;
-  left: 50%; top: 88%;
-  transform: translate(-50%,-50%);
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  width: 58px; pointer-events: auto;
-  transition: left .45s cubic-bezier(.34,1.2,.64,1), top .45s cubic-bezier(.34,1.2,.64,1);
+  width: clamp(40px, 12vw, 58px);
+  flex: 0 0 auto;
 }
 .seat-slot-frame {
-  width: 52px; height: 52px; border-radius: 50%;
+  width: clamp(34px, 10vw, 52px); height: clamp(34px, 10vw, 52px);
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   border: 2px dashed rgba(160,90,255,.35);
   background: rgba(255,255,255,.04);
@@ -500,7 +518,7 @@ body, .app-shell, .live-screen {
   background: rgba(160,90,255,.08);
 }
 .seat-plus {
-  font-size: 20px; line-height: 1; font-weight: 300;
+  font-size: 18px; line-height: 1; font-weight: 300;
   color: rgba(255,255,255,.32); pointer-events: none;
 }
 .seat-slot-num {
@@ -516,7 +534,7 @@ body, .app-shell, .live-screen {
 
 /* ══════════════════════════
    EPISODE META BAR — sits just under the arena so it never
-   competes for space with the mic-seat ring.
+   competes for space with the mic-seat row.
 ══════════════════════════ */
 .episode-meta-bar {
   flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px;
@@ -682,7 +700,7 @@ body, .app-shell, .live-screen {
 <div class="app-shell">
 <div class="live-screen">
 
-  <!-- ══ ARENA — background + host card + guest frames + mic-seat ring ══ -->
+  <!-- ══ ARENA — background + host card + guest frames + mic-seat row ══ -->
   <div class="stage-panel arena" id="arena">
     <canvas id="arena-particles"></canvas>
     <div class="arena-blob b1"></div>
@@ -724,7 +742,7 @@ body, .app-shell, .live-screen {
 
     <div class="mic-wrap"><div id="mic-level"></div></div>
 
-    <!-- Host card: centerpiece, enlarged -->
+    <!-- Host card: centerpiece, responsively sized -->
     <div class="host-card-wrap" id="host-card-wrap">
       <div class="host-aura"></div>
       <div class="host-frame">
@@ -752,7 +770,7 @@ body, .app-shell, .live-screen {
     <!-- Matchmaking guest frames: host (matchmaker) brings a male
          and a female guest up here from the seats below. Anyone
          can tap a vacant frame to take it themselves; tapping your
-         own occupied frame steps you back down to the seat ring. -->
+         own occupied frame steps you back down to the seat row. -->
     <div class="guest-frames" id="guest-frames">
       <div class="guest-frame" id="guest-frame-male" data-slot="male">
         <span class="guest-placeholder">♂</span>
@@ -765,12 +783,14 @@ body, .app-shell, .live-screen {
       </div>
     </div>
 
-    <!-- Mic-seat ring: local tile + remote tiles + the 8 permanent
-         seat slots all get positioned here by js/live-mic-ring.js.
+    <!-- Mic-seat row: local tile + remote tiles + the 8 permanent
+         seat slots are all plain flex children here — no absolute
+         positioning, no trigonometry. This is what keeps them from
+         ever overlapping the host/guest area, on any screen size.
          The seat-slot elements themselves (vacant "+" circles /
          occupied hosts for docked tiles) are created dynamically
-         by that script so the same file works unmodified on both
-         live.html and this page. -->
+         by js/live-mic-ring.js so the same file works unmodified
+         on both live.html and this page. -->
     <div id="participants-strip">
       <div id="local-tile">
         <div class="seat-frame">
@@ -891,7 +911,7 @@ body, .app-shell, .live-screen {
 <!-- live.js is the EXACT SAME file used by live.html — zero changes needed -->
 <script type="module" src="/js/live.js"></script>
 
-<!-- Visual-only enhancement layer: particles, seat-slot ring, connection
+<!-- Visual-only enhancement layer: particles, seat-slot row, connection
      lines, speaking glow, seat + guest-seat docking. Shared with
      live.html; themed via the --arena-accent / --arena-accent-2 CSS
      vars set on #arena above. -->
