@@ -25,13 +25,33 @@
 //   ── SPEAKING-DETECTION HOOKS ─────────────────────
 //   Unchanged from previous pass — dispatches `speakingChanged`.
 //
-//   ── GUEST SEATS (matchmaker male/female slots) — NEW ─────────
-//   Adds the socket wiring for the matchmaker feature. live.js stays
-//   ignorant of DOM/layout: it just relays "guestSeatsUpdated" from
-//   the server into a `guestSeatsChanged` CustomEvent (same pattern
-//   as speakingChanged/giftLanded), and exposes window.requestGuestSeat(slot)
-//   / window.leaveGuestSeat() so js/live-mic-ring.js can call them from
-//   its click handlers. No WebRTC/transport logic involved.
+//   ── GUEST SEATS (matchmaker male/female slots) ─────────
+//   live.js stays ignorant of DOM/layout: it just relays
+//   "guestSeatsUpdated" from the server into a `guestSeatsChanged`
+//   CustomEvent (same pattern as speakingChanged/giftLanded), and
+//   exposes window.requestGuestSeat(slot) / window.leaveGuestSeat()
+//   so js/live-mic-ring.js can call them from its click handlers.
+//   No WebRTC/transport logic involved.
+//
+//   ── MIC SEATS (NEW) — "empty seat → tap → mic on" flow ─────
+//   This is the core of the room-layout spec: a viewer is pure
+//   audience (no camera, no mic, nothing published) until they tap
+//   a vacant circular seat. At that point:
+//     1. claimMicSeat(seatIndex) grabs an AUDIO-ONLY getUserMedia
+//        stream (matches "users in these seats may speak with audio
+//        only... turn on video later"),
+//     2. produces it over mediasoup (creating the send transport on
+//        first use if this is the first thing they've ever published),
+//     3. asks the server to reserve that seat via "requestMicSeat".
+//   If the server says the seat's taken, everything is rolled back
+//   silently and the mic is released. releaseMicSeat() reverses all
+//   of it and frees the seat.
+//   toggleCamera() now also handles the "no video producer yet"
+//   case, so a seated user can turn video on for the first time —
+//   matching the seat-promotion flow's "turn on video later" step.
+//   None of this touches host behavior: the host still auto-
+//   publishes camera+mic immediately, since they're always the
+//   center broadcaster, never a seat occupant.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -77,6 +97,10 @@ let coinBalance   = 0;
 let isMicMuted    = false;
 let isCameraOff   = false;
 let GIFT_CATALOG  = [];
+
+/* ── Mic-seat state (NEW) — which of the 8 circular seats, if any,
+   the local user currently occupies. null = pure audience. ── */
+let mySeatIndex = null;
 
 /* ── URL params ── */
 const params = new URLSearchParams(window.location.search);
@@ -211,7 +235,7 @@ function cleanupAllAudioBoosts() {
 }
 
 /* ============================================================
-   CAMERA INIT
+   CAMERA + MIC INIT (host / full publish)
    ============================================================ */
 async function getLocalStream() {
   console.log("[getLocalStream] Requesting camera + mic…");
@@ -237,6 +261,18 @@ async function getLocalStream() {
     }
   }
   throw new Error("Camera/microphone access denied");
+}
+
+/* ============================================================
+   AUDIO-ONLY INIT (seat claim — mic only, camera comes later)
+   ============================================================ */
+async function getAudioOnlyStream() {
+  console.log("[getAudioOnlyStream] Requesting mic only…");
+  const audioConstraints = {
+    echoCancellation: true, noiseSuppression: true,
+    autoGainControl: true, sampleRate: 48000, channelCount: 1
+  };
+  return navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
 }
 
 /* ============================================================
@@ -331,6 +367,11 @@ async function createSendTransport() {
   });
 }
 
+async function ensureSendTransport() {
+  if (sendTransport) return sendTransport;
+  return createSendTransport();
+}
+
 /* ============================================================
    RECV TRANSPORT
    ============================================================ */
@@ -377,7 +418,7 @@ async function ensureRecvTransport() {
 }
 
 /* ============================================================
-   PUBLISH SELF STREAM
+   PUBLISH SELF STREAM (host only — full camera + mic, always on)
    ============================================================ */
 async function publishStream() {
   console.log("[publishStream] Starting…");
@@ -388,8 +429,6 @@ async function publishStream() {
     localVideo.srcObject = localStream;
     localVideo.muted = true;
   }
-  const localTile = $("local-tile");
-  if (localTile) localTile.style.display = "flex";
 
   const localName = $("local-name");
   if (localName) {
@@ -397,22 +436,25 @@ async function publishStream() {
                             window.CURRENT_USER?.display_name || "You";
   }
 
-  if (isHost) {
-    console.log("[publishStream] Host mode — mirroring to stage");
-    const stageVideo = $("stage-video");
-    if (stageVideo) {
-      stageVideo.srcObject = localStream;
-      stageVideo.muted = true;
-    }
-    const offlineEl = $("stage-offline");
-    if (offlineEl) offlineEl.style.display = "none";
-
-    const stageLabel = $("stage-host-label");
-    if (stageLabel) stageLabel.textContent =
-      window.CURRENT_USER?.username || window.CURRENT_USER?.display_name || "Host";
+  // NOTE: we deliberately do NOT show #local-tile here. This function
+  // only ever runs for the host now (see the routerRtpCapabilities
+  // handler below), and the host's video is already the big centerpiece
+  // (#stage-video) — showing a second copy of it in the seat ring would
+  // just be a redundant, unlabeled circle nobody can interact with.
+  console.log("[publishStream] Host mode — mirroring to stage");
+  const stageVideo = $("stage-video");
+  if (stageVideo) {
+    stageVideo.srcObject = localStream;
+    stageVideo.muted = true;
   }
+  const offlineEl = $("stage-offline");
+  if (offlineEl) offlineEl.style.display = "none";
 
-  await createSendTransport();
+  const stageLabel = $("stage-host-label");
+  if (stageLabel) stageLabel.textContent =
+    window.CURRENT_USER?.username || window.CURRENT_USER?.display_name || "Host";
+
+  await ensureSendTransport();
 
   const codec = getPreferredVideoCodec();
   console.log(`[publishStream] Using codec: ${codec}`);
@@ -456,6 +498,101 @@ async function publishStream() {
   }
 
   console.log("[publishStream] ✅ Done publishing own stream");
+}
+
+/* ============================================================
+   MIC SEATS (NEW) — "empty seat → tap → mic activates" flow
+   ------------------------------------------------------------
+   Anyone who isn't the host starts as pure audience: no camera,
+   no mic, nothing published, nothing shown in the ring. Tapping a
+   vacant seat (via js/live-mic-ring.js's click handler) calls
+   claimMicSeat(seatIndex), which:
+     1. grabs an audio-only mic stream,
+     2. produces it (creating the send transport on first use),
+     3. asks the server to reserve the seat.
+   If the seat turns out to be taken (race condition — two people
+   tapped it at once) everything is rolled back and the mic is
+   released again, silently.
+   ============================================================ */
+async function claimMicSeat(seatIndex) {
+  if (typeof seatIndex !== "number") return;
+  if (mySeatIndex !== null) {
+    window.showToast("Leave your current seat first");
+    return;
+  }
+
+  let audioStream = null;
+  try {
+    audioStream = await getAudioOnlyStream();
+  } catch (e) {
+    window.showToast("Microphone access denied");
+    return;
+  }
+
+  try {
+    localStream = audioStream;
+
+    const localName = $("local-name");
+    if (localName) {
+      localName.textContent = window.CURRENT_USER?.username ||
+                              window.CURRENT_USER?.display_name || "You";
+    }
+
+    await ensureSendTransport();
+
+    const audioTrack = audioStream.getAudioTracks()[0];
+    audioProducer = await sendTransport.produce({
+      track: audioTrack,
+      codecOptions: { opusDtx: true, opusFec: true, opusMaxPlaybackRate: 48000 },
+      appData: { type: "audio", isHost: false, seatIndex }
+    });
+    startAudioLevelMonitor(audioTrack);
+
+    socket.emit("requestMicSeat", { roomId, seatIndex }, (res) => {
+      if (res?.error) {
+        console.warn("[claimMicSeat] Seat rejected:", res.error);
+        window.showToast(res.error);
+        try { audioProducer?.close(); } catch (e) {}
+        audioProducer = null;
+        localStream?.getTracks().forEach(t => t.stop());
+        localStream = null;
+        return;
+      }
+      mySeatIndex = seatIndex;
+      console.log(`[claimMicSeat] ✅ Seated at ${seatIndex}, mic live`);
+      window.showToast(`Seat ${seatIndex + 1} joined — mic on`);
+    });
+  } catch (e) {
+    console.error("[claimMicSeat] ❌", e);
+    window.showToast("Couldn't join that seat");
+    audioStream?.getTracks().forEach(t => t.stop());
+  }
+}
+
+function releaseMicSeat() {
+  if (mySeatIndex === null) return;
+
+  try { audioProducer?.close(); } catch (e) {}
+  audioProducer = null;
+
+  if (videoProducer) {
+    try { videoProducer.close(); } catch (e) {}
+    videoProducer = null;
+    isCameraOff = false;
+  }
+
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+
+  const localVideo = $("local-video");
+  if (localVideo) localVideo.srcObject = null;
+
+  socket.emit("leaveMicSeat", { roomId });
+  console.log(`[releaseMicSeat] Left seat ${mySeatIndex}`);
+  mySeatIndex = null;
+  window.showToast("Left seat");
 }
 
 /* ============================================================
@@ -594,9 +731,13 @@ function getOrCreateParticipantTile(socketId, userId) {
     tile.appendChild(mutedBadge);
     tile.appendChild(nameEl);
 
+    // NOTE: appended to the strip in its "undocked" resting place.
+    // js/live-mic-ring.js is responsible for docking it into the
+    // correct seat-slot or guest-frame based on server state
+    // (micSeatsChanged / guestSeatsChanged) — this function's only
+    // job is to make sure a tile with the right video element exists
+    // somewhere in the DOM for attachTrackToParticipantTile to use.
     const strip = $("participants-strip");
-    const hint  = $("strip-hint");
-    if (hint) hint.style.display = "none";
     if (strip) strip.appendChild(tile);
 
     peerStreams.set(socketId, new MediaStream());
@@ -624,14 +765,6 @@ function removeParticipantVideo(socketId) {
   if (tile) tile.remove();
   peerStreams.delete(socketId);
   cleanupAudioBoostsForSocket(socketId);
-
-  const strip     = $("participants-strip");
-  const hasRemote = strip?.querySelector(".participant-tile");
-  const localShown = $("local-tile")?.style.display !== "none";
-  if (!hasRemote && !localShown) {
-    const hint = $("strip-hint");
-    if (hint) hint.style.display = "flex";
-  }
 }
 
 /* ============================================================
@@ -652,7 +785,7 @@ function buildSimulcastEncodings(width, height) {
 }
 
 /* ============================================================
-   AUDIO LEVEL MONITOR (local user — host or guest)
+   AUDIO LEVEL MONITOR (local user — host or seated guest)
    Also drives the local user's speaking-glow via speakingChanged.
    ============================================================ */
 function startAudioLevelMonitor(audioTrack) {
@@ -736,8 +869,64 @@ function updateLocalMicButton(muted) {
   localMicBtn.title = muted ? "Unmute mic" : "Mute mic";
 }
 
-function toggleCamera() {
-  if (!videoProducer) return;
+/* toggleCamera() now covers two cases:
+   1. There's already a videoProducer (host, or a seated guest who
+      already turned their camera on once) → just pause/resume it,
+      same as before.
+   2. There's no videoProducer yet, but the user IS seated (has a
+      live audioProducer) → this is the "turn on video later" step
+      of the seat-promotion flow: grab a camera stream for the first
+      time and produce it. Pure audience (no seat) gets a nudge to
+      join a seat first, since there's nowhere for their video to
+      go yet. */
+async function toggleCamera() {
+  if (!videoProducer) {
+    if (!isHost && mySeatIndex === null) {
+      window.showToast("Join a seat first to turn on your camera");
+      return;
+    }
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: "user" }
+      });
+      const videoTrack = videoStream.getVideoTracks()[0];
+
+      if (localStream) localStream.addTrack(videoTrack);
+      else localStream = videoStream;
+
+      const localVideo = $("local-video");
+      if (localVideo) { localVideo.srcObject = localStream; localVideo.muted = true; }
+
+      await ensureSendTransport();
+
+      const codec = getPreferredVideoCodec();
+      const settings = videoTrack.getSettings();
+      const produceOptions = {
+        track: videoTrack,
+        codecOptions: {
+          videoGoogleStartBitrate: 800,
+          videoGoogleMaxBitrate:   4000,
+          videoGoogleMinBitrate:   200
+        },
+        appData: { type: "video", isHost, seatIndex: mySeatIndex }
+      };
+      produceOptions.encodings = codec === "VP9"
+        ? [{ maxBitrate: 4_000_000, scalabilityMode: "L1T3" }]
+        : buildSimulcastEncodings(settings.width || 1280, settings.height || 720);
+
+      videoProducer = await sendTransport.produce(produceOptions);
+      videoProducer.on("score", updateVideoScoreIndicator);
+
+      const btn = $("camera-btn");
+      if (btn) btn.textContent = "📷";
+      window.showToast("Camera on");
+    } catch (e) {
+      console.warn("[toggleCamera] getUserMedia(video) failed:", e.message);
+      window.showToast("Camera access denied");
+    }
+    return;
+  }
+
   isCameraOff = !isCameraOff;
   isCameraOff ? videoProducer.pause() : videoProducer.resume();
 
@@ -845,6 +1034,7 @@ async function leaveRoom() {
   try {
     await window.api.request(`/live/${roomId}/leave`, { method: "POST" });
     socket.emit("leaveGuestSeat", { roomId });
+    socket.emit("leaveMicSeat", { roomId });
     socket.emit("leaveRoom", { roomId });
   } catch (e) {}
 }
@@ -874,11 +1064,18 @@ function initSocket() {
       return;
     }
 
-    try {
-      await publishStream();
-    } catch (err) {
-      console.warn("[socket] publishStream failed — continuing in watch-only mode:", err.message);
-      window.showToast("Watching only (camera unavailable)");
+    // Only the host auto-publishes camera+mic immediately — they're
+    // always the center broadcaster. Everyone else joins as pure
+    // audience (nothing published, nothing shown in the ring) until
+    // they tap a vacant seat via claimMicSeat(), which is exposed
+    // below as window.claimMicSeat for js/live-mic-ring.js to call.
+    if (isHost) {
+      try {
+        await publishStream();
+      } catch (err) {
+        console.warn("[socket] publishStream failed — continuing in watch-only mode:", err.message);
+        window.showToast("Watching only (camera unavailable)");
+      }
     }
   });
 
@@ -947,6 +1144,11 @@ function initSocket() {
   // visual layer. No DOM/layout logic lives here.
   socket.on("guestSeatsUpdated", (seats) => {
     window.dispatchEvent(new CustomEvent("guestSeatsChanged", { detail: seats }));
+  });
+
+  // ── MIC SEATS (the 8 circular seats) — same relay pattern.
+  socket.on("micSeatsUpdated", (seats) => {
+    window.dispatchEvent(new CustomEvent("micSeatsChanged", { detail: seats }));
   });
 
   socket.on("liveEnded", () => {
@@ -1299,7 +1501,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadGiftCatalog();
   await loadTopGifters();
 
-  appendComment({ type: "system", text: "Welcome to the live room 🎉 Be kind and have fun!" });
+  appendComment({
+    type: "system",
+    text: isHost
+      ? "Welcome to the live room 🎉 Be kind and have fun!"
+      : "Welcome! Tap any empty seat below to join the conversation 🎙️"
+  });
 
   setInterval(tickClock, 1000);
 });
@@ -1329,7 +1536,11 @@ window.setGiftSoundMuted = (muted = true) => {
 // ── GUEST SEATS (matchmaker male/female slots) ──────────────
 // Exposed so js/live-mic-ring.js (visual-only layer) can trigger
 // these without importing or touching the socket instance itself.
+// Requesting a guest-frame slot also releases any mic seat first,
+// so a promoted user cleanly moves ring → guest preview instead of
+// technically holding both at once.
 window.requestGuestSeat = (slot) => {
+  if (mySeatIndex !== null) releaseMicSeat();
   socket.emit("requestGuestSeat", { roomId, slot }, (res) => {
     if (res?.error) window.showToast(res.error);
   });
@@ -1337,3 +1548,7 @@ window.requestGuestSeat = (slot) => {
 window.leaveGuestSeat = () => {
   socket.emit("leaveGuestSeat", { roomId });
 };
+
+// ── MIC SEATS (the 8 circular seats — empty-seat tap-to-join flow) ──
+window.claimMicSeat   = claimMicSeat;
+window.releaseMicSeat = releaseMicSeat;

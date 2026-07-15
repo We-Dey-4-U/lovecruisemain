@@ -18,6 +18,15 @@
 //         room.js) so mediasoup internals stay untouched. Fully synced
 //         across all clients via "guestSeatsUpdated", and cleaned up
 //         automatically on leave/disconnect.
+//   FIX-7 (MIC SEATS — NEW): added the 8 circular mic-seat slots from
+//         the room-layout spec ("Seat 2..10" in the diagram). Same
+//         pattern as guest seats: in-memory state on `room`, synced via
+//         "micSeatsUpdated", cleaned up on leave/disconnect. This is
+//         what lets a viewer tap a vacant seat and have their mic go
+//         live / their presence show up for everyone else — the seat
+//         itself is just a reserved slot; the actual audio/video still
+//         flows over the existing mediasoup produce/consume pipeline
+//         above, unchanged.
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
@@ -42,6 +51,30 @@ function clearGuestSeatsForSocket(room, socketId) {
   for (const key of ["male", "female"]) {
     if (seats[key]?.socketId === socketId) { seats[key] = null; changed = true; }
   }
+  return changed;
+}
+
+/* ══════════════════════════════════════════════════════
+   MIC SEATS (circular seats around the room — "Seat 2..10")
+   8 numbered slots. Shape: array of 8, each either null or
+   { socketId, userId }. Same "tracked on the room object,
+   never touches mediasoup" approach as guest seats above.
+══════════════════════════════════════════════════════ */
+const MIC_SEAT_COUNT = 8;
+
+function getMicSeats(room) {
+  if (!room.micSeats) room.micSeats = Array(MIC_SEAT_COUNT).fill(null);
+  return room.micSeats;
+}
+function broadcastMicSeats(io, roomId, room) {
+  io.to(`room:${roomId}`).emit("micSeatsUpdated", getMicSeats(room));
+}
+function clearMicSeatForSocket(room, socketId) {
+  const seats = getMicSeats(room);
+  let changed = false;
+  seats.forEach((s, i) => {
+    if (s?.socketId === socketId) { seats[i] = null; changed = true; }
+  });
   return changed;
 }
 
@@ -128,6 +161,11 @@ module.exports = (io, socket) => {
       // Guest-seat snapshot (matchmaker slots) — sent immediately so a
       // fresh joiner sees who's already up without waiting on anything else.
       socket.emit("guestSeatsUpdated", getGuestSeats(room));
+
+      // Mic-seat snapshot (the 8 circular seats) — same idea: a fresh
+      // joiner sees which seats are already taken right away, so the
+      // vacant/occupied state of the ring is correct from frame one.
+      socket.emit("micSeatsUpdated", getMicSeats(room));
 
       // ── FIX-1 ── Wait 150ms before sending existingProducers.
       if (existingProducers.length > 0) {
@@ -494,6 +532,40 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
+     MIC SEATS (the 8 circular seats — "empty seat, tap to
+     activate mic" flow from the room-layout spec)
+  ══════════════════════════════════════════════════════ */
+  socket.on("requestMicSeat", ({ roomId, seatIndex }, callback) => {
+    try {
+      if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= MIC_SEAT_COUNT) {
+        throw new Error("Invalid seat");
+      }
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+
+      const seats = getMicSeats(room);
+      clearMicSeatForSocket(room, socket.id); // hop between seats cleanly
+
+      if (seats[seatIndex]) throw new Error("Seat already taken");
+
+      seats[seatIndex] = { socketId: socket.id, userId: socket.currentUserId };
+      broadcastMicSeats(io, roomId, room);
+      callback?.({ ok: true, seatIndex });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
+  });
+
+  socket.on("leaveMicSeat", ({ roomId }, callback) => {
+    const room = getRoom(roomId);
+    if (!room) return callback?.({ error: "Room not found" });
+    if (clearMicSeatForSocket(room, socket.id)) {
+      broadcastMicSeats(io, roomId, room);
+    }
+    callback?.({ ok: true });
+  });
+
+  /* ══════════════════════════════════════════════════════
      LIVE ENDED
   ══════════════════════════════════════════════════════ */
   socket.on("liveEnded", async ({ roomId }) => {
@@ -579,6 +651,12 @@ module.exports = (io, socket) => {
       // FIX-6: free any guest seat this socket held, and tell everyone.
       if (clearGuestSeatsForSocket(room, socket.id)) {
         io.to(`room:${roomId}`).emit("guestSeatsUpdated", getGuestSeats(room));
+      }
+
+      // FIX-7: same cleanup for mic seats — an empty seat should
+      // reopen the instant its occupant disconnects or leaves.
+      if (clearMicSeatForSocket(room, socket.id)) {
+        io.to(`room:${roomId}`).emit("micSeatsUpdated", getMicSeats(room));
       }
 
       if (wasHost) {

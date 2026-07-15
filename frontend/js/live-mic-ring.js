@@ -13,27 +13,41 @@
      - `giftLanded`         CustomEvent (dispatched by live.js)
      - `guestSeatsChanged`  CustomEvent (dispatched by live.js,
         relaying the server's "guestSeatsUpdated" truth)
-   ...and, for the matchmaker guest-seat feature only, calls two
-   functions live.js exposes on window (window.requestGuestSeat /
-   window.leaveGuestSeat) which just emit socket events — no
-   transport/producer/consumer logic lives here.
+     - `micSeatsChanged`    CustomEvent (dispatched by live.js,
+        relaying the server's "micSeatsUpdated" truth — an array
+        of 8 slots, each null or {socketId, userId})
+   ...and, for seat/guest-frame actions, calls functions live.js
+   exposes on window (window.claimMicSeat / window.releaseMicSeat /
+   window.requestGuestSeat / window.leaveGuestSeat) which just
+   emit socket events — no transport/producer/consumer logic
+   lives here.
+
+   ── SEAT SLOTS (NEW) ─────────────────────────────────────────
+   Previously this file only ever rendered a tile once someone was
+   already publishing media — there was nothing to tap. Now it
+   creates MIC_SEAT_COUNT permanent slot elements positioned around
+   the horseshoe arc, always present:
+     - vacant  → dashed circle + seat number, tappable to claim
+     - occupied → the real #local-tile / .participant-tile is
+       docked inside it (moved into the slot's DOM, sized/laid
+       out by the slot rather than by absolute left/top)
+   Seat truth comes entirely from the server via `micSeatsChanged`;
+   this file just reflects it and forwards taps to
+   window.claimMicSeat(seatIndex) / window.releaseMicSeat().
 
    Responsibilities:
      1. Particle canvas background (#arena-particles)
-     2. Circular / horseshoe mic-seat layout — positions
-        #local-tile and every .participant-tile around the host
-        card
-     3. Animated SVG "energy lines" (#connection-lines) linking
-        the host card to every occupied seat, with a brief
+     2. Fixed 8-slot horseshoe seat layout around the host card
+     3. Animated SVG "energy lines" linking the host card to every
+        OCCUPIED seat and occupied guest frame, with a brief
         brighten/thicken pulse when a gift lands
      4. Speaking-glow — toggles a `.speaking` class on the host
         card or the relevant seat tile
-     5. Guest-seat docking (NEW) — when the server reports someone
+     5. Guest-seat docking — when the server reports someone
         occupying the "male" or "female" matchmaker frame, that
-        person's tile is moved (docked) into the frame instead of
-        sitting in the horseshoe ring. Tapping a vacant frame
-        requests it; tapping your own occupied frame steps you
-        back down.
+        person's tile is docked into the frame instead of sitting
+        in the horseshoe ring. Tapping a vacant frame requests it;
+        tapping your own occupied frame steps you back down.
 
    Because live.html and podcast-live.html use slightly
    different accent colors, the line/particle color is read
@@ -51,12 +65,19 @@
   const localTile     = document.getElementById("local-tile");
   const guestFrameMale   = document.getElementById("guest-frame-male");
   const guestFrameFemale = document.getElementById("guest-frame-female");
+  const stripHint     = document.getElementById("strip-hint");
 
   // Nothing to enhance on a page that doesn't use the arena layout.
   if (!arena || !hostCardWrap || !strip) return;
 
+  const MIC_SEAT_COUNT = 8;
+
   const prefersReducedMotion =
     window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Seat slots are superseded-by-design: the old "nobody here yet"
+  // hint text no longer applies since all 8 seats are always visible.
+  if (stripHint) stripHint.style.display = "none";
 
   /* Reads the page's own accent colors so live.html (violet/magenta)
      and podcast-live.html (violet/purple) each get their own tone
@@ -148,58 +169,108 @@
   }
 
   /* ============================================================
-     SEAT RING — positions #local-tile / .participant-tile
-     around the host card in a horseshoe arc so nothing overlaps
-     the top bar. Tiles that are currently docked into a guest
-     frame are excluded (see getSeatedTiles below).
+     SEAT SLOTS — 8 permanent, always-visible slots placed in a
+     horseshoe arc around the host card. Vacant slots are tappable
+     placeholders; occupied slots dock the real tile.
      ============================================================ */
-  function markSeated(el) {
-    if (!el || el.classList.contains("seated")) return;
-    el.classList.add("seated");
-    ensureSeatNum(el);
-    layoutSeats();
-  }
+  const seatSlotEls = [];
+  let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
 
-  function unmarkSeated(el) {
-    if (!el) return;
-    el.classList.remove("seated");
-    layoutSeats();
-  }
-
-  function ensureSeatNum(el) {
-    const frame = el.querySelector(".seat-frame");
-    if (!frame) return;
-    if (!frame.querySelector(".seat-num")) {
-      const num = document.createElement("div");
-      num.className = "seat-num";
-      frame.appendChild(num);
+  function createSeatSlots() {
+    for (let i = 0; i < MIC_SEAT_COUNT; i++) {
+      const slot = document.createElement("div");
+      slot.className = "seat-slot vacant";
+      slot.dataset.seatIndex = String(i);
+      slot.innerHTML = `
+        <div class="seat-slot-frame">
+          <span class="seat-plus">+</span>
+        </div>
+        <div class="seat-slot-num">${i + 1}</div>
+      `;
+      slot.addEventListener("click", () => {
+        const occupant = micSeatsState[i];
+        if (occupant && occupant.socketId === window.__mySocketId) {
+          window.releaseMicSeat?.();
+        } else if (!occupant) {
+          window.claimMicSeat?.(i);
+        }
+        // Occupied by someone else — tapping does nothing; seats
+        // are self-serve only.
+      });
+      strip.appendChild(slot);
+      seatSlotEls.push(slot);
     }
   }
 
-  function getSeatedTiles() {
-    // Local tile first (stable position), then remote tiles in DOM
-    // order. Tiles docked in a guest frame are skipped — they're
-    // positioned by the frame itself, not the horseshoe ring.
-    const tiles = [];
-    if (localTile && localTile.classList.contains("seated") && !localTile.classList.contains("docked")) {
-      tiles.push(localTile);
-    }
-    strip.querySelectorAll(".participant-tile.seated:not(.docked)").forEach((el) => tiles.push(el));
-    return tiles;
+  function tileForSocket(socketId) {
+    if (!socketId) return null;
+    return socketId === window.__mySocketId
+      ? localTile
+      : strip.querySelector(`.participant-tile[data-socket-id="${cssEscape(socketId)}"]`);
   }
 
-  function layoutSeats() {
+  function dockSeatTile(tile, slot) {
+    if (!tile || !slot) return;
+    tile.classList.add("seat-docked", "seated");
+    slot.appendChild(tile);
+  }
+
+  function undockSeatTile(tile) {
+    if (!tile) return;
+    tile.classList.remove("seat-docked", "seated");
+    const home = tile === localTile ? arena : strip;
+    home.appendChild(tile);
+  }
+
+  function applyMicSeats(seats) {
+    micSeatsState = seats || Array(MIC_SEAT_COUNT).fill(null);
+
+    micSeatsState.forEach((occupant, i) => {
+      const slot = seatSlotEls[i];
+      if (!slot) return;
+
+      const dockedNow  = slot.querySelector(".participant-tile, #local-tile");
+      const wantedTile = occupant ? tileForSocket(occupant.socketId) : null;
+
+      if (dockedNow && dockedNow !== wantedTile) undockSeatTile(dockedNow);
+      if (wantedTile && wantedTile.parentElement !== slot) dockSeatTile(wantedTile, slot);
+
+      slot.classList.toggle("occupied", !!occupant);
+      slot.classList.toggle("vacant", !occupant);
+      if (!occupant) slot.classList.remove("speaking");
+    });
+
+    layoutSeatSlots();
+  }
+
+  window.addEventListener("micSeatsChanged", (e) => applyMicSeats(e.detail));
+
+  /* ============================================================
+     LAYOUT — positions the 8 fixed seat slots in a horseshoe arc
+     so nothing overlaps the top bar, then feeds occupied-seat +
+     occupied-guest-frame points to the connection-line renderer.
+     ============================================================ */
+  function guestFramePoints() {
+    const arenaRect = arena.getBoundingClientRect();
+    const pts = [];
+    [guestFrameMale, guestFrameFemale].forEach((el) => {
+      if (el && el.classList.contains("occupied")) {
+        const r = el.getBoundingClientRect();
+        pts.push({
+          x: r.left + r.width / 2 - arenaRect.left,
+          y: r.top + r.height / 2 - arenaRect.top
+        });
+      }
+    });
+    return pts;
+  }
+
+  function layoutSeatSlots() {
     const rect = arena.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
 
-    const seats = getSeatedTiles();
     const cx = rect.width * 0.5;
     const cy = rect.height * 0.47; // matches .host-card-wrap's CSS position
-
-    if (!seats.length) {
-      drawConnectionLines([]);
-      return;
-    }
 
     const maxRadius = Math.min(rect.width * 0.42, rect.height * 0.46);
     const radius = Math.max(64, Math.min(maxRadius, Math.min(rect.width, rect.height) * 0.36));
@@ -208,10 +279,11 @@
     // skips the top ~70° sector so seats never sit under the top bar.
     const arcStart = 35;
     const arcSpan  = 290;
-    const n = seats.length;
+    const n = MIC_SEAT_COUNT;
 
-    const points = seats.map((el, i) => {
-      const theta = n === 1 ? 180 : arcStart + (arcSpan * i) / (n - 1);
+    const seatPoints = [];
+    seatSlotEls.forEach((slot, i) => {
+      const theta = arcStart + (arcSpan * i) / (n - 1);
       const rad = (theta * Math.PI) / 180;
       const dx = radius * Math.sin(rad);
       const dy = -radius * Math.cos(rad);
@@ -220,20 +292,17 @@
       const x = Math.max(marginX, Math.min(rect.width - marginX, cx + dx));
       const y = Math.max(56, Math.min(rect.height - 12, cy + dy));
 
-      el.style.left = `${x}px`;
-      el.style.top  = `${y}px`;
+      slot.style.left = `${x}px`;
+      slot.style.top  = `${y}px`;
 
-      const num = el.querySelector(".seat-num");
-      if (num) num.textContent = String(i + 1);
-
-      return { x, y };
+      if (slot.classList.contains("occupied")) seatPoints.push({ x, y });
     });
 
-    drawConnectionLines(points);
+    drawConnectionLines(seatPoints.concat(guestFramePoints()));
   }
 
   /* ============================================================
-     CONNECTION LINES (host ↔ seats)
+     CONNECTION LINES (host ↔ occupied seats / guest frames)
      ============================================================ */
   let pulseBoostUntil = 0;
 
@@ -312,8 +381,12 @@
     }
     if (el) el.classList.toggle("speaking", !!active);
 
-    // Also reflect speaking state on whichever guest frame this
-    // socket is currently docked in, if any.
+    // Reflect speaking state on whichever seat slot or guest frame
+    // this socket is currently docked in, if any.
+    seatSlotEls.forEach((slot) => {
+      const docked = slot.querySelector(".seat-docked");
+      if (docked === el) slot.classList.toggle("speaking", !!active);
+    });
     [guestFrameMale, guestFrameFemale].forEach((frameEl) => {
       if (!frameEl) return;
       const docked = frameEl.querySelector(".docked");
@@ -327,33 +400,25 @@
   window.addEventListener("giftLanded", pulseConnectionLines);
 
   /* ============================================================
-     GUEST SEATS (matchmaker male/female slots) — NEW
+     GUEST SEATS (matchmaker male/female slots)
      ------------------------------------------------------------
      Server truth arrives via `guestSeatsChanged`:
        { male: {socketId,userId}|null, female: {...}|null }
      We dock/undock tiles into #guest-frame-male / #guest-frame-female
-     to match, then re-run layoutSeats() so the horseshoe ring
-     recalculates without the now-docked tiles.
+     to match, then re-run layoutSeatSlots() so the connection
+     lines pick up newly (un)occupied frames.
      ============================================================ */
   let guestSeatsState = { male: null, female: null };
-
-  function tileForSocket(socketId) {
-    if (!socketId) return null;
-    return socketId === window.__mySocketId
-      ? localTile
-      : strip.querySelector(`.participant-tile[data-socket-id="${cssEscape(socketId)}"]`);
-  }
 
   function dockTile(tile, frameEl) {
     if (!tile || !frameEl) return;
     tile.classList.add("docked", "seated");
-    ensureSeatNum(tile); // harmless if hidden by docked CSS
     frameEl.appendChild(tile);
   }
 
   function undockTile(tile) {
     if (!tile) return;
-    tile.classList.remove("docked");
+    tile.classList.remove("docked", "seated");
     const home = tile === localTile ? arena : strip;
     home.appendChild(tile);
   }
@@ -374,7 +439,7 @@
       if (!occupant) frameEl.classList.remove("speaking");
     });
 
-    layoutSeats();
+    layoutSeatSlots();
   }
 
   window.addEventListener("guestSeatsChanged", (e) => applyGuestSeats(e.detail));
@@ -395,34 +460,28 @@
 
   /* ============================================================
      DOM WATCHERS
+     ------------------------------------------------------------
+     Tile visibility is now driven entirely by server-truth events
+     (micSeatsChanged / guestSeatsChanged) rather than by watching
+     local media state, since a peer with no seat has nothing to
+     show — pure audience, no camera/mic, nothing published.
      ============================================================ */
-  // Local tile is always present in the DOM (display:none until
-  // live.js flips its inline style once the camera/mic are ready).
-  if (localTile) {
-    const localStyleObserver = new MutationObserver(() => {
-      const visible = localTile.style.display && localTile.style.display !== "none";
-      if (visible) markSeated(localTile);
-      else unmarkSeated(localTile);
-    });
-    localStyleObserver.observe(localTile, { attributes: true, attributeFilter: ["style"] });
-    if (localTile.style.display && localTile.style.display !== "none") markSeated(localTile);
-  }
 
   // Remote tiles are created/destroyed dynamically by live.js.
+  // We don't position them ourselves any more (seat slots do that),
+  // but a newly-created tile still needs to exist somewhere before
+  // the next micSeatsChanged/guestSeatsChanged event docks it.
   const stripObserver = new MutationObserver((mutations) => {
     let dirty = false;
     for (const m of mutations) {
-      m.addedNodes.forEach((node) => {
-        if (node.nodeType === 1 && node.classList?.contains("participant-tile")) {
-          markSeated(node);
-          dirty = true;
-        }
-      });
-      if (m.removedNodes.length) dirty = true;
+      if (m.addedNodes.length || m.removedNodes.length) dirty = true;
     }
-    if (dirty) layoutSeats();
+    if (dirty) {
+      applyMicSeats(micSeatsState);
+      applyGuestSeats(guestSeatsState);
+    }
   });
-  stripObserver.observe(strip, { childList: true });
+  stripObserver.observe(strip, { childList: true, subtree: true });
 
   // Re-layout on resize / orientation change.
   let resizeRaf = null;
@@ -430,7 +489,7 @@
     if (resizeRaf) cancelAnimationFrame(resizeRaf);
     resizeRaf = requestAnimationFrame(() => {
       resizeCanvas();
-      layoutSeats();
+      layoutSeatSlots();
     });
   }
 
@@ -451,9 +510,10 @@
   }
 
   function init() {
+    createSeatSlots();
     resizeCanvas();
     initParticles();
-    layoutSeats();
+    layoutSeatSlots();
     requestAnimationFrame(loop);
   }
 
