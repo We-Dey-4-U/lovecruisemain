@@ -1534,6 +1534,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   setInterval(tickClock, 1000);
 });
 
+
+
+// ── HOST CONTROLS — target side (the person being kicked/muted) ──
+  socket.on("removedFromSeat", () => {
+    if (mySeatIndex !== null) {
+      releaseMicSeat(); // stops producer/tracks, frees local state
+    }
+    window.showToast("You were removed by the host");
+  });
+
+  socket.on("hostMutedYou", () => {
+    if (!audioProducer) return;
+    isMicMuted = true;
+    try { audioProducer.pause(); } catch (e) {}
+    const hostBtn = $("mic-btn");
+    if (hostBtn) hostBtn.textContent = "🔇";
+    updateLocalMicButton(true);
+    dispatchSpeaking(socket.id, isHost, false);
+    socket.emit("peerMicToggled", { roomId, socketId: socket.id, muted: true });
+    window.showToast("Host muted your mic");
+  });
+
 /* ── Cleanup ── */
 window.addEventListener("beforeunload", leaveRoom);
 window.addEventListener("pagehide",     leaveRoom);
@@ -1554,6 +1576,33 @@ window.leaveRoom        = leaveRoom;
 
 window.setGiftSoundMuted = (muted = true) => {
   window.__giftEngine?.setMuted(muted);
+};
+
+
+// ── HOST CONTROLS — caller side (the host tapping ✕ / 🔇) ──
+// Pure relay: server is the sole authority (checks room.hostSocketId
+// against socket.id) and only after it confirms does anything change,
+// via the existing micSeatsUpdated/guestSeatsUpdated broadcasts plus
+// the removedFromSeat/hostMutedYou events sent to the target socket.
+window.hostKickSeat = (seatIndex) => {
+  socket.emit("hostKickSeat", { roomId, seatIndex }, (res) => {
+    if (res?.error) window.showToast(res.error);
+  });
+};
+window.hostMuteSeat = (seatIndex) => {
+  socket.emit("hostMuteSeat", { roomId, seatIndex }, (res) => {
+    if (res?.error) window.showToast(res.error);
+  });
+};
+window.hostKickGuest = (slot) => {
+  socket.emit("hostKickGuest", { roomId, slot }, (res) => {
+    if (res?.error) window.showToast(res.error);
+  });
+};
+window.hostMuteGuest = (slot) => {
+  socket.emit("hostMuteGuest", { roomId, slot }, (res) => {
+    if (res?.error) window.showToast(res.error);
+  });
 };
 
 // ── GUEST SEATS (matchmaker male/female slots) ──────────────

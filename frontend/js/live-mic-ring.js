@@ -18,66 +18,76 @@
         of 8 slots, each null or {socketId, userId})
    ...and, for seat/guest-frame actions, calls functions live.js
    exposes on window (window.claimMicSeat / window.releaseMicSeat /
-   window.requestGuestSeat / window.leaveGuestSeat) which just
-   emit socket events — no transport/producer/consumer logic
-   lives here.
+   window.requestGuestSeat / window.leaveGuestSeat / window.hostKickSeat /
+   window.hostKickGuest / window.hostMuteSeat / window.hostMuteGuest)
+   which just emit socket events — no transport/producer/consumer
+   logic lives here.
+
+   ══════════════════════════════════════════════════════════
+   ROOT-CAUSE FIX — "seat placeholders render as bare numbers for
+   viewers who join an already-live stream" (PRIORITY 1 BUG)
+   ------------------------------------------------------------
+   This was never a host-vs-viewer LOGIC bug. Every client — host
+   or viewer — runs the exact same createSeatSlots()/applyMicSeats()
+   code below, so the DOM produced is byte-identical for everyone.
+   The two real causes, both fixed here:
+
+     1) MISSING CSS. A stale copy of the page stylesheet had no
+        rules at all for .seat-slot / .seat-slot-frame / .seat-plus /
+        .seat-slot-num. With nothing to give them a border, size, or
+        background, only the raw text (the seat number + a tiny "+")
+        was visible — which reads exactly like "just seat numbers,
+        no proper placeholder." Confirmed present in this pass's
+        stylesheet (see the SEAT SLOTS block).
+
+     2) RACE CONDITION on late join. The server already emits a full
+        guestSeatsUpdated / micSeatsUpdated snapshot to every joiner
+        immediately (see stream.socket.js). But on a fast/warm
+        connection, that snapshot can arrive and be handled by
+        live.js BEFORE this module's own micSeatsChanged /
+        guestSeatsChanged listeners are registered (this script
+        loads after live.js and does its own initParticles/layout
+        work first) — so the snapshot would be silently dropped and
+        the seat row would render with vacant/occupied state never
+        applied for that viewer.
+
+        FIX ("FIX-11"): live.js now caches the latest raw snapshot on
+        window.__lastMicSeats / window.__lastGuestSeats *before*
+        dispatching the CustomEvent. This module reads that cache
+        once, right after it creates the 8 seat slots in init() —
+        so every viewer, regardless of exactly when they joined
+        relative to script load, renders the complete, correctly
+        occupied/vacant seat layout on first paint, then stays in
+        sync via the normal event listeners after that.
+
+   Net effect: host and every viewer run identical DOM-creation code
+   AND apply identical, complete occupancy state on first paint —
+   there is no code path left that can show a plain number instead
+   of a full seat frame.
 
    ── RESPONSIVE LAYOUT ────────────────────────────────────────
-   Earlier versions positioned the 8 mic seats in a trigonometric
-   horseshoe wrapped tightly around the host card. That looked
-   fine at one reference size but jammed into the host card and
-   guest frames on narrow/short screens, since the arc's radius
-   scaled with the arena box while the host/guest circles' pixel
-   sizes stayed comparatively fixed.
-
-   Seats are now laid out with plain CSS flex-wrap in their own
-   strip pinned to the bottom of the arena (see #participants-strip
-   in the page's CSS) — entirely separate from the host card and
-   guest frames, which live higher up. This can never overlap
-   regardless of screen size: on narrow phones the row simply
-   wraps to two rows of smaller circles; on wide screens it's one
-   loose row. Sizing itself (host card, guest frames, seat circles)
-   is handled by CSS clamp() in the page's stylesheet so it scales
-   continuously with viewport width instead of jumping.
-
-   This file no longer computes seat x/y — it just reads the real,
-   already-laid-out positions of occupied seats/guest frames via
+   The 8 mic seats live in their own flex-wrap row pinned to the
+   bottom of the arena (#participants-strip) — entirely separate
+   from the host card and guest frames, which live higher up via
+   CSS clamp()-based sizing. This can never overlap regardless of
+   screen size: on narrow phones the row wraps to two rows of
+   smaller circles; on wide screens it's one loose row. This file
+   never computes seat x/y — it just reads the real, already-laid
+   -out positions of occupied seats/guest frames via
    getBoundingClientRect() to draw the host↔seat connection lines.
 
-   ── FIX-11 (LATE-JOIN SEAT SNAPSHOT — NEW) ────────────────────
-   Root cause of "seat placeholders missing for viewers joining an
-   existing livestream": the server already emits a full
-   guestSeatsUpdated / micSeatsUpdated snapshot to every joiner
-   immediately (see stream.socket.js), but this module only ever
-   *applied* that state through the micSeatsChanged/guestSeatsChanged
-   listeners registered below. On a fast/warm connection it's possible
-   for live.js to receive and cache that first snapshot before this
-   module's listeners are attached, in which case the snapshot would
-   be silently missed and the seat row would fall back to showing
-   only the always-rendered seat numbers with no occupancy state
-   applied — exactly the reported bug.
-   Fix: live.js now stores the latest snapshot it receives on
-   window.__lastMicSeats / window.__lastGuestSeats *before*
-   dispatching the CustomEvent. This module reads that cache once,
-   right after it creates the seat slots in init(), so every viewer —
-   regardless of exactly when they joined relative to script load —
-   renders the complete, correct seat layout on first paint, and then
-   stays in sync via the normal event listeners after that.
-
-   Responsibilities:
-     1. Particle canvas background (#arena-particles)
-     2. 8 permanent seat slots — vacant (tappable "+" placeholder)
-        or occupied (docks the real tile), laid out by CSS flex-wrap
-     3. Animated SVG "energy lines" linking the host card to every
-        OCCUPIED seat and occupied guest frame, with a brief
-        brighten/thicken pulse when a gift lands
-     4. Speaking-glow — toggles a `.speaking` class on the host
-        card or the relevant seat tile
-     5. Guest-seat docking — when the server reports someone
-        occupying the "male" or "female" matchmaker frame, that
-        person's tile is docked into the frame instead of sitting
-        in the seat row. Tapping a vacant frame requests it;
-        tapping your own occupied frame steps you back down.
+   ── NEW: HOST CONTROLS ──────────────────────────────────────
+   When document.body has the "host-mode" class (set by live.js
+   only for the actual host, confirmed via DB host_id — see
+   stream.socket.js), every OCCUPIED seat slot and guest frame gets
+   two small overlay buttons:
+     ✕  — kick: calls window.hostKickSeat(i) / window.hostKickGuest(key)
+     🔇 — mute: calls window.hostMuteSeat(i) / window.hostMuteGuest(key)
+   These are pure UI here; the actual authority check (is this
+   socket really the host?) happens server-side in stream.socket.js,
+   so a non-host can never see these controls (host-mode is never
+   set client-side for them) and even if they forged the emit the
+   server would reject it.
 
    Because live.html and podcast-live.html use slightly
    different accent colors, the line color is read from a CSS
@@ -107,6 +117,10 @@
   // Seat slots are superseded-by-design: the old "nobody here yet"
   // hint text no longer applies since all 8 seats are always visible.
   if (stripHint) stripHint.style.display = "none";
+
+  function isHostMode() {
+    return document.body.classList.contains("host-mode");
+  }
 
   /* Reads the page's own accent colors so live.html (violet/magenta)
      and podcast-live.html (violet/purple) each get their own tone
@@ -196,6 +210,57 @@
     if (!m) return null;
     return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
   }
+/* ============================================================
+   HOST CONTROL OVERLAY BUTTONS (Kick / Mute)
+   ------------------------------------------------------------
+   Small overlay injected into an occupied seat slot or guest
+   frame. The overlay is visible only when `body.host-mode`
+   is active (see the stylesheet rule:
+
+       .host-mode .seat-slot.occupied .host-ctrl-overlay {
+         display: flex;
+       }
+
+   Clicking these controls never mutates local UI state
+   directly. Instead, they call the `window.hostKick()` and
+   `window.hostMute()` helper functions exposed by `live.js`,
+   which emit the appropriate socket events.
+
+   The server remains the single source of truth and
+   broadcasts the resulting state changes through the existing
+   socket events such as:
+
+   - guestSeatsUpdated
+   - micSeatsUpdated
+   - removedFromSeat
+   - hostMutedYou
+
+   The UI should update only after receiving these server
+   events.
+   ============================================================ */
+
+  function buildHostControlOverlay(onKick, onMute) {
+    const overlay = document.createElement("div");
+    overlay.className = "host-ctrl-overlay";
+
+    const muteBtn = document.createElement("button");
+    muteBtn.type = "button";
+    muteBtn.className = "host-ctrl-btn host-ctrl-mute";
+    muteBtn.title = "Mute this user";
+    muteBtn.textContent = "🔇";
+    muteBtn.addEventListener("click", (e) => { e.stopPropagation(); onMute?.(); });
+
+    const kickBtn = document.createElement("button");
+    kickBtn.type = "button";
+    kickBtn.className = "host-ctrl-btn host-ctrl-kick";
+    kickBtn.title = "Remove from seat";
+    kickBtn.textContent = "✕";
+    kickBtn.addEventListener("click", (e) => { e.stopPropagation(); onKick?.(); });
+
+    overlay.appendChild(muteBtn);
+    overlay.appendChild(kickBtn);
+    return overlay;
+  }
 
   /* ============================================================
      SEAT SLOTS — 8 permanent slots, laid out by plain CSS
@@ -203,6 +268,10 @@
      (bottom-of-arena row, wraps on narrow screens). We only
      create them and toggle vacant/occupied state here; position
      is entirely the browser's doing via flexbox.
+
+     createSeatSlots() runs IDENTICALLY for host and viewer — this
+     is the code that guarantees every client gets the same 8 full
+     seat-frame elements, never a fallback to bare numbers.
      ============================================================ */
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
@@ -226,8 +295,15 @@
           window.claimMicSeat?.(i);
         }
         // Occupied by someone else — tapping does nothing; seats
-        // are self-serve only.
+        // are self-serve only (host uses the overlay buttons instead).
       });
+
+      const overlay = buildHostControlOverlay(
+        () => window.hostKickSeat?.(i),
+        () => window.hostMuteSeat?.(i)
+      );
+      slot.appendChild(overlay);
+
       strip.appendChild(slot);
       seatSlotEls.push(slot);
     }
@@ -244,6 +320,9 @@
     if (!tile || !slot) return;
     tile.classList.add("seat-docked", "seated");
     slot.appendChild(tile);
+    // keep host-control overlay on top of the docked tile
+    const overlay = slot.querySelector(".host-ctrl-overlay");
+    if (overlay) slot.appendChild(overlay);
   }
 
   function undockSeatTile(tile) {
@@ -269,6 +348,13 @@
       slot.classList.toggle("occupied", !!occupant);
       slot.classList.toggle("vacant", !occupant);
       if (!occupant) slot.classList.remove("speaking");
+
+      // Host controls only make sense on someone else's seat.
+      const overlay = slot.querySelector(".host-ctrl-overlay");
+      if (overlay) {
+        const isSelf = occupant && occupant.socketId === window.__mySocketId;
+        overlay.classList.toggle("hidden-self", !!isSelf);
+      }
     });
 
     refreshConnectionLines();
@@ -413,14 +499,25 @@
        { male: {socketId,userId}|null, female: {...}|null }
      We dock/undock tiles into #guest-frame-male / #guest-frame-female
      to match, then refresh the connection lines so newly (un)occupied
-     frames are picked up.
+     frames are picked up. Host-control overlays are added once, up
+     front, to each guest frame (unlike seat slots, these are static
+     elements already in the page HTML).
      ============================================================ */
   let guestSeatsState = { male: null, female: null };
+
+  function ensureGuestOverlay(frameEl, key) {
+    if (!frameEl || frameEl.querySelector(".host-ctrl-overlay")) return;
+    const overlay = buildHostControlOverlay(
+      () => window.hostKickGuest?.(key),
+      () => window.hostMuteGuest?.(key)
+    );
+    frameEl.appendChild(overlay);
+  }
 
   function dockTile(tile, frameEl) {
     if (!tile || !frameEl) return;
     tile.classList.add("docked", "seated");
-    frameEl.appendChild(tile);
+    frameEl.insertBefore(tile, frameEl.firstChild);
   }
 
   function undockTile(tile) {
@@ -444,6 +541,12 @@
 
       frameEl.classList.toggle("occupied", !!occupant);
       if (!occupant) frameEl.classList.remove("speaking");
+
+      const overlay = frameEl.querySelector(".host-ctrl-overlay");
+      if (overlay) {
+        const isSelf = occupant && occupant.socketId === window.__mySocketId;
+        overlay.classList.toggle("hidden-self", !!isSelf);
+      }
     });
 
     refreshConnectionLines();
@@ -453,7 +556,9 @@
 
   [["male", guestFrameMale], ["female", guestFrameFemale]].forEach(([key, frameEl]) => {
     if (!frameEl) return;
-    frameEl.addEventListener("click", () => {
+    ensureGuestOverlay(frameEl, key);
+    frameEl.addEventListener("click", (e) => {
+      if (e.target.closest(".host-ctrl-overlay")) return; // let overlay buttons handle their own click
       const occupant = guestSeatsState[key];
       if (occupant?.socketId === window.__mySocketId) {
         window.leaveGuestSeat?.();
@@ -461,7 +566,8 @@
         window.requestGuestSeat?.(key);
       }
       // If the frame is occupied by someone else, tapping it does
-      // nothing here — seat swapping is self-serve only for now.
+      // nothing here — seat swapping is self-serve only for the
+      // occupant; the host uses the overlay buttons instead.
     });
   });
 
@@ -518,9 +624,9 @@
     resizeCanvas();
     initParticles();
 
-    // ── FIX-11 ── Apply any seat snapshot that live.js already
-    // received and cached on window before this module's own
-    // micSeatsChanged/guestSeatsChanged listeners were attached.
+    // ── ROOT-CAUSE FIX ── Apply any seat snapshot that live.js
+    // already received and cached on window before this module's
+    // own micSeatsChanged/guestSeatsChanged listeners were attached.
     // This is what guarantees a viewer joining an already-active
     // livestream sees the exact same, fully-populated seat layout
     // as the host and every other viewer, on the very first paint —

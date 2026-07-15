@@ -27,18 +27,27 @@
 //         itself is just a reserved slot; the actual audio/video still
 //         flows over the existing mediasoup produce/consume pipeline
 //         above, unchanged.
-//   FIX-10 (SEAT-REQUEST VALIDATION — NEW): requestGuestSeat / leaveGuestSeat /
+//   FIX-10 (SEAT-REQUEST VALIDATION): requestGuestSeat / leaveGuestSeat /
 //         requestMicSeat / leaveMicSeat now verify the roomId passed in
 //         matches the room this socket actually joined (socket.currentRoomId).
 //         Previously a client could pass an arbitrary roomId and mutate seat
 //         state in a room it was never a member of, which could also produce
 //         a mismatched/stale seat broadcast for real occupants of that room.
-//   FIX-11 (LATE-JOIN SEAT SNAPSHOT — see js/live.js / js/live-mic-ring.js):
-//         no server change was needed here — guestSeatsUpdated/micSeatsUpdated
-//         snapshots were already emitted synchronously to every new joiner
-//         right after routerRtpCapabilities (before the 150ms existingProducers
-//         delay). The "seats missing for late joiners" bug was a client-side
-//         race (see FIX-11 in live.js/live-mic-ring.js) — fixed there.
+//   FIX-11 (LATE-JOIN SEAT SNAPSHOT): guestSeatsUpdated/micSeatsUpdated
+//         snapshots are emitted synchronously to every new joiner right
+//         after routerRtpCapabilities (before the 150ms existingProducers
+//         delay), so a viewer joining an already-active room always gets
+//         the full current seat layout immediately — see also
+//         js/live.js / js/live-mic-ring.js for how the client applies it.
+//
+//   NO AUTO-SEATING (by design, unchanged): nothing in this file ever
+//         assigns a socket to a guest seat or mic seat on join. The ONLY
+//         way seats.male/seats.female/micSeats[i] get populated is an
+//         explicit "requestGuestSeat" / "requestMicSeat" emit from the
+//         client — which itself is only ever triggered by a user tapping
+//         a vacant seat/frame (see live.js's claimMicSeat/requestGuestSeat
+//         and live-mic-ring.js's click handlers). A fresh joiner is always
+//         pure audience until they take that explicit action.
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
@@ -259,6 +268,99 @@ module.exports = (io, socket) => {
     } catch (err) {
       console.error("[createRecvTransport] ❌", err);
       callback({ error: err.message });
+    }
+  });
+
+
+
+  /* ══════════════════════════════════════════════════════
+     HOST CONTROLS — kick/mute a mic seat or guest seat.
+     Authority check is server-side only: room.hostSocketId must
+     equal socket.id (the DB-verified host from joinRoom, FIX-8).
+     A non-host socket can never trigger these even if it forges
+     the emit, since the client never shows the buttons to them
+     (host-mode class), but this check is what actually matters.
+  ══════════════════════════════════════════════════════ */
+  socket.on("hostKickSeat", ({ roomId, seatIndex }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+      if (room.hostSocketId !== socket.id) throw new Error("Only the host can do that");
+      if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= MIC_SEAT_COUNT) {
+        throw new Error("Invalid seat");
+      }
+
+      const seats = getMicSeats(room);
+      const occupant = seats[seatIndex];
+      if (!occupant) throw new Error("Seat is already empty");
+
+      seats[seatIndex] = null;
+      broadcastMicSeats(io, roomId, room);
+      io.to(occupant.socketId).emit("removedFromSeat", { roomId, seatIndex });
+
+      callback?.({ ok: true });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
+  });
+
+  socket.on("hostMuteSeat", ({ roomId, seatIndex }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+      if (room.hostSocketId !== socket.id) throw new Error("Only the host can do that");
+
+      const seats = getMicSeats(room);
+      const occupant = seats[seatIndex];
+      if (!occupant) throw new Error("Seat is empty");
+
+      io.to(occupant.socketId).emit("hostMutedYou", { roomId, seatIndex });
+      callback?.({ ok: true });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
+  });
+
+  socket.on("hostKickGuest", ({ roomId, slot }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+      if (room.hostSocketId !== socket.id) throw new Error("Only the host can do that");
+
+      const seats = getGuestSeats(room);
+      const occupant = seats[slot];
+      if (!occupant) throw new Error("Seat is already empty");
+
+      seats[slot] = null;
+      broadcastGuestSeats(io, roomId, room);
+      io.to(occupant.socketId).emit("removedFromSeat", { roomId, slot });
+
+      callback?.({ ok: true });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
+  });
+
+  socket.on("hostMuteGuest", ({ roomId, slot }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+      if (room.hostSocketId !== socket.id) throw new Error("Only the host can do that");
+
+      const seats = getGuestSeats(room);
+      const occupant = seats[slot];
+      if (!occupant) throw new Error("Seat is empty");
+
+      io.to(occupant.socketId).emit("hostMutedYou", { roomId, slot });
+      callback?.({ ok: true });
+    } catch (err) {
+      callback?.({ error: err.message });
     }
   });
 
@@ -521,6 +623,11 @@ module.exports = (io, socket) => {
      FIX-10: roomId must match the room this socket actually
      joined — otherwise a client could mutate (or read-then-race)
      seat state for a room it was never a member of.
+
+     NO AUTO-SEATING: this handler only ever runs in response to
+     an explicit client emit — which itself only happens when the
+     user taps a vacant guest frame (see live.js window.requestGuestSeat
+     + live-mic-ring.js click handler). Nothing on join calls this.
   ══════════════════════════════════════════════════════ */
   socket.on("requestGuestSeat", ({ roomId, slot }, callback) => {
     try {
@@ -556,6 +663,11 @@ module.exports = (io, socket) => {
      MIC SEATS (the 8 circular seats — "empty seat, tap to
      activate mic" flow from the room-layout spec)
      FIX-10: same roomId ownership check as guest seats above.
+
+     NO AUTO-SEATING: same guarantee as guest seats — only ever
+     populated by an explicit "requestMicSeat" emit, itself only
+     triggered by the user tapping a vacant seat slot (see live.js
+     claimMicSeat() + live-mic-ring.js's seat-slot click handler).
   ══════════════════════════════════════════════════════ */
   socket.on("requestMicSeat", ({ roomId, seatIndex }, callback) => {
     try {
@@ -716,3 +828,5 @@ module.exports = (io, socket) => {
     }
   }
 };
+
+
