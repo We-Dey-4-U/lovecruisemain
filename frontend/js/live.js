@@ -25,65 +25,25 @@
 //   ── SPEAKING-DETECTION HOOKS ─────────────────────
 //   Unchanged from previous pass — dispatches `speakingChanged`.
 //
-//   ── GUEST SEATS (matchmaker male/female slots) ─────────
-//   live.js stays ignorant of DOM/layout: it just relays
-//   "guestSeatsUpdated" from the server into a `guestSeatsChanged`
-//   CustomEvent (same pattern as speakingChanged/giftLanded), and
-//   exposes window.requestGuestSeat(slot) / window.leaveGuestSeat()
-//   so js/live-mic-ring.js can call them from its click handlers.
-//   No WebRTC/transport logic involved.
+//   ── GUEST SEATS / MIC SEATS ─────────
+//   Unchanged in behavior from the previous pass — 12 seats now
+//   exist server-side, but the join/leave/mute-vs-leave flow is
+//   identical, just parameterized by seatIndex.
 //
-//   ── MIC SEATS — "empty seat → tap → mic on" flow ─────
-//   This is the core of the room-layout spec: a viewer is pure
-//   audience (no camera, no mic, nothing published) until they tap
-//   a vacant circular seat. At that point:
-//     1. claimMicSeat(seatIndex) grabs an AUDIO-ONLY getUserMedia
-//        stream (matches "users in these seats may speak with audio
-//        only... turn on video later"),
-//     2. produces it over mediasoup (creating the send transport on
-//        first use if this is the first thing they've ever published),
-//     3. asks the server to reserve that seat via "requestMicSeat".
-//   If the server says the seat's taken, everything is rolled back
-//   silently and the mic is released. releaseMicSeat() reverses all
-//   of it and frees the seat.
-//   toggleCamera() now also handles the "no video producer yet"
-//   case, so a seated user can turn video on for the first time —
-//   matching the seat-promotion flow's "turn on video later" step.
-//   None of this touches host behavior: the host still auto-
-//   publishes camera+mic immediately, since they're always the
-//   center broadcaster, never a seat occupant.
-//
-//   ── FIX-11 (LATE-JOIN SEAT SNAPSHOT) ──────────────────
-//   Root-cause fix for "seat placeholders missing when a viewer joins
-//   an already-active livestream": the server always sends a full
-//   guestSeatsUpdated / micSeatsUpdated snapshot to every joiner right
-//
-//   SEAT/GUEST REWORK (this pass)
-//   ────────────────────────────────────────────────────
-//   - Mic seats are voice-only, always. There is no "turn camera on
-//     while seated" flow anymore — the only two places video ever
-//     renders are the host frame and the two matchmaker guest
-//     frames. This isn't enforced by hiding a track; it's enforced
-//     structurally in js/live-mic-ring.js, which no longer docks
-//     any <video> into a seat slot at all (seats render the
-//     occupant's profile photo, supplied by the server on
-//     micSeatsUpdated/guestSeatsUpdated).
-//   - claimMicSeat()/releaseMicSeat() are unchanged in *what* they
-//     do (claim = grab mic + reserve seat, release = fully leave),
-//     but a brand new toggleMySeatMic() now exists for "mute
-//     without leaving" — this is what live-mic-ring.js's seat mute
-//     button calls. Muting no longer removes you from the seat.
-//   - Same pattern added for the two guest frames: requestGuestSeat/
-//     leaveGuestSeat (unchanged) + a new toggleMyGuestMic().
-//   - Host mute is now round-tripped through the server (source of
-//     truth lives in stream.socket.js's seat objects) instead of a
-//     one-shot client-side pause. "hostMutedYou" now carries the
-//     authoritative { muted } state to apply locally.
-//
-//   Everything else (mediasoup device/transport/producer/consumer
-//   plumbing, gifts, comments, TURN handling, audio boost, speaking
-//   detection, host publish flow) is UNCHANGED from the previous
-//   pass.
+//   ── THIS PASS — HOST-ONLY PARTICIPANTS ROSTER + FULL KICK ──
+//   - NEW: window.openParticipantsModal() / closeParticipantsModal()
+//     — pulls the full room roster from the server (host-only;
+//     regular viewers never see this) and renders it into the
+//     #viewers-modal markup added to live.html / podcast-live.html.
+//   - NEW: window.hostKickUserFromRoom(socketId) — removes ANY user
+//     from the room entirely (audience, seated, or guest), not just
+//     a seat/guest occupant. Server is sole authority.
+//   - NEW: "youWereKicked" listener — if the HOST removes you from
+//     the room outright, tear down local media and leave.
+//   - "newComment" now recognizes payload.system and renders it as
+//     a system row — this is how the server announces joins, which
+//     is the only way a regular viewer learns who's in the room
+//     besides seeing an occupied seat/guest frame.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -130,8 +90,8 @@ let isMicMuted    = false;
 let isCameraOff   = false;
 let GIFT_CATALOG  = [];
 
-/* ── Mic-seat state — which of the 8 circular seats, if any, the
-   local user currently occupies. null = pure audience. ── */
+/* ── Mic-seat state — which of the 12 seats, if any, the local
+   user currently occupies. null = pure audience. ── */
 let mySeatIndex = null;
 
 /* ── Guest-frame state — which slot ("male"/"female"), if any, the
@@ -300,11 +260,7 @@ async function getLocalStream() {
 }
 
 /* ============================================================
-   AUDIO-ONLY INIT (seat / guest claim — mic only, no camera. Seats
-   and guest frames are voice slots; the host frame is the only
-   camera broadcast, plus the two guest frames which render video
-   only if that occupant is also the host's matched guest — see
-   live-mic-ring.js for what actually renders where.)
+   AUDIO-ONLY INIT (seat / guest claim — mic only, no camera.)
    ============================================================ */
 async function getAudioOnlyStream() {
   console.log("[getAudioOnlyStream] Requesting mic only…");
@@ -537,20 +493,6 @@ async function publishStream() {
 
 /* ============================================================
    MIC SEATS — "empty seat → tap → mic activates" flow
-   ------------------------------------------------------------
-   Anyone who isn't the host starts as pure audience: no camera,
-   no mic, nothing published, nothing shown in the ring. Tapping a
-   vacant seat calls claimMicSeat(seatIndex), which:
-     1. grabs an audio-only mic stream,
-     2. produces it (creating the send transport on first use),
-     3. asks the server to reserve the seat.
-   If the seat turns out to be taken (race condition) everything is
-   rolled back and the mic is released again, silently.
-
-   Muting/unmuting while seated NEVER releases the seat — that is
-   toggleMySeatMic() below, a completely separate action from
-   releaseMicSeat(). This is the fix for "tapping mute kicked me off
-   the seat."
    ============================================================ */
 async function claimMicSeat(seatIndex) {
   if (typeof seatIndex !== "number") return;
@@ -633,11 +575,6 @@ function releaseMicSeat() {
   window.showToast("Left seat");
 }
 
-/* Self-serve mute/unmute WITHOUT leaving the seat. This is a
-   round trip to the server (source of truth for the muted flag
-   lives in stream.socket.js's seat objects, so every client's seat
-   icon stays in sync) — but the actual audio pause/resume happens
-   here, locally, on our own mediasoup producer. */
 function toggleMySeatMic() {
   if (mySeatIndex === null || !audioProducer) return;
   socket.emit("toggleSeatMic", { roomId, seatIndex: mySeatIndex }, (res) => {
@@ -652,9 +589,7 @@ function toggleMySeatMic() {
 }
 
 /* ============================================================
-   GUEST FRAMES — matchmaker male/female slots. Same idea as mic
-   seats: claim grabs audio + reserves the slot, mute toggles
-   without leaving, leave releases fully.
+   GUEST FRAMES — matchmaker male/female slots.
    ============================================================ */
 async function claimGuestSeat(slot) {
   if (slot !== "male" && slot !== "female") return;
@@ -791,12 +726,6 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
           if (producerIsHost) {
             attachTrackToStage(consumer.track);
           } else {
-            // Non-host video is only ever rendered if that socket is
-            // currently docked into a guest frame (see live-mic-ring.js
-            // applyGuestSeats/dockTile). If they're not in a guest
-            // frame (e.g. a mic-seat occupant), the tile is created
-            // here but stays undocked/hidden — mic seats never show
-            // video, by design.
             attachTrackToParticipantTile(consumer.track, socketId, userId);
           }
         } else if (consumer.kind === "audio") {
@@ -885,11 +814,6 @@ function getOrCreateParticipantTile(socketId, userId) {
     tile.appendChild(mutedBadge);
     tile.appendChild(nameEl);
 
-    // Appended to the strip in its "undocked" resting place.
-    // js/live-mic-ring.js docks this into a guest-frame if (and only
-    // if) that socket is currently a guest occupant. Mic-seat
-    // occupants never get this tile docked anywhere — seats render
-    // an avatar image instead (see applyMicSeats in live-mic-ring.js).
     const strip = $("participants-strip");
     if (strip) strip.appendChild(tile);
 
@@ -938,8 +862,7 @@ function buildSimulcastEncodings(width, height) {
 }
 
 /* ============================================================
-   AUDIO LEVEL MONITOR (local user — host or seated/guest)
-   Also drives the local user's speaking-glow via speakingChanged.
+   AUDIO LEVEL MONITOR
    ============================================================ */
 function startAudioLevelMonitor(audioTrack) {
   try {
@@ -997,8 +920,7 @@ function updateVideoScoreIndicator(scores) {
 }
 
 /* ============================================================
-   HOST'S OWN MIC/CAMERA CONTROLS (broadcast mic, unrelated to
-   seat/guest mute)
+   HOST'S OWN MIC/CAMERA CONTROLS
    ============================================================ */
 function toggleMic() {
   if (!audioProducer) return;
@@ -1023,12 +945,6 @@ function updateLocalMicButton(muted) {
   localMicBtn.title = muted ? "Unmute mic" : "Mute mic";
 }
 
-/* toggleCamera() is host-only. Seats and guest frames never grab a
-   camera track — seats show a profile photo and guest frames show
-   the guest's photo until (product decision) camera is enabled for
-   guests in a future pass. Keeping this scoped to the host is what
-   guarantees "only the host frame and guest frames ever show video"
-   holds structurally rather than by convention. */
 async function toggleCamera() {
   if (!isHost || !videoProducer) return;
 
@@ -1161,6 +1077,98 @@ function destroyGiftEngineForRealExit() {
 }
 
 /* ============================================================
+   PARTICIPANTS / VIEWERS MODAL (host-only roster + full kick)
+   ------------------------------------------------------------
+   Regular viewers never see this — the only way anyone else
+   learns who's around is the comment feed (join announcements)
+   or seeing an occupied seat/guest frame. The host alone can
+   pull the full roster and remove ANYONE from the room, not just
+   seat/guest occupants.
+   ============================================================ */
+function isParticipantsModalOpen() {
+  return $("viewers-modal")?.classList.contains("open");
+}
+
+function seatBadgeForSocket(socketId) {
+  const micSeats = window.__lastMicSeats || [];
+  const idx = micSeats.findIndex(s => s && s.socketId === socketId);
+  if (idx !== -1) return `Seat ${idx + 1}`;
+
+  const guestSeats = window.__lastGuestSeats || { male: null, female: null };
+  if (guestSeats.male?.socketId === socketId) return "Guest (Male)";
+  if (guestSeats.female?.socketId === socketId) return "Guest (Female)";
+
+  return "Audience";
+}
+
+function renderParticipantsList(list) {
+  const wrap = $("viewers-list");
+  if (!wrap) return;
+
+  if (!list || !list.length) {
+    wrap.innerHTML = `<div class="viewers-empty">No one else is here yet.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = list.map(p => {
+    const isMe   = p.socketId === socket.id;
+    const avatar = p.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(p.username || "User")}&background=9D5CFF&color=fff&size=64`;
+    const badge  = p.isHost ? "Host" : seatBadgeForSocket(p.socketId);
+
+    return `
+      <div class="viewer-row" data-socket-id="${p.socketId}">
+        <img src="${avatar}" alt="">
+        <div class="viewer-info">
+          <div class="viewer-name">${window.escapeHtml(p.username || "User")}${isMe ? " (You)" : ""}</div>
+          <div class="viewer-badge">${badge}</div>
+        </div>
+        ${(!p.isHost && !isMe) ? `<button class="viewer-kick-btn" data-kick="${p.socketId}">Kick</button>` : ""}
+      </div>
+    `;
+  }).join("");
+
+  wrap.querySelectorAll(".viewer-kick-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const targetSocketId = btn.dataset.kick;
+      if (!confirm("Remove this person from the live entirely?")) return;
+      hostKickUserFromRoom(targetSocketId);
+    });
+  });
+}
+
+function openParticipantsModal() {
+  if (!isHost) return;
+  $("viewers-backdrop")?.classList.add("open");
+  $("viewers-modal")?.classList.add("open");
+
+  socket.emit("getParticipants", { roomId }, (res) => {
+    if (res?.error) {
+      window.showToast(res.error);
+      return;
+    }
+    window.__lastParticipants = res.participants;
+    renderParticipantsList(res.participants);
+    const countEl = $("viewers-total-count");
+    if (countEl) countEl.textContent = res.participants.length;
+  });
+}
+
+function closeParticipantsModal() {
+  $("viewers-backdrop")?.classList.remove("open");
+  $("viewers-modal")?.classList.remove("open");
+}
+
+function hostKickUserFromRoom(targetSocketId) {
+  socket.emit("hostKickUser", { roomId, targetSocketId }, (res) => {
+    if (res?.error) {
+      window.showToast(res.error);
+      return;
+    }
+    window.showToast("User removed from the live");
+  });
+}
+
+/* ============================================================
    SOCKET EVENTS
    ============================================================ */
 function initSocket() {
@@ -1178,9 +1186,6 @@ function initSocket() {
       return;
     }
 
-    // Only the host auto-publishes camera+mic immediately — they're
-    // always the center broadcaster. Everyone else joins as pure
-    // audience until they tap a vacant seat or guest frame.
     if (isHost) {
       try {
         await publishStream();
@@ -1233,39 +1238,50 @@ function initSocket() {
     if (el) el.textContent = window.formatCoins(vc);
   });
 
+  // Regular chat, plus system rows (join announcements etc.) — the
+  // only way a non-host learns who's around besides seats/guests.
   socket.on("newComment", (payload) => {
+    if (payload.system) {
+      appendComment({ type: "system", text: payload.text });
+      return;
+    }
     appendComment({ avatar: payload.avatar, name: payload.name, text: payload.text });
   });
 
   socket.on("newReaction", ({ emoji }) => { spawnFloatParticle(emoji); });
 
-  // ──────────────────────────────────────────────────────────
-  // GIFT-ENGINE INTEGRATION
-  // ──────────────────────────────────────────────────────────
   socket.on("giftReceived", (payload) => {
     appendComment({ avatar: payload.avatar, name: payload.name,
                     text: `sent ${payload.giftEmoji} ${payload.giftName}`, type: "gift" });
     launchGiftBanner(payload);
-    window.__giftEngine?.playGift(payload); // triggers the PNG sprite animation, never throws
-    window.dispatchEvent(new CustomEvent("giftLanded", { detail: payload })); // for connection-line pulse
+    window.__giftEngine?.playGift(payload);
+    window.dispatchEvent(new CustomEvent("giftLanded", { detail: payload }));
   });
 
   socket.on("topGiftersUpdated", (gifters) => { renderTopGifters(gifters); });
 
-  // ── GUEST SEATS (matchmaker slots) — relay server truth to the
-  // visual layer. No DOM/layout logic lives here. The raw snapshot
-  // is cached on window BEFORE dispatching, so live-mic-ring.js can
-  // read it on its own init() even if that module's listener wasn't
-  // registered yet when this event landed.
   socket.on("guestSeatsUpdated", (seats) => {
     window.__lastGuestSeats = seats;
     window.dispatchEvent(new CustomEvent("guestSeatsChanged", { detail: seats }));
+    if (isParticipantsModalOpen() && window.__lastParticipants) {
+      renderParticipantsList(window.__lastParticipants);
+    }
   });
 
-  // ── MIC SEATS (the 8 circular seats) — same relay + cache pattern.
   socket.on("micSeatsUpdated", (seats) => {
     window.__lastMicSeats = seats;
     window.dispatchEvent(new CustomEvent("micSeatsChanged", { detail: seats }));
+    if (isParticipantsModalOpen() && window.__lastParticipants) {
+      renderParticipantsList(window.__lastParticipants);
+    }
+  });
+
+  // ── PARTICIPANTS ROSTER (host-only) ──
+  socket.on("participantsUpdated", (list) => {
+    window.__lastParticipants = list;
+    if (isParticipantsModalOpen()) renderParticipantsList(list);
+    const countEl = $("viewers-total-count");
+    if (countEl) countEl.textContent = list.length;
   });
 
   socket.on("liveEnded", () => {
@@ -1285,10 +1301,9 @@ function initSocket() {
     socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
   });
 
-  // ── HOST CONTROLS — target side (the person being kicked/muted) ──
   socket.on("removedFromSeat", ({ seatIndex, slot } = {}) => {
     if (typeof seatIndex === "number" && mySeatIndex !== null) {
-      releaseMicSeat(); // stops producer/tracks, frees local state
+      releaseMicSeat();
     }
     if (slot && myGuestSlot !== null) {
       releaseGuestSeatLocal();
@@ -1296,16 +1311,20 @@ function initSocket() {
     window.showToast("You were removed by the host");
   });
 
-  // Authoritative mute state from the server (either a self-toggle
-  // echoed back or a host-forced mute/unmute). We only need to act
-  // locally when the host is the one who changed it — self-toggles
-  // already pause/resume locally inside toggleMySeatMic/toggleMyGuestMic.
   socket.on("hostMutedYou", ({ muted }) => {
     if (!audioProducer) return;
     isMicMuted = muted;
     try { isMicMuted ? audioProducer.pause() : audioProducer.resume(); } catch (e) {}
     dispatchSpeaking(socket.id, isHost, false);
     window.showToast(isMicMuted ? "Host muted your mic" : "Host unmuted your mic");
+  });
+
+  // ── HOST REMOVED YOU FROM THE ENTIRE ROOM (not just a seat) ──
+  socket.on("youWereKicked", async () => {
+    window.showToast("You were removed from this live by the host");
+    await leaveRoom();
+    destroyGiftEngineForRealExit();
+    setTimeout(() => { window.location.href = "discover.html"; }, 1200);
   });
 }
 
@@ -1591,6 +1610,11 @@ function attachUIListeners() {
   $("sheet-backdrop")?.addEventListener("click", closeGiftSheet);
   $("send-gift-btn")?.addEventListener("click", sendSelectedGift);
   $("topup-btn")?.addEventListener("click", () => { window.location.href = "coins.html"; });
+
+  // ── Participants / viewers modal (host-only) ──
+  $("viewers-btn")?.addEventListener("click", openParticipantsModal);
+  $("viewers-close-btn")?.addEventListener("click", closeParticipantsModal);
+  $("viewers-backdrop")?.addEventListener("click", closeParticipantsModal);
 }
 
 /* ============================================================
@@ -1673,11 +1697,6 @@ window.setGiftSoundMuted = (muted = true) => {
   window.__giftEngine?.setMuted(muted);
 };
 
-// ── HOST CONTROLS — caller side (the host tapping ✕ / 🔇) ──
-// Pure relay: server is the sole authority (checks room.hostSocketId
-// against socket.id) and only after it confirms does anything change,
-// via the existing micSeatsUpdated/guestSeatsUpdated broadcasts plus
-// the removedFromSeat/hostMutedYou events sent to the target socket.
 window.hostKickSeat = (seatIndex) => {
   socket.emit("hostKickSeat", { roomId, seatIndex }, (res) => {
     if (res?.error) window.showToast(res.error);
@@ -1699,12 +1718,15 @@ window.hostMuteGuest = (slot) => {
   });
 };
 
-// ── GUEST SEATS (matchmaker male/female slots) ──────────────
 window.requestGuestSeat = claimGuestSeat;
 window.leaveGuestSeat   = releaseGuestSeatLocal;
 window.toggleMyGuestMic = toggleMyGuestMic;
 
-// ── MIC SEATS (the 8 circular seats — empty-seat tap-to-join flow) ──
 window.claimMicSeat    = claimMicSeat;
 window.releaseMicSeat  = releaseMicSeat;
 window.toggleMySeatMic = toggleMySeatMic;
+
+// ── Participants / viewers modal (host-only) ──
+window.openParticipantsModal  = openParticipantsModal;
+window.closeParticipantsModal = closeParticipantsModal;
+window.hostKickUserFromRoom    = hostKickUserFromRoom;
