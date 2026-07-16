@@ -105,6 +105,16 @@
 }
 .live-badge .pulse { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse-dot 1.4s infinite; flex: none; }
 @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+
+/* Podcast-mode badge — same shape, violet instead of magenta, so a
+   glance at the grid tells you which rooms are podcast rooms before
+   you ever tap in. Kept visually distinct from the "LIVE" badge on
+   social rooms rather than replacing it, since a room is always
+   both live AND (social|podcast). */
+.live-badge.mode-podcast {
+  background: linear-gradient(135deg, #A05AFF, #6A1ADF);
+}
+
 .viewer-chip-card {
   position: absolute; top: 10px; right: 10px; z-index: 3;
   display: flex; align-items: center; gap: 4px;
@@ -120,6 +130,7 @@
   flex: 1; min-width: 0; text-shadow: 0 1px 6px rgba(0,0,0,.6);
 }
 .card-host-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #ff3d7f; flex: none; box-shadow: 0 0 0 2px rgba(255,61,127,.3); }
+.card-host-live-dot.mode-podcast { background: #A05AFF; box-shadow: 0 0 0 2px rgba(160,90,255,.3); }
 .card-title {
   font-size: 11px; color: rgba(255,255,255,.75); line-height: 1.35;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -165,7 +176,7 @@
 }
 @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 </style>
-  <script type="module" crossorigin src="/assets/discover-TnmF-Old.js"></script>
+  <script type="module" crossorigin src="/assets/discover-tvI-2yHW.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-By3Wcv2E.js">
   <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
 </head>

@@ -753,6 +753,94 @@ body, .app-shell, .live-screen {
 }
 .guest-frame .host-ctrl-mute { top: -6px; left: -6px; }
 .guest-frame .host-ctrl-kick { top: -6px; right: -6px; }
+
+
+/* ══════════════════════════
+   SEAT/GUEST AVATAR + SELF-CONTROLS — the pieces
+   live-mic-ring.js's createSeatSlots()/ensureGuestOverlays()
+   create but that had no styling yet.
+══════════════════════════ */
+
+/* FIX: occupied seats must keep their frame visible so the avatar
+   photo (painted into it by applyMicSeats) actually shows — only
+   the seat number badge hides on occupancy now. */
+.seat-slot.occupied .seat-slot-frame {
+  display: flex;
+  border-style: solid;
+  border-color: rgba(160,90,255,.55);
+  background: transparent;
+  overflow: hidden;
+}
+.seat-slot.occupied .seat-slot-num { display: none; }
+.seat-slot.occupied .seat-plus { display: none; }
+
+.seat-slot.seat-muted .seat-slot-frame { border-color: rgba(255,61,127,.5); }
+.seat-slot.seat-host-muted .seat-slot-frame {
+  border-color: rgba(255,61,127,.8);
+  box-shadow: 0 0 0 2px rgba(255,61,127,.25);
+}
+
+.seat-avatar {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: none; /* toggled to block by applyMicSeats when occupied */
+}
+
+.seat-mute-indicator {
+  position: absolute; bottom: -2px; right: -2px; z-index: 3;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #170B2E; border: 1.5px solid #08050F;
+  display: none; align-items: center; justify-content: center;
+  font-size: 8px;
+}
+
+.seat-self-controls {
+  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  display: none; align-items: center; justify-content: center; gap: 3px;
+  z-index: 5;
+}
+.seat-self-btn {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0,0,0,.85); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; font-size: 8px; padding: 0; line-height: 1;
+  transition: background .15s, transform .1s;
+}
+.seat-self-btn:active { transform: scale(.85); }
+.seat-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
+.seat-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
+
+/* Guest-frame equivalents — same idea, bigger (frame is bigger) */
+.guest-frame.guest-muted { border-color: rgba(255,61,127,.5); }
+.guest-frame.guest-host-muted {
+  border-color: rgba(255,61,127,.8);
+  box-shadow: 0 0 0 3px rgba(255,61,127,.25);
+}
+.guest-mute-indicator {
+  position: absolute; bottom: 2px; right: 2px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #170B2E; border: 1.5px solid #08050F;
+  display: none; align-items: center; justify-content: center;
+  font-size: 10px;
+}
+.guest-self-controls {
+  position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+  display: none; align-items: center; justify-content: center; gap: 4px;
+  z-index: 5;
+}
+.guest-self-btn {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0,0,0,.85); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; font-size: 10px; padding: 0; line-height: 1;
+  transition: background .15s, transform .1s;
+}
+.guest-self-btn:active { transform: scale(.85); }
+.guest-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
+.guest-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
 </style>
 </head>
 <body>

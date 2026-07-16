@@ -15,84 +15,59 @@
         relaying the server's "guestSeatsUpdated" truth)
      - `micSeatsChanged`    CustomEvent (dispatched by live.js,
         relaying the server's "micSeatsUpdated" truth — an array
-        of 8 slots, each null or {socketId, userId})
+        of 8 slots, each null or an occupant object:
+        { socketId, userId, username, avatarUrl, muted, mutedByHost })
    ...and, for seat/guest-frame actions, calls functions live.js
-   exposes on window (window.claimMicSeat / window.releaseMicSeat /
-   window.requestGuestSeat / window.leaveGuestSeat / window.hostKickSeat /
-   window.hostKickGuest / window.hostMuteSeat / window.hostMuteGuest)
+   exposes on window:
+     window.claimMicSeat(i)      — tap a vacant seat
+     window.releaseMicSeat()     — leave your seat entirely
+     window.toggleMySeatMic()    — mute/unmute WITHOUT leaving
+     window.requestGuestSeat(k)  — tap a vacant guest frame
+     window.leaveGuestSeat()     — leave your guest frame entirely
+     window.toggleMyGuestMic()   — mute/unmute WITHOUT leaving
+     window.hostKickSeat(i) / window.hostKickGuest(k)
+     window.hostMuteSeat(i) / window.hostMuteGuest(k)
    which just emit socket events — no transport/producer/consumer
    logic lives here.
 
    ══════════════════════════════════════════════════════════
-   ROOT-CAUSE FIX — "seat placeholders render as bare numbers for
-   viewers who join an already-live stream" (PRIORITY 1 BUG)
+   THIS PASS — SEATS ARE VOICE-ONLY, PROFILE-PHOTO SLOTS
    ------------------------------------------------------------
-   This was never a host-vs-viewer LOGIC bug. Every client — host
-   or viewer — runs the exact same createSeatSlots()/applyMicSeats()
-   code below, so the DOM produced is byte-identical for everyone.
-   The two real causes, both fixed here:
+   Product decision: the only two places video ever renders are
+   the host frame and the two guest frames (matchmaker male/
+   female). The 8 circular mic seats never show a camera feed —
+   occupied, they show the occupant's profile photo (from the
+   server's seat snapshot), a mute/unmute button, and a leave-seat
+   button. This is a structural change, not a CSS trick: seats no
+   longer dock a <video> tile at all. applyMicSeats() below reads
+   occupant.avatarUrl/username straight off the server snapshot
+   and paints the seat directly — there is no tileForSocket/
+   dockSeatTile path for seats any more.
 
-     1) MISSING CSS. A stale copy of the page stylesheet had no
-        rules at all for .seat-slot / .seat-slot-frame / .seat-plus /
-        .seat-slot-num. With nothing to give them a border, size, or
-        background, only the raw text (the seat number + a tiny "+")
-        was visible — which reads exactly like "just seat numbers,
-        no proper placeholder." Confirmed present in this pass's
-        stylesheet (see the SEAT SLOTS block).
+   Guest frames are unchanged in that respect — they still dock
+   the real participant <video> tile (dockTile/undockTile), since
+   guest frames are one of the two places video is allowed.
 
-     2) RACE CONDITION on late join. The server already emits a full
-        guestSeatsUpdated / micSeatsUpdated snapshot to every joiner
-        immediately (see stream.socket.js). But on a fast/warm
-        connection, that snapshot can arrive and be handled by
-        live.js BEFORE this module's own micSeatsChanged /
-        guestSeatsChanged listeners are registered (this script
-        loads after live.js and does its own initParticles/layout
-        work first) — so the snapshot would be silently dropped and
-        the seat row would render with vacant/occupied state never
-        applied for that viewer.
+   MUTE ≠ LEAVE
+   ------------------------------------------------------------
+   Previously, tapping your own occupied seat called
+   releaseMicSeat() — mute and leave were the same click. That's
+   fixed here: the seat now renders two small, separate buttons
+   for its own occupant — a mic toggle (🎤/🔇, calls
+   toggleMySeatMic()) and a leave button (⏏, calls
+   releaseMicSeat()). Tapping the seat's dashed frame itself only
+   ever *claims* a vacant seat; it does nothing when the seat is
+   occupied (by self or anyone else) — occupied seats are managed
+   exclusively through their buttons/overlay.
 
-        FIX ("FIX-11"): live.js now caches the latest raw snapshot on
-        window.__lastMicSeats / window.__lastGuestSeats *before*
-        dispatching the CustomEvent. This module reads that cache
-        once, right after it creates the 8 seat slots in init() —
-        so every viewer, regardless of exactly when they joined
-        relative to script load, renders the complete, correctly
-        occupied/vacant seat layout on first paint, then stays in
-        sync via the normal event listeners after that.
-
-   Net effect: host and every viewer run identical DOM-creation code
-   AND apply identical, complete occupancy state on first paint —
-   there is no code path left that can show a plain number instead
-   of a full seat frame.
-
-   ── RESPONSIVE LAYOUT ────────────────────────────────────────
-   The 8 mic seats live in their own flex-wrap row pinned to the
-   bottom of the arena (#participants-strip) — entirely separate
-   from the host card and guest frames, which live higher up via
-   CSS clamp()-based sizing. This can never overlap regardless of
-   screen size: on narrow phones the row wraps to two rows of
-   smaller circles; on wide screens it's one loose row. This file
-   never computes seat x/y — it just reads the real, already-laid
-   -out positions of occupied seats/guest frames via
-   getBoundingClientRect() to draw the host↔seat connection lines.
-
-   ── NEW: HOST CONTROLS ──────────────────────────────────────
-   When document.body has the "host-mode" class (set by live.js
-   only for the actual host, confirmed via DB host_id — see
-   stream.socket.js), every OCCUPIED seat slot and guest frame gets
-   two small overlay buttons:
-     ✕  — kick: calls window.hostKickSeat(i) / window.hostKickGuest(key)
-     🔇 — mute: calls window.hostMuteSeat(i) / window.hostMuteGuest(key)
-   These are pure UI here; the actual authority check (is this
-   socket really the host?) happens server-side in stream.socket.js,
-   so a non-host can never see these controls (host-mode is never
-   set client-side for them) and even if they forged the emit the
-   server would reject it.
-
-   Because live.html and podcast-live.html use slightly
-   different accent colors, the line color is read from a CSS
-   custom property on #arena (--arena-accent / --arena-accent-2)
-   so each page can theme it without touching this file.
+   HOST CONTROLS (unchanged in spirit, now toggle-aware)
+   ------------------------------------------------------------
+   When document.body has the "host-mode" class, every OCCUPIED
+   seat slot and guest frame still gets the ✕ (kick) / 🔇 (mute)
+   overlay. The mute icon now reflects the occupant's actual
+   `mutedByHost` state (🔒 while host-muted) so the host can see
+   at a glance who they've silenced, and clicking it again lifts
+   the mute (hostMuteSeat/hostMuteGuest toggle server-side).
    ============================================================ */
 
 (() => {
@@ -138,6 +113,11 @@
 
   function cssEscape(str) {
     return window.CSS && CSS.escape ? CSS.escape(str) : String(str).replace(/["\\]/g, "\\$&");
+  }
+
+  function avatarFallback(occupant) {
+    const name = (occupant && (occupant.username || occupant.userId)) || "User";
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=9D5CFF&color=fff&size=96`;
   }
 
   /* ============================================================
@@ -210,35 +190,25 @@
     if (!m) return null;
     return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
   }
-/* ============================================================
+
+ /* ============================================================
    HOST CONTROL OVERLAY BUTTONS (Kick / Mute)
    ------------------------------------------------------------
-   Small overlay injected into an occupied seat slot or guest
-   frame. The overlay is visible only when `body.host-mode`
-   is active (see the stylesheet rule:
+   Small overlay injected into an occupied guest seat. Visible
+   only when `body.host-mode` is active.
 
-       .host-mode .seat-slot.occupied .host-ctrl-overlay {
-         display: flex;
-       }
+   These controls never modify the UI directly. Instead, they
+   call the `window.hostKick*` / `window.hostMute*` helpers
+   exposed by `live.js`, which emit the appropriate Socket.IO
+   events to the server.
 
-   Clicking these controls never mutates local UI state
-   directly. Instead, they call the `window.hostKick()` and
-   `window.hostMute()` helper functions exposed by `live.js`,
-   which emit the appropriate socket events.
-
-   The server remains the single source of truth and
-   broadcasts the resulting state changes through the existing
-   socket events such as:
-
-   - guestSeatsUpdated
-   - micSeatsUpdated
-   - removedFromSeat
-   - hostMutedYou
-
-   The UI should update only after receiving these server
-   events.
+   The server is the single source of truth. After processing
+   the request, it broadcasts the resulting state changes via
+   events such as `micSeatsUpdated`, `guestSeatsUpdated`,
+   `removedFromSeat`, and `hostMutedYou`. The client updates the
+   interface only after receiving those events, ensuring all
+   participants remain synchronized.
    ============================================================ */
-
   function buildHostControlOverlay(onKick, onMute) {
     const overlay = document.createElement("div");
     overlay.className = "host-ctrl-overlay";
@@ -265,115 +235,79 @@
   /* ============================================================
      SEAT SLOTS — 8 permanent slots, laid out by plain CSS
      flex-wrap in the page's own #participants-strip styling
-     (bottom-of-arena row, wraps on narrow screens). We only
-     create them and toggle vacant/occupied state here; position
-     is entirely the browser's doing via flexbox.
-
-     createSeatSlots() runs IDENTICALLY for host and viewer — this
-     is the code that guarantees every client gets the same 8 full
-     seat-frame elements, never a fallback to bare numbers.
+     (left/right wings + bottom row, all clamp()-sized so they
+     shrink together and can't overlap the host card or guest
+     frames on a small screen). Occupied seats render the
+     occupant's profile photo — never video — plus their own
+     mute/leave controls.
      ============================================================ */
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
 
-function createSeatSlots() {
+  function createSeatSlots() {
+    strip.innerHTML = "";
+    seatSlotEls.length = 0;
 
-  strip.innerHTML = "";
+    const leftWing = document.createElement("div");
+    leftWing.className = "seat-wing seat-wing-left";
 
-  seatSlotEls.length = 0;
+    const rightWing = document.createElement("div");
+    rightWing.className = "seat-wing seat-wing-right";
 
-  const leftWing = document.createElement("div");
-  leftWing.className = "seat-wing seat-wing-left";
+    const bottomRow = document.createElement("div");
+    bottomRow.className = "seat-row seat-row-bottom";
 
-  const rightWing = document.createElement("div");
-  rightWing.className = "seat-wing seat-wing-right";
+    for (let i = 0; i < MIC_SEAT_COUNT; i++) {
+      const slot = document.createElement("div");
+      slot.className = "seat-slot vacant";
+      slot.dataset.seatIndex = i;
 
-  const bottomRow = document.createElement("div");
-  bottomRow.className = "seat-row seat-row-bottom";
+      slot.innerHTML = `
+        <div class="seat-slot-frame">
+          <img class="seat-avatar" alt="">
+          <span class="seat-plus">+</span>
+        </div>
+        <div class="seat-slot-num">${i + 1}</div>
+        <div class="seat-mute-indicator" title="Muted">🔇</div>
+        <div class="seat-self-controls">
+          <button type="button" class="seat-self-btn seat-mute-btn" title="Mute / unmute">🎤</button>
+          <button type="button" class="seat-self-btn seat-leave-btn" title="Leave seat">⏏</button>
+        </div>
+      `;
 
-  for (let i = 0; i < MIC_SEAT_COUNT; i++) {
+      // Tapping the frame only ever claims a VACANT seat. Occupied
+      // seats (self or others) do nothing on a frame tap — they're
+      // managed via the dedicated buttons/host overlay instead.
+      slot.querySelector(".seat-slot-frame").addEventListener("click", () => {
+        const occupant = micSeatsState[i];
+        if (!occupant) window.claimMicSeat?.(i);
+      });
 
-    const slot = document.createElement("div");
-    slot.className = "seat-slot vacant";
-    slot.dataset.seatIndex = i;
-
-    slot.innerHTML = `
-      <div class="seat-slot-frame">
-        <span class="seat-plus">+</span>
-      </div>
-      <div class="seat-slot-num">${i + 1}</div>
-    `;
-
-    slot.addEventListener("click", () => {
-
-      const occupant = micSeatsState[i];
-
-      if (occupant && occupant.socketId === window.__mySocketId) {
+      slot.querySelector(".seat-mute-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.toggleMySeatMic?.();
+      });
+      slot.querySelector(".seat-leave-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
         window.releaseMicSeat?.();
-      }
-      else if (!occupant) {
-        window.claimMicSeat?.(i);
-      }
+      });
 
-    });
+      const overlay = buildHostControlOverlay(
+        () => window.hostKickSeat?.(i),
+        () => window.hostMuteSeat?.(i)
+      );
+      slot.appendChild(overlay);
 
-    const overlay = buildHostControlOverlay(
-      () => window.hostKickSeat?.(i),
-      () => window.hostMuteSeat?.(i)
-    );
+      if (i < 2) leftWing.appendChild(slot);
+      else if (i < 4) rightWing.appendChild(slot);
+      else bottomRow.appendChild(slot);
 
-    slot.appendChild(overlay);
-
-    if (i < 2) {
-
-        leftWing.appendChild(slot);
-
-    } else if (i < 4) {
-
-        rightWing.appendChild(slot);
-
-    } else {
-
-        bottomRow.appendChild(slot);
-
+      seatSlotEls.push(slot);
     }
 
-    seatSlotEls.push(slot);
-
-  }
-
-  strip.appendChild(leftWing);
-  strip.appendChild(rightWing);
-  strip.appendChild(bottomRow);
-
-}
-
-
-
-
-
-
-  function tileForSocket(socketId) {
-    if (!socketId) return null;
-    return socketId === window.__mySocketId
-      ? localTile
-      : strip.querySelector(`.participant-tile[data-socket-id="${cssEscape(socketId)}"]`);
-  }
-
-  function dockSeatTile(tile, slot) {
-    if (!tile || !slot) return;
-    tile.classList.add("seat-docked", "seated");
-    slot.appendChild(tile);
-    // keep host-control overlay on top of the docked tile
-    const overlay = slot.querySelector(".host-ctrl-overlay");
-    if (overlay) slot.appendChild(overlay);
-  }
-
-  function undockSeatTile(tile) {
-    if (!tile) return;
-    tile.classList.remove("seat-docked", "seated");
-    const home = tile === localTile ? arena : strip;
-    home.appendChild(tile);
+    strip.appendChild(leftWing);
+    strip.appendChild(rightWing);
+    strip.appendChild(bottomRow);
   }
 
   function applyMicSeats(seats) {
@@ -383,21 +317,54 @@ function createSeatSlots() {
       const slot = seatSlotEls[i];
       if (!slot) return;
 
-      const dockedNow  = slot.querySelector(".participant-tile, #local-tile");
-      const wantedTile = occupant ? tileForSocket(occupant.socketId) : null;
-
-      if (dockedNow && dockedNow !== wantedTile) undockSeatTile(dockedNow);
-      if (wantedTile && wantedTile.parentElement !== slot) dockSeatTile(wantedTile, slot);
+      const isSelf   = !!occupant && occupant.socketId === window.__mySocketId;
+      const img      = slot.querySelector(".seat-avatar");
+      const muteBtn  = slot.querySelector(".seat-mute-btn");
+      const selfCtrl = slot.querySelector(".seat-self-controls");
+      const muteDot  = slot.querySelector(".seat-mute-indicator");
+      const overlay  = slot.querySelector(".host-ctrl-overlay");
 
       slot.classList.toggle("occupied", !!occupant);
       slot.classList.toggle("vacant", !occupant);
-      if (!occupant) slot.classList.remove("speaking");
 
-      // Host controls only make sense on someone else's seat.
-      const overlay = slot.querySelector(".host-ctrl-overlay");
+      if (!occupant) {
+        slot.classList.remove("speaking", "seat-muted", "seat-host-muted");
+        if (img) { img.style.display = "none"; img.removeAttribute("src"); }
+        if (selfCtrl) selfCtrl.style.display = "none";
+      } else {
+        if (img) {
+          img.src = occupant.avatarUrl || avatarFallback(occupant);
+          img.style.display = "block";
+          img.onerror = () => { img.onerror = null; img.src = avatarFallback(occupant); };
+        }
+        slot.classList.toggle("seat-muted", !!occupant.muted);
+        slot.classList.toggle("seat-host-muted", !!occupant.mutedByHost);
+
+        if (selfCtrl) selfCtrl.style.display = isSelf ? "flex" : "none";
+        if (isSelf && muteBtn) {
+          if (occupant.mutedByHost) {
+            muteBtn.textContent = "🔒";
+            muteBtn.disabled = true;
+            muteBtn.title = "Muted by host";
+          } else {
+            muteBtn.textContent = occupant.muted ? "🔇" : "🎤";
+            muteBtn.disabled = false;
+            muteBtn.title = occupant.muted ? "Unmute" : "Mute";
+          }
+        }
+      }
+
+      if (muteDot) {
+        muteDot.style.display = (occupant && occupant.muted && !isSelf) ? "flex" : "none";
+      }
+
       if (overlay) {
-        const isSelf = occupant && occupant.socketId === window.__mySocketId;
-        overlay.classList.toggle("hidden-self", !!isSelf);
+        overlay.classList.toggle("hidden-self", isSelf);
+        const muteBtnHost = overlay.querySelector(".host-ctrl-mute");
+        if (muteBtnHost && occupant) {
+          muteBtnHost.textContent = occupant.mutedByHost ? "🔊" : "🔇";
+          muteBtnHost.title = occupant.mutedByHost ? "Unmute this user" : "Mute this user";
+        }
       }
     });
 
@@ -428,7 +395,7 @@ function createSeatSlots() {
   function occupiedSeatPoints() {
     return seatSlotEls
       .filter((slot) => slot.classList.contains("occupied"))
-      .map(pointOf);
+      .map((slot) => pointOf(slot.querySelector(".seat-slot-frame")));
   }
 
   function occupiedGuestPoints() {
@@ -501,6 +468,10 @@ function createSeatSlots() {
 
   /* ============================================================
      SPEAKING GLOW
+     ------------------------------------------------------------
+     Seats no longer host a docked video tile, so seat speaking
+     glow is driven purely off socketId → seat lookup rather than
+     "find the tile this socket's video lives in."
      ============================================================ */
   window.addEventListener("speakingChanged", (e) => {
     const { socketId, isHost: hostFlag, active } = e.detail || {};
@@ -510,25 +481,31 @@ function createSeatSlots() {
       return;
     }
 
-    let el = null;
-    if (socketId && socketId === window.__mySocketId) {
-      el = localTile;
-    } else if (socketId) {
-      el = strip.querySelector(`.participant-tile[data-socket-id="${cssEscape(socketId)}"]`);
-    }
-    if (el) el.classList.toggle("speaking", !!active);
-
-    // Reflect speaking state on whichever seat slot or guest frame
-    // this socket is currently docked in, if any.
-    seatSlotEls.forEach((slot) => {
-      const docked = slot.querySelector(".seat-docked");
-      if (docked === el) slot.classList.toggle("speaking", !!active);
-    });
+    // Guest frame?
+    let handled = false;
     [guestFrameMale, guestFrameFemale].forEach((frameEl) => {
       if (!frameEl) return;
       const docked = frameEl.querySelector(".docked");
-      if (docked === el) frameEl.classList.toggle("speaking", !!active);
+      if (docked && docked.dataset.socketId === socketId) {
+        frameEl.classList.toggle("speaking", !!active);
+        handled = true;
+      }
     });
+
+    // Mic seat?
+    seatSlotEls.forEach((slot, i) => {
+      const occupant = micSeatsState[i];
+      if (occupant && occupant.socketId === socketId) {
+        slot.classList.toggle("speaking", !!active);
+        handled = true;
+      }
+    });
+
+    // Local tile (only relevant while docked in a guest frame — mic
+    // seats don't use local-tile at all any more).
+    if (!handled && socketId === window.__mySocketId) {
+      localTile?.classList.toggle("speaking", !!active);
+    }
   });
 
   /* ============================================================
@@ -540,22 +517,50 @@ function createSeatSlots() {
      GUEST SEATS (matchmaker male/female slots)
      ------------------------------------------------------------
      Server truth arrives via `guestSeatsChanged`:
-       { male: {socketId,userId}|null, female: {...}|null }
-     We dock/undock tiles into #guest-frame-male / #guest-frame-female
-     to match, then refresh the connection lines so newly (un)occupied
-     frames are picked up. Host-control overlays are added once, up
-     front, to each guest frame (unlike seat slots, these are static
-     elements already in the page HTML).
+       { male: occupant|null, female: occupant|null }
+     Guest frames are one of the two places video is allowed, so
+     we dock/undock the real participant <video> tile here — same
+     as before — plus a small self mute/leave overlay for the
+     current occupant, and the host kick/mute overlay for the host.
      ============================================================ */
   let guestSeatsState = { male: null, female: null };
 
-  function ensureGuestOverlay(frameEl, key) {
-    if (!frameEl || frameEl.querySelector(".host-ctrl-overlay")) return;
-    const overlay = buildHostControlOverlay(
-      () => window.hostKickGuest?.(key),
-      () => window.hostMuteGuest?.(key)
-    );
-    frameEl.appendChild(overlay);
+  function ensureGuestOverlays(frameEl, key) {
+    if (!frameEl) return;
+
+    if (!frameEl.querySelector(".host-ctrl-overlay")) {
+      const overlay = buildHostControlOverlay(
+        () => window.hostKickGuest?.(key),
+        () => window.hostMuteGuest?.(key)
+      );
+      frameEl.appendChild(overlay);
+    }
+
+    if (!frameEl.querySelector(".guest-self-controls")) {
+      const selfCtrl = document.createElement("div");
+      selfCtrl.className = "guest-self-controls";
+      selfCtrl.innerHTML = `
+        <button type="button" class="guest-self-btn guest-mute-btn" title="Mute / unmute">🎤</button>
+        <button type="button" class="guest-self-btn guest-leave-btn" title="Leave seat">⏏</button>
+      `;
+      selfCtrl.querySelector(".guest-mute-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.toggleMyGuestMic?.();
+      });
+      selfCtrl.querySelector(".guest-leave-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.leaveGuestSeat?.();
+      });
+      frameEl.appendChild(selfCtrl);
+    }
+
+    if (!frameEl.querySelector(".guest-mute-indicator")) {
+      const dot = document.createElement("div");
+      dot.className = "guest-mute-indicator";
+      dot.title = "Muted";
+      dot.textContent = "🔇";
+      frameEl.appendChild(dot);
+    }
   }
 
   function dockTile(tile, frameEl) {
@@ -571,26 +576,62 @@ function createSeatSlots() {
     home.appendChild(tile);
   }
 
+  function tileForSocket(socketId) {
+    if (!socketId) return null;
+    return socketId === window.__mySocketId
+      ? localTile
+      : strip.querySelector(`.participant-tile[data-socket-id="${cssEscape(socketId)}"]`);
+  }
+
   function applyGuestSeats(seats) {
     guestSeatsState = seats || { male: null, female: null };
 
     [["male", guestFrameMale], ["female", guestFrameFemale]].forEach(([key, frameEl]) => {
       if (!frameEl) return;
       const occupant   = guestSeatsState[key];
+      const isSelf     = !!occupant && occupant.socketId === window.__mySocketId;
       const dockedNow  = frameEl.querySelector(".docked");
       const wantedTile = occupant ? tileForSocket(occupant.socketId) : null;
 
       if (dockedNow && dockedNow !== wantedTile) undockTile(dockedNow);
       if (wantedTile && wantedTile.parentElement !== frameEl) dockTile(wantedTile, frameEl);
+      if (wantedTile) wantedTile.dataset.socketId = occupant.socketId;
 
       frameEl.classList.toggle("occupied", !!occupant);
-      if (!occupant) frameEl.classList.remove("speaking");
+      if (!occupant) {
+        frameEl.classList.remove("speaking", "guest-muted", "guest-host-muted");
+      } else {
+        frameEl.classList.toggle("guest-muted", !!occupant.muted);
+        frameEl.classList.toggle("guest-host-muted", !!occupant.mutedByHost);
+      }
 
       const overlay = frameEl.querySelector(".host-ctrl-overlay");
       if (overlay) {
-        const isSelf = occupant && occupant.socketId === window.__mySocketId;
-        overlay.classList.toggle("hidden-self", !!isSelf);
+        overlay.classList.toggle("hidden-self", isSelf);
+        const muteBtnHost = overlay.querySelector(".host-ctrl-mute");
+        if (muteBtnHost && occupant) {
+          muteBtnHost.textContent = occupant.mutedByHost ? "🔊" : "🔇";
+          muteBtnHost.title = occupant.mutedByHost ? "Unmute this user" : "Mute this user";
+        }
       }
+
+      const selfCtrl = frameEl.querySelector(".guest-self-controls");
+      if (selfCtrl) selfCtrl.style.display = isSelf ? "flex" : "none";
+      const muteBtn = frameEl.querySelector(".guest-mute-btn");
+      if (isSelf && muteBtn && occupant) {
+        if (occupant.mutedByHost) {
+          muteBtn.textContent = "🔒";
+          muteBtn.disabled = true;
+          muteBtn.title = "Muted by host";
+        } else {
+          muteBtn.textContent = occupant.muted ? "🔇" : "🎤";
+          muteBtn.disabled = false;
+          muteBtn.title = occupant.muted ? "Unmute" : "Mute";
+        }
+      }
+
+      const muteDot = frameEl.querySelector(".guest-mute-indicator");
+      if (muteDot) muteDot.style.display = (occupant && occupant.muted && !isSelf) ? "flex" : "none";
     });
 
     refreshConnectionLines();
@@ -600,18 +641,15 @@ function createSeatSlots() {
 
   [["male", guestFrameMale], ["female", guestFrameFemale]].forEach(([key, frameEl]) => {
     if (!frameEl) return;
-    ensureGuestOverlay(frameEl, key);
+    ensureGuestOverlays(frameEl, key);
     frameEl.addEventListener("click", (e) => {
-      if (e.target.closest(".host-ctrl-overlay")) return; // let overlay buttons handle their own click
+      if (e.target.closest(".host-ctrl-overlay")) return;
+      if (e.target.closest(".guest-self-controls")) return;
       const occupant = guestSeatsState[key];
-      if (occupant?.socketId === window.__mySocketId) {
-        window.leaveGuestSeat?.();
-      } else if (!occupant) {
-        window.requestGuestSeat?.(key);
-      }
-      // If the frame is occupied by someone else, tapping it does
-      // nothing here — seat swapping is self-serve only for the
-      // occupant; the host uses the overlay buttons instead.
+      // Tapping the frame body only claims a VACANT frame now — an
+      // occupied frame (self or other) is managed through its own
+      // buttons/host overlay, same rule as the mic seats above.
+      if (!occupant) window.requestGuestSeat?.(key);
     });
   });
 
@@ -620,8 +658,7 @@ function createSeatSlots() {
      ------------------------------------------------------------
      Tile visibility is driven entirely by server-truth events
      (micSeatsChanged / guestSeatsChanged) rather than by watching
-     local media state, since a peer with no seat has nothing to
-     show — pure audience, no camera/mic, nothing published.
+     local media state.
      ============================================================ */
   const stripObserver = new MutationObserver((mutations) => {
     let dirty = false;
@@ -629,7 +666,6 @@ function createSeatSlots() {
       if (m.addedNodes.length || m.removedNodes.length) dirty = true;
     }
     if (dirty) {
-      applyMicSeats(micSeatsState);
       applyGuestSeats(guestSeatsState);
     }
   });
@@ -668,13 +704,10 @@ function createSeatSlots() {
     resizeCanvas();
     initParticles();
 
-    // ── ROOT-CAUSE FIX ── Apply any seat snapshot that live.js
-    // already received and cached on window before this module's
-    // own micSeatsChanged/guestSeatsChanged listeners were attached.
-    // This is what guarantees a viewer joining an already-active
-    // livestream sees the exact same, fully-populated seat layout
-    // as the host and every other viewer, on the very first paint —
-    // not just after the *next* seat change happens to broadcast.
+    // Apply any seat snapshot that live.js already received and
+    // cached on window before this module's own listeners were
+    // attached, so a late joiner sees the exact same, fully
+    // populated seat/guest layout on first paint.
     if (window.__lastMicSeats)   applyMicSeats(window.__lastMicSeats);
     if (window.__lastGuestSeats) applyGuestSeats(window.__lastGuestSeats);
 

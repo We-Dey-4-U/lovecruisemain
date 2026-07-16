@@ -1,63 +1,84 @@
 // backend/src/sockets/stream.socket.js
-// ROOT CAUSE FIXES applied:
-//   FIX-1: existingProducers is sent 150ms after routerRtpCapabilities
-//           so the client has time to load the device + publish before consuming.
-//   FIX-2: getById is used instead of scanning the full list in loadRoom (client-side).
-//   FIX-3: consume callback returns isHost derived from server state (not client guess).
-//   FIX-4: peerMicToggled relay cleaned up (was duplicated in original file).
-//   FIX-5 (ANTI-FRAUD/DEDUP): the "sendGift" socket handler has been
-//         REMOVED. It used to re-broadcast the raw client payload as
-//         "giftReceived" — untrusted amount/giftName/giftEmoji, and a
-//         second, duplicate emission on top of the one already sent
-//         by giftController.send() after the REST transaction commits.
-//         "giftReceived" / "topGiftersUpdated" / "battleScoreUpdated"
-//         are now emitted exclusively from giftController.send(),
-//         built from the committed DB transaction. See that file.
-//   FIX-6 (GUEST SEATS): added the matchmaker "male"/"female" guest-seat
-//         slots. State lives on the in-memory `room` object (not in
-//         room.js) so mediasoup internals stay untouched. Fully synced
-//         across all clients via "guestSeatsUpdated", and cleaned up
-//         automatically on leave/disconnect.
-//   FIX-7 (MIC SEATS): added the 8 circular mic-seat slots from
-//         the room-layout spec ("Seat 2..10" in the diagram). Same
-//         pattern as guest seats: in-memory state on `room`, synced via
-//         "micSeatsUpdated", cleaned up on leave/disconnect. This is
-//         what lets a viewer tap a vacant seat and have their mic go
-//         live / their presence show up for everyone else — the seat
-//         itself is just a reserved slot; the actual audio/video still
-//         flows over the existing mediasoup produce/consume pipeline
-//         above, unchanged.
-//   FIX-10 (SEAT-REQUEST VALIDATION): requestGuestSeat / leaveGuestSeat /
-//         requestMicSeat / leaveMicSeat now verify the roomId passed in
-//         matches the room this socket actually joined (socket.currentRoomId).
-//         Previously a client could pass an arbitrary roomId and mutate seat
-//         state in a room it was never a member of, which could also produce
-//         a mismatched/stale seat broadcast for real occupants of that room.
-//   FIX-11 (LATE-JOIN SEAT SNAPSHOT): guestSeatsUpdated/micSeatsUpdated
-//         snapshots are emitted synchronously to every new joiner right
-//         after routerRtpCapabilities (before the 150ms existingProducers
-//         delay), so a viewer joining an already-active room always gets
-//         the full current seat layout immediately — see also
-//         js/live.js / js/live-mic-ring.js for how the client applies it.
 //
-//   NO AUTO-SEATING (by design, unchanged): nothing in this file ever
-//         assigns a socket to a guest seat or mic seat on join. The ONLY
-//         way seats.male/seats.female/micSeats[i] get populated is an
-//         explicit "requestGuestSeat" / "requestMicSeat" emit from the
-//         client — which itself is only ever triggered by a user tapping
-//         a vacant seat/frame (see live.js's claimMicSeat/requestGuestSeat
-//         and live-mic-ring.js's click handlers). A fresh joiner is always
-//         pure audience until they take that explicit action.
+// ═══════════════════════════════════════════════════════════════
+//   SEAT/GUEST REWORK (this pass)
+// ═══════════════════════════════════════════════════════════════
+//   PROBLEM BEING FIXED:
+//     1) Mic seats rendered a live camera feed. Product decision:
+//        seats are voice-only slots — only the host frame and the
+//        two guest frames ever show video. Seats show the
+//        occupant's profile photo instead.
+//     2) Tapping "mute" on your own seat used to call the same
+//        handler as "leave seat" (a single click both muted you
+//        AND removed you from the seat). Mute and leave are now
+//        two separate, independent actions.
+//     3) Host mute/kick existed as one-shot fire-and-forget events
+//        that only *asked* the target to pause their own producer —
+//        nothing stopped the target from silently unmuting
+//        themselves right back. Mute state is now tracked
+//        server-side per seat (source of truth) so every client
+//        renders the same muted/unmuted icon, and a host-muted
+//        occupant cannot self-unmute until the host lifts it.
+//
+//   NEW SEAT/GUEST OCCUPANT SHAPE:
+//     {
+//       socketId, userId,
+//       username, avatarUrl,      // looked up from `users` on seat claim
+//       muted: boolean,           // current effective mic state
+//       mutedByHost: boolean      // true = only the host can undo this
+//     }
+//
+//   NEW SOCKET EVENTS:
+//     "toggleSeatMic"  { roomId, seatIndex } -> cb({ok,muted}|{error})
+//         Self-serve mute/unmute. Rejected if mutedByHost is true.
+//     "toggleGuestMic" { roomId, slot }      -> cb({ok,muted}|{error})
+//         Same, for the male/female guest frames.
+//
+//   CHANGED SOCKET EVENTS:
+//     "hostMuteSeat" / "hostMuteGuest" now TOGGLE `mutedByHost`
+//         (server-authoritative), update `muted` to match, broadcast
+//         the new seat/guest snapshot to the whole room, AND tell the
+//         target socket directly via "hostMutedYou" so it actually
+//         pauses/resumes its own mediasoup producer (the server has
+//         no way to touch a client's local producer other than
+//         asking it to).
+//     "hostKickSeat" / "hostKickGuest" unchanged in behavior.
+//
+//   Everything else in this file (mediasoup transports/producers/
+//   consumers, gifts, comments, viewer counts, host resolution) is
+//   UNCHANGED from the previous pass — only the seat/guest sections
+//   below were touched.
+// ═══════════════════════════════════════════════════════════════
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
 const { createRouter } = require("../mediasoup/router");
 
 /* ══════════════════════════════════════════════════════
+   USER LOOKUP — used to stamp a seat/guest occupant with the
+   profile info the client needs to render an avatar (seats no
+   longer show video, so this is the only visual identity a seat
+   has).
+══════════════════════════════════════════════════════ */
+async function getUserBrief(userId) {
+  if (!userId) return null;
+  try {
+    const { rows } = await db.query(
+      `SELECT id, username, display_name, avatar_url FROM users WHERE id = $1`,
+      [userId]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error("[getUserBrief] ❌", err);
+    return null;
+  }
+}
+
+/* ══════════════════════════════════════════════════════
    GUEST SEATS (matchmaker male/female slots)
    Not part of mediasoup Room state — tracked here so no
    changes to room.js are needed.
-   Shape: { male: {socketId,userId}|null, female: {...}|null }
+   Shape: { male: occupant|null, female: occupant|null }
 ══════════════════════════════════════════════════════ */
 function getGuestSeats(room) {
   if (!room.guestSeats) room.guestSeats = { male: null, female: null };
@@ -77,9 +98,8 @@ function clearGuestSeatsForSocket(room, socketId) {
 
 /* ══════════════════════════════════════════════════════
    MIC SEATS (circular seats around the room — "Seat 2..10")
-   8 numbered slots. Shape: array of 8, each either null or
-   { socketId, userId }. Same "tracked on the room object,
-   never touches mediasoup" approach as guest seats above.
+   8 numbered slots. Shape: array of 8, each either null or an
+   occupant object (see header comment for shape).
 ══════════════════════════════════════════════════════ */
 const MIC_SEAT_COUNT = 8;
 
@@ -123,8 +143,8 @@ module.exports = (io, socket) => {
 
       room.addPeer(socket.id, userId);
 
-      // ── FIX-8 (ROOT CAUSE): host must be resolved from the DB's
-      // live_rooms.host_id, never from "first socket to connect".
+      // Host must be resolved from the DB's live_rooms.host_id, never
+      // from "first socket to connect".
       const { rows: roomRows } = await db.query(
         `SELECT host_id FROM live_rooms WHERE id = $1`,
         [roomId]
@@ -181,18 +201,13 @@ module.exports = (io, socket) => {
 
       // Guest-seat snapshot (matchmaker slots) — sent immediately so a
       // fresh joiner sees who's already up without waiting on anything else.
-      // This is the FULL current server-truth snapshot, identical to what
-      // every other client in the room currently has — a late joiner and
-      // the host always see the same occupied/vacant state.
       socket.emit("guestSeatsUpdated", getGuestSeats(room));
 
-      // Mic-seat snapshot (the 8 circular seats) — same idea: a fresh
-      // joiner sees which seats are already taken right away, so the
-      // vacant/occupied state of the ring is correct from frame one,
-      // regardless of how long the stream has been live.
+      // Mic-seat snapshot (the 8 circular seats) — same idea.
       socket.emit("micSeatsUpdated", getMicSeats(room));
 
-      // ── FIX-1 ── Wait 150ms before sending existingProducers.
+      // Wait 150ms before sending existingProducers so the client has
+      // time to load the mediasoup device first.
       if (existingProducers.length > 0) {
         console.log(`[joinRoom] Scheduling existingProducers (${existingProducers.length}) with 150ms delay`);
         setTimeout(() => {
@@ -271,15 +286,20 @@ module.exports = (io, socket) => {
     }
   });
 
-
-
   /* ══════════════════════════════════════════════════════
      HOST CONTROLS — kick/mute a mic seat or guest seat.
      Authority check is server-side only: room.hostSocketId must
-     equal socket.id (the DB-verified host from joinRoom, FIX-8).
-     A non-host socket can never trigger these even if it forges
-     the emit, since the client never shows the buttons to them
-     (host-mode class), but this check is what actually matters.
+     equal socket.id (the DB-verified host from joinRoom). A
+     non-host socket can never trigger these even if it forges the
+     emit, since the client never shows the buttons to them, but
+     this check is what actually matters.
+
+     hostMuteSeat / hostMuteGuest TOGGLE mutedByHost. While
+     mutedByHost is true, the occupant's own "toggleSeatMic" /
+     "toggleGuestMic" requests are rejected — only the host (by
+     calling this again) can lift it. This intentionally mirrors
+     how Twitter/X Spaces and similar rooms behave: a host mute
+     sticks until the host undoes it.
   ══════════════════════════════════════════════════════ */
   socket.on("hostKickSeat", ({ roomId, seatIndex }, callback) => {
     try {
@@ -316,8 +336,15 @@ module.exports = (io, socket) => {
       const occupant = seats[seatIndex];
       if (!occupant) throw new Error("Seat is empty");
 
-      io.to(occupant.socketId).emit("hostMutedYou", { roomId, seatIndex });
-      callback?.({ ok: true });
+      occupant.mutedByHost = !occupant.mutedByHost;
+      occupant.muted = occupant.mutedByHost ? true : false;
+
+      broadcastMicSeats(io, roomId, room);
+      io.to(occupant.socketId).emit("hostMutedYou", {
+        roomId, seatIndex, muted: occupant.muted
+      });
+
+      callback?.({ ok: true, muted: occupant.muted });
     } catch (err) {
       callback?.({ error: err.message });
     }
@@ -357,8 +384,15 @@ module.exports = (io, socket) => {
       const occupant = seats[slot];
       if (!occupant) throw new Error("Seat is empty");
 
-      io.to(occupant.socketId).emit("hostMutedYou", { roomId, slot });
-      callback?.({ ok: true });
+      occupant.mutedByHost = !occupant.mutedByHost;
+      occupant.muted = occupant.mutedByHost ? true : false;
+
+      broadcastGuestSeats(io, roomId, room);
+      io.to(occupant.socketId).emit("hostMutedYou", {
+        roomId, slot, muted: occupant.muted
+      });
+
+      callback?.({ ok: true, muted: occupant.muted });
     } catch (err) {
       callback?.({ error: err.message });
     }
@@ -448,8 +482,8 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      CONSUME
-     FIX-3: isHost is resolved from server-side room state,
-     not from whatever the client guessed.
+     isHost is resolved from server-side room state, not from
+     whatever the client guessed.
   ══════════════════════════════════════════════════════ */
   socket.on("consume", async ({ transportId, producerId, rtpCapabilities }, callback) => {
     try {
@@ -611,25 +645,22 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      GIFTS
-     ── REMOVED: "sendGift" handler ──
-     The gift broadcast is now emitted exclusively from
-     giftController.send() (see backend/src/controllers/
-     giftController.js), immediately after the gift transaction
-     commits in the database.
+     "sendGift" handler intentionally does not exist here — the
+     gift broadcast is emitted exclusively from giftController.send()
+     immediately after the gift transaction commits in the database.
   ══════════════════════════════════════════════════════ */
 
   /* ══════════════════════════════════════════════════════
      GUEST SEATS (matchmaker male/female slots)
-     FIX-10: roomId must match the room this socket actually
-     joined — otherwise a client could mutate (or read-then-race)
-     seat state for a room it was never a member of.
+     roomId must match the room this socket actually joined —
+     otherwise a client could mutate seat state for a room it was
+     never a member of.
 
      NO AUTO-SEATING: this handler only ever runs in response to
-     an explicit client emit — which itself only happens when the
-     user taps a vacant guest frame (see live.js window.requestGuestSeat
-     + live-mic-ring.js click handler). Nothing on join calls this.
+     an explicit client emit — triggered by the user tapping a
+     vacant guest frame. Nothing on join calls this.
   ══════════════════════════════════════════════════════ */
-  socket.on("requestGuestSeat", ({ roomId, slot }, callback) => {
+  socket.on("requestGuestSeat", async ({ roomId, slot }, callback) => {
     try {
       if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
       if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
@@ -638,11 +669,21 @@ module.exports = (io, socket) => {
 
       const seats = getGuestSeats(room);
       clearGuestSeatsForSocket(room, socket.id); // hop between slots cleanly
+      clearMicSeatForSocket(room, socket.id);    // can't hold a mic seat + guest slot at once
 
       if (seats[slot]) throw new Error("Seat already taken");
 
-      seats[slot] = { socketId: socket.id, userId: socket.currentUserId };
+      const brief = await getUserBrief(socket.currentUserId);
+      seats[slot] = {
+        socketId:   socket.id,
+        userId:     socket.currentUserId,
+        username:   brief?.username || brief?.display_name || null,
+        avatarUrl:  brief?.avatar_url || null,
+        muted:      false,
+        mutedByHost: false
+      };
       broadcastGuestSeats(io, roomId, room);
+      broadcastMicSeats(io, roomId, room);
       callback?.({ ok: true, slot });
     } catch (err) {
       callback?.({ error: err.message });
@@ -659,17 +700,38 @@ module.exports = (io, socket) => {
     callback?.({ ok: true });
   });
 
+  // Self-serve mute/unmute for a guest frame occupant. Rejected while
+  // mutedByHost is set — only the host can lift that (hostMuteGuest).
+  socket.on("toggleGuestMic", ({ roomId, slot }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+
+      const seats = getGuestSeats(room);
+      const occupant = seats[slot];
+      if (!occupant || occupant.socketId !== socket.id) throw new Error("You are not in that seat");
+      if (occupant.mutedByHost) throw new Error("You were muted by the host");
+
+      occupant.muted = !occupant.muted;
+      broadcastGuestSeats(io, roomId, room);
+      callback?.({ ok: true, muted: occupant.muted });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
+  });
+
   /* ══════════════════════════════════════════════════════
      MIC SEATS (the 8 circular seats — "empty seat, tap to
      activate mic" flow from the room-layout spec)
-     FIX-10: same roomId ownership check as guest seats above.
+     Same roomId ownership check as guest seats above.
 
-     NO AUTO-SEATING: same guarantee as guest seats — only ever
-     populated by an explicit "requestMicSeat" emit, itself only
-     triggered by the user tapping a vacant seat slot (see live.js
-     claimMicSeat() + live-mic-ring.js's seat-slot click handler).
+     NO AUTO-SEATING: only ever populated by an explicit
+     "requestMicSeat" emit, itself only triggered by the user
+     tapping a vacant seat slot.
   ══════════════════════════════════════════════════════ */
-  socket.on("requestMicSeat", ({ roomId, seatIndex }, callback) => {
+  socket.on("requestMicSeat", async ({ roomId, seatIndex }, callback) => {
     try {
       if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
       if (!Number.isInteger(seatIndex) || seatIndex < 0 || seatIndex >= MIC_SEAT_COUNT) {
@@ -680,11 +742,21 @@ module.exports = (io, socket) => {
 
       const seats = getMicSeats(room);
       clearMicSeatForSocket(room, socket.id); // hop between seats cleanly
+      clearGuestSeatsForSocket(room, socket.id); // can't hold both at once
 
       if (seats[seatIndex]) throw new Error("Seat already taken");
 
-      seats[seatIndex] = { socketId: socket.id, userId: socket.currentUserId };
+      const brief = await getUserBrief(socket.currentUserId);
+      seats[seatIndex] = {
+        socketId:   socket.id,
+        userId:     socket.currentUserId,
+        username:   brief?.username || brief?.display_name || null,
+        avatarUrl:  brief?.avatar_url || null,
+        muted:      false,
+        mutedByHost: false
+      };
       broadcastMicSeats(io, roomId, room);
+      broadcastGuestSeats(io, roomId, room);
       callback?.({ ok: true, seatIndex });
     } catch (err) {
       callback?.({ error: err.message });
@@ -699,6 +771,29 @@ module.exports = (io, socket) => {
       broadcastMicSeats(io, roomId, room);
     }
     callback?.({ ok: true });
+  });
+
+  // Self-serve mute/unmute for a mic seat occupant. This is what
+  // fixes "tapping mute kicked me off the seat" — mute/unmute never
+  // touches seat occupancy, only the `muted` flag. Rejected while
+  // mutedByHost is set.
+  socket.on("toggleSeatMic", ({ roomId, seatIndex }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+
+      const seats = getMicSeats(room);
+      const occupant = seats[seatIndex];
+      if (!occupant || occupant.socketId !== socket.id) throw new Error("You are not in that seat");
+      if (occupant.mutedByHost) throw new Error("You were muted by the host");
+
+      occupant.muted = !occupant.muted;
+      broadcastMicSeats(io, roomId, room);
+      callback?.({ ok: true, muted: occupant.muted });
+    } catch (err) {
+      callback?.({ error: err.message });
+    }
   });
 
   /* ══════════════════════════════════════════════════════
@@ -741,7 +836,8 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     PEER MIC TOGGLED
+     PEER MIC TOGGLED (host's own broadcast mic — unrelated to
+     seat/guest mute, which is tracked server-side per-seat above)
   ══════════════════════════════════════════════════════ */
   socket.on("peerMicToggled", ({ roomId, socketId, muted }) => {
     socket.to(`room:${roomId}`).emit("peerMicToggled", { socketId, muted });
@@ -784,24 +880,18 @@ module.exports = (io, socket) => {
       const wasHost = room.hostSocketId === socket.id;
       room.removePeer(socket.id);
 
-      // FIX-6: free any guest seat this socket held, and tell everyone.
+      // Free any guest seat this socket held, and tell everyone.
       if (clearGuestSeatsForSocket(room, socket.id)) {
         io.to(`room:${roomId}`).emit("guestSeatsUpdated", getGuestSeats(room));
       }
 
-      // FIX-7: same cleanup for mic seats — an empty seat should
-      // reopen the instant its occupant disconnects or leaves.
+      // Same cleanup for mic seats — an empty seat should reopen the
+      // instant its occupant disconnects or leaves.
       if (clearMicSeatForSocket(room, socket.id)) {
         io.to(`room:${roomId}`).emit("micSeatsUpdated", getMicSeats(room));
       }
 
       if (wasHost) {
-        // FIX-9: without this, hostSocketId stays pointed at the now-
-        // dead socket forever, and `joinRoom`'s `room.hostSocketId !== socket.id`
-        // check is the only thing that lets a reconnecting host reclaim
-        // it — which does work with FIX-8 above, but clearing it here
-        // too means viewers immediately see "waiting for host" instead
-        // of a stale isHost=true producer reference lingering around.
         room.hostSocketId = null;
         io.to(`room:${roomId}`).emit("hostLeft", { roomId });
       }
@@ -828,5 +918,3 @@ module.exports = (io, socket) => {
     }
   }
 };
-
-
