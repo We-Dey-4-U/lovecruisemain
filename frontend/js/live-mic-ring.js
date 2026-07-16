@@ -15,7 +15,7 @@
         relaying the server's "guestSeatsUpdated" truth)
      - `micSeatsChanged`    CustomEvent (dispatched by live.js,
         relaying the server's "micSeatsUpdated" truth — an array
-        of 8 slots, each null or an occupant object:
+        of 12 slots, each null or an occupant object:
         { socketId, userId, username, avatarUrl, muted, mutedByHost })
    ...and, for seat/guest-frame actions, calls functions live.js
    exposes on window:
@@ -31,11 +31,25 @@
    logic lives here.
 
    ══════════════════════════════════════════════════════════
-   THIS PASS — SEATS ARE VOICE-ONLY, PROFILE-PHOTO SLOTS
+   THIS PASS — 12 SEATS (4 LEFT WING / 4 RIGHT WING / 4 BOTTOM)
+   ------------------------------------------------------------
+   Backend (stream.socket.js) raised MIC_SEAT_COUNT from 8 → 12
+   and now distributes seats as 4 left wing, 4 right wing, 4
+   bottom row. This file must match that distribution exactly —
+   micSeatsUpdated now arrives as a 12-element array, and index
+   math below (which four indices go in which wing/row) has to
+   line up with what the server assigns, or seat N on one client
+   won't visually match seat N on another.
+
+   Everything else — seats are voice-only profile-photo slots,
+   mute ≠ leave, host kick/mute overlay — is UNCHANGED from the
+   previous pass.
+
+   SEATS ARE VOICE-ONLY, PROFILE-PHOTO SLOTS
    ------------------------------------------------------------
    Product decision: the only two places video ever renders are
    the host frame and the two guest frames (matchmaker male/
-   female). The 8 circular mic seats never show a camera feed —
+   female). The 12 circular mic seats never show a camera feed —
    occupied, they show the occupant's profile photo (from the
    server's seat snapshot), a mute/unmute button, and a leave-seat
    button. This is a structural change, not a CSS trick: seats no
@@ -84,13 +98,15 @@
   // Nothing to enhance on a page that doesn't use the arena layout.
   if (!arena || !hostCardWrap || !strip) return;
 
-  const MIC_SEAT_COUNT = 8;
+  // Raised 8 → 12 to match backend's MIC_SEAT_COUNT
+  // (stream.socket.js): 4 left wing, 4 right wing, 4 bottom row.
+  const MIC_SEAT_COUNT = 12;
 
   const prefersReducedMotion =
     window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Seat slots are superseded-by-design: the old "nobody here yet"
-  // hint text no longer applies since all 8 seats are always visible.
+  // hint text no longer applies since all 12 seats are always visible.
   if (stripHint) stripHint.style.display = "none";
 
   function isHostMode() {
@@ -233,13 +249,18 @@
   }
 
   /* ============================================================
-     SEAT SLOTS — 8 permanent slots, laid out by plain CSS
+     SEAT SLOTS — 12 permanent slots, laid out by plain CSS
      flex-wrap in the page's own #participants-strip styling
      (left/right wings + bottom row, all clamp()-sized so they
      shrink together and can't overlap the host card or guest
      frames on a small screen). Occupied seats render the
      occupant's profile photo — never video — plus their own
      mute/leave controls.
+
+     Distribution MUST match the backend's seat-index assignment
+     (stream.socket.js): indices 0-3 → left wing, 4-7 → right
+     wing, 8-11 → bottom row. Same rule as before, just widened
+     from 2/2/4 to 4/4/4.
      ============================================================ */
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
@@ -298,8 +319,10 @@
       );
       slot.appendChild(overlay);
 
-      if (i < 2) leftWing.appendChild(slot);
-      else if (i < 4) rightWing.appendChild(slot);
+      // 4 left wing (0-3), 4 right wing (4-7), 4 bottom row (8-11) —
+      // mirrors the backend's 12-seat layout exactly.
+      if (i < 4) leftWing.appendChild(slot);
+      else if (i < 8) rightWing.appendChild(slot);
       else bottomRow.appendChild(slot);
 
       seatSlotEls.push(slot);
