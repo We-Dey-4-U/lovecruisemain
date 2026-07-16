@@ -276,38 +276,82 @@
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
 
-  function createSeatSlots() {
-    for (let i = 0; i < MIC_SEAT_COUNT; i++) {
-      const slot = document.createElement("div");
-      slot.className = "seat-slot vacant";
-      slot.dataset.seatIndex = String(i);
-      slot.innerHTML = `
-        <div class="seat-slot-frame">
-          <span class="seat-plus">+</span>
-        </div>
-        <div class="seat-slot-num">${i + 1}</div>
-      `;
-      slot.addEventListener("click", () => {
-        const occupant = micSeatsState[i];
-        if (occupant && occupant.socketId === window.__mySocketId) {
-          window.releaseMicSeat?.();
-        } else if (!occupant) {
-          window.claimMicSeat?.(i);
-        }
-        // Occupied by someone else — tapping does nothing; seats
-        // are self-serve only (host uses the overlay buttons instead).
-      });
+function createSeatSlots() {
 
-      const overlay = buildHostControlOverlay(
-        () => window.hostKickSeat?.(i),
-        () => window.hostMuteSeat?.(i)
-      );
-      slot.appendChild(overlay);
+  strip.innerHTML = "";
 
-      strip.appendChild(slot);
-      seatSlotEls.push(slot);
+  seatSlotEls.length = 0;
+
+  const leftWing = document.createElement("div");
+  leftWing.className = "seat-wing seat-wing-left";
+
+  const rightWing = document.createElement("div");
+  rightWing.className = "seat-wing seat-wing-right";
+
+  const bottomRow = document.createElement("div");
+  bottomRow.className = "seat-row seat-row-bottom";
+
+  for (let i = 0; i < MIC_SEAT_COUNT; i++) {
+
+    const slot = document.createElement("div");
+    slot.className = "seat-slot vacant";
+    slot.dataset.seatIndex = i;
+
+    slot.innerHTML = `
+      <div class="seat-slot-frame">
+        <span class="seat-plus">+</span>
+      </div>
+      <div class="seat-slot-num">${i + 1}</div>
+    `;
+
+    slot.addEventListener("click", () => {
+
+      const occupant = micSeatsState[i];
+
+      if (occupant && occupant.socketId === window.__mySocketId) {
+        window.releaseMicSeat?.();
+      }
+      else if (!occupant) {
+        window.claimMicSeat?.(i);
+      }
+
+    });
+
+    const overlay = buildHostControlOverlay(
+      () => window.hostKickSeat?.(i),
+      () => window.hostMuteSeat?.(i)
+    );
+
+    slot.appendChild(overlay);
+
+    if (i < 2) {
+
+        leftWing.appendChild(slot);
+
+    } else if (i < 4) {
+
+        rightWing.appendChild(slot);
+
+    } else {
+
+        bottomRow.appendChild(slot);
+
     }
+
+    seatSlotEls.push(slot);
+
   }
+
+  strip.appendChild(leftWing);
+  strip.appendChild(rightWing);
+  strip.appendChild(bottomRow);
+
+}
+
+
+
+
+
 
   function tileForSocket(socketId) {
     if (!socketId) return null;

@@ -2,23 +2,39 @@
 
 const db = require("../config/db");
 
+const VALID_MODES = ["social", "podcast"];
+
 const liveRoomController = {
 
   /* ── CREATE ── */
   async create(req, res, next) {
     try {
-      const { title, description } = req.body;
+      const { title, description, mode } = req.body;
       if (!title || !title.trim()) {
         return res.status(400).json({ success: false, message: "Title is required" });
+      }
+
+      // Default to "social" for any caller that doesn't send mode (older
+      // clients, direct API use) rather than rejecting the request —
+      // Social Live is the original/default room type. Anything sent
+      // that isn't one of the two known modes is also treated as an
+      // error rather than silently coerced, so a typo in the client
+      // never quietly creates a room under the wrong type.
+      const resolvedMode = mode || "social";
+      if (!VALID_MODES.includes(resolvedMode)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid mode "${resolvedMode}" — must be one of: ${VALID_MODES.join(", ")}`
+        });
       }
 
       const channelName = `room_${Date.now()}_${req.user.id.slice(0, 8)}`;
 
       const { rows } = await db.query(
-        `INSERT INTO live_rooms (host_id, title, description, channel_name, status, started_at)
-         VALUES ($1, $2, $3, $4, 'live', NOW())
+        `INSERT INTO live_rooms (host_id, title, description, channel_name, mode, status, started_at)
+         VALUES ($1, $2, $3, $4, $5, 'live', NOW())
          RETURNING *`,
-        [req.user.id, title.trim(), description || "", channelName]
+        [req.user.id, title.trim(), description || "", channelName, resolvedMode]
       );
 
       return res.status(201).json({ success: true, data: rows[0] });
@@ -30,6 +46,9 @@ const liveRoomController = {
   /* ── LIST ALL LIVE ROOMS ── */
   async list(req, res, next) {
     try {
+      // lr.* already carries `mode` now that the column exists — no
+      // change needed here beyond the column being present in the DB.
+      // discover.html reads it directly off each room object.
       const { rows } = await db.query(
         `SELECT lr.*, u.username, u.avatar_url, u.display_name
          FROM live_rooms lr
@@ -44,7 +63,7 @@ const liveRoomController = {
     }
   },
 
-  /* ── GET SINGLE ROOM — ADDED: was missing, live.js needs this ── */
+  /* ── GET SINGLE ROOM ── */
   async getById(req, res, next) {
     try {
       const { rows } = await db.query(

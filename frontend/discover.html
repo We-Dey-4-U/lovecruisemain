@@ -106,6 +106,16 @@
 }
 .live-badge .pulse { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse-dot 1.4s infinite; flex: none; }
 @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+
+/* Podcast-mode badge — same shape, violet instead of magenta, so a
+   glance at the grid tells you which rooms are podcast rooms before
+   you ever tap in. Kept visually distinct from the "LIVE" badge on
+   social rooms rather than replacing it, since a room is always
+   both live AND (social|podcast). */
+.live-badge.mode-podcast {
+  background: linear-gradient(135deg, #A05AFF, #6A1ADF);
+}
+
 .viewer-chip-card {
   position: absolute; top: 10px; right: 10px; z-index: 3;
   display: flex; align-items: center; gap: 4px;
@@ -121,6 +131,7 @@
   flex: 1; min-width: 0; text-shadow: 0 1px 6px rgba(0,0,0,.6);
 }
 .card-host-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #ff3d7f; flex: none; box-shadow: 0 0 0 2px rgba(255,61,127,.3); }
+.card-host-live-dot.mode-podcast { background: #A05AFF; box-shadow: 0 0 0 2px rgba(160,90,255,.3); }
 .card-title {
   font-size: 11px; color: rgba(255,255,255,.75); line-height: 1.35;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -292,6 +303,38 @@ document.getElementById("notif-btn").addEventListener("click", () => { window.sh
 document.getElementById("add-story-btn").addEventListener("click", () => { window.showToast("Story creation coming soon"); });
 document.getElementById("promo-topup-btn").addEventListener("click", () => { window.location.href = "coins.html"; });
 
+/* ============================================================
+   ROOM MODE ROUTING
+   ------------------------------------------------------------
+   A room is either "social" (camera + chat, live.html) or
+   "podcast" (episode format, podcast-live.html). The mode is
+   set once at creation time in go-live.html and must be sent
+   back by the backend on every room object in GET /live —
+   we read it defensively under a couple of likely field names
+   so this keeps working whichever key the API settles on.
+   Anything that isn't explicitly "podcast" is treated as social,
+   so older rooms created before this field existed still route
+   correctly to live.html.
+   ============================================================ */
+function roomMode(room) {
+  const raw = (room.mode || room.room_type || room.roomType || room.live_type || "").toLowerCase();
+  return raw === "podcast" ? "podcast" : "social";
+}
+
+function buildRoomHref(room, mode) {
+  const roomId = encodeURIComponent(room.id);
+  if (mode === "podcast") {
+    const params = new URLSearchParams({
+      room:  room.id,
+      title: room.title || room.pod_title || "Live Podcast",
+      show:  room.show_name || room.pod_show_name || "",
+      cover: room.cover_image_url || room.cover_image || ""
+    });
+    return `podcast-live.html?${params.toString()}`;
+  }
+  return `live.html?room=${roomId}`;
+}
+
 function renderLiveGrid(rooms) {
   const grid    = document.getElementById("live-grid");
   const countEl = document.getElementById("live-count");
@@ -310,27 +353,32 @@ function renderLiveGrid(rooms) {
   grid.innerHTML = rooms.map((room, i) => {
     const roomId   = room.id;
     if (!roomId) return "";
+    const mode     = roomMode(room);
+    const href     = buildRoomHref(room, mode);
     const palette  = CARD_PALETTES[i % CARD_PALETTES.length];
     const avatar   = room.avatar_url || "";
     const coverSrc = room.cover_image_url || room.cover_image || avatar;
     const username = room.username || room.display_name || "Host";
-    const title    = room.title || "Live Stream";
+    const title    = room.title || (mode === "podcast" ? "Live Podcast" : "Live Stream");
     const viewers  = room.viewer_count || 0;
     const initials = username.split(" ").map(w => w[0] || "").join("").slice(0, 2).toUpperCase();
     const hasPhoto = coverSrc.trim().length > 0;
+    const badgeCls = mode === "podcast" ? "live-badge mode-podcast" : "live-badge";
+    const badgeTxt = mode === "podcast" ? "PODCAST" : "LIVE";
+    const dotCls   = mode === "podcast" ? "card-host-live-dot mode-podcast" : "card-host-live-dot";
 
     return `
-      <a class="live-card" href="live.html?room=${encodeURIComponent(roomId)}"
+      <a class="live-card" href="${href}"
          style="--card-color-a:${palette[0]};--card-color-b:${palette[1]};">
         <div class="card-bg-gradient"></div>
         ${!hasPhoto ? `<div class="card-initials">${window.escapeHtml(initials)}</div>` : ""}
         ${hasPhoto  ? `<img class="card-host-photo" src="${window.escapeHtml(coverSrc)}" alt="" loading="lazy">` : ""}
         <div class="card-scrim"></div>
-        <span class="live-badge"><span class="pulse"></span>LIVE</span>
+        <span class="${badgeCls}"><span class="pulse"></span>${badgeTxt}</span>
         <span class="viewer-chip-card">👁 ${window.formatCoins(viewers)}</span>
         <div class="card-info">
           <div class="card-host-row">
-            <span class="card-host-live-dot"></span>
+            <span class="${dotCls}"></span>
             <span class="card-host-name">${window.escapeHtml(username)}</span>
           </div>
           <div class="card-title">${window.escapeHtml(title)}</div>

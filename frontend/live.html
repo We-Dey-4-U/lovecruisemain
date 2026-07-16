@@ -3,25 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>vConnect — Podcast Live</title>
+<title>vConnect — Live</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
 /* ============================================================
-   vConnect Podcast Live Arena — premium redesign
+   vConnect Social Live Arena
    ------------------------------------------------------------
-   Same signature language as live.html (host aura + energy
-   connection lines + particle arena + mic-seat ring + matchmaker
-   guest frames), themed with the podcast page's existing
-   violet/purple palette so it reads as a sibling of the main
-   live room rather than a copy.
+   Structural TWIN of podcast-live.html's arena. Both pages load
+   the same js/live.js (WebRTC/socket layer) and the same
+   js/live-mic-ring.js (visual seat/guest-frame layer), and both
+   modules only ever look for the same set of ids/classes:
+     #arena, #host-card-wrap, #participants-strip, #local-tile,
+     .participant-tile, #guest-frame-male, #guest-frame-female,
+     #connection-lines, #arena-particles, .seat-slot, .seat-wing,
+     .seat-row, etc.
+   So this file intentionally reuses the exact same seat/host/
+   guest-frame markup and CSS as podcast-live.html's canonical
+   layout (seat-wing-left/right flanking the arena + seat-row
+   pinned to the bottom, all clamp()-sized) — that's what makes
+   the seating arena render identically whether a room was
+   created as Social or Podcast. Only the theming (magenta/violet
+   instead of pure violet) and the podcast-only elements (episode
+   meta bar, audio-only cover art, pod-title/show fields) differ.
 
-   Palette:
-     --arena-bg-1     #08050F  (near-black violet, base)
-     --arena-bg-2     #170B2E  (deep violet, mid gradient)
-     --arena-bg-3     #2A0D4E  (royal violet, glow source)
-     --arena-accent   #A05AFF  (podcast violet — aura / lines / particles)
-     --arena-accent-2 #6A1ADF  (deep violet — aura / lines gradient end)
-     --arena-gold     #C890FF  (value / highlight accent, podcast-tinted)
+   Palette (per js/live-mic-ring.js's own fallback accent colors,
+   which assume live.html is violet/magenta):
+     --arena-accent   #9D5CFF  (violet — aura / lines / particles)
+     --arena-accent-2 #FF3D7F  (magenta — aura / lines gradient end)
    ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -37,21 +45,22 @@ body, .app-shell, .live-screen {
 
 /* ══════════════════════════
    ARENA — gradient bg, particle canvas, energy lines, host card,
-   guest frames, mic-seat ring. Mirrors live.html; colors tuned
-   to podcast violet. Taller than before (was 58%) to make room
-   for the enlarged host card + guest frames without crowding
-   the mic-seat ring.
+   guest frames, mic-seat row. Same structure/sizing rules as
+   podcast-live.html; only the accent colors differ.
 ══════════════════════════ */
 .arena {
   position: relative; flex: 0 0 64%;
   overflow: hidden;
-  --arena-accent: #A05AFF;
-  --arena-accent-2: #6A1ADF;
+  --arena-accent: #9D5CFF;
+  --arena-accent-2: #FF3D7F;
   background:
     radial-gradient(circle at 50% 26%, #2A0D4E 0%, transparent 58%),
-    radial-gradient(circle at 12% 88%, rgba(160,90,255,.12) 0%, transparent 45%),
-    radial-gradient(circle at 90% 80%, rgba(106,26,223,.14) 0%, transparent 42%),
+    radial-gradient(circle at 12% 88%, rgba(157,92,255,.12) 0%, transparent 45%),
+    radial-gradient(circle at 90% 80%, rgba(255,61,127,.12) 0%, transparent 42%),
     linear-gradient(180deg, #12081F 0%, #08050F 100%);
+}
+@media (max-height: 680px) {
+  .arena { flex-basis: 58%; }
 }
 
 #arena-particles {
@@ -68,7 +77,7 @@ body, .app-shell, .live-screen {
   opacity: .32; z-index: 0; pointer-events: none;
 }
 .arena-blob.b1 { width: 170px; height: 170px; background: #6A1ADF; top: -40px; left: -45px; animation: blob-drift 15s ease-in-out infinite; }
-.arena-blob.b2 { width: 130px; height: 130px; background: #A05AFF; bottom: -25px; right: -25px; animation: blob-drift 18s ease-in-out infinite reverse; }
+.arena-blob.b2 { width: 130px; height: 130px; background: #FF3D7F; bottom: -25px; right: -25px; animation: blob-drift 18s ease-in-out infinite reverse; }
 @keyframes blob-drift {
   0%,100% { transform: translate(0,0) scale(1); }
   50% { transform: translate(14px,-10px) scale(1.08); }
@@ -90,13 +99,13 @@ body, .app-shell, .live-screen {
 .host-chip {
   display: flex; align-items: center; gap: 8px;
   background: rgba(0,0,0,.6); backdrop-filter: blur(10px);
-  border: 1px solid rgba(160,90,255,.25);
+  border: 1px solid rgba(157,92,255,.25);
   border-radius: 28px; padding: 5px 10px 5px 5px;
   max-width: calc(100% - 150px); min-width: 0;
 }
 .host-chip img {
   width: 32px; height: 32px; border-radius: 50%;
-  border: 2px solid rgba(160,90,255,.6); object-fit: cover; flex: none; cursor: pointer;
+  border: 2px solid rgba(255,61,127,.6); object-fit: cover; flex: none; cursor: pointer;
 }
 .host-chip .ht { min-width: 0; flex: 1; }
 .host-chip .name {
@@ -106,7 +115,7 @@ body, .app-shell, .live-screen {
 .host-chip .sub { font-size: 10px; color: rgba(255,255,255,.65); }
 
 .follow-btn {
-  flex: none; background: linear-gradient(135deg,#A05AFF,#6A1ADF); color: #fff; border: none;
+  flex: none; background: linear-gradient(135deg,#FF3D7F,#9D5CFF); color: #fff; border: none;
   border-radius: 14px; padding: 4px 10px; font-size: 11px;
   font-weight: 800; cursor: pointer; transition: background .2s, transform .15s; white-space: nowrap;
 }
@@ -139,10 +148,9 @@ body, .app-shell, .live-screen {
   font-weight: 800; cursor: pointer; white-space: nowrap;
 }
 
-/* PODCAST LIVE badge — kept from the original podcast page */
 .live-badge {
   display: flex; align-items: center; gap: 4px;
-  background: linear-gradient(135deg,#A05AFF,#6A1ADF);
+  background: linear-gradient(135deg,#FF3D7F,#9D5CFF);
   border-radius: 14px; padding: 5px 9px;
   color: #fff; font-size: 10px; font-weight: 900; letter-spacing: .05em;
   white-space: nowrap;
@@ -153,7 +161,6 @@ body, .app-shell, .live-screen {
 }
 @keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.75)} }
 
-/* TOP GIFTERS */
 .top-gifters {
   position: absolute; top: 54px; left: 12px; z-index: 20;
   display: flex; align-items: center;
@@ -165,7 +172,6 @@ body, .app-shell, .live-screen {
 .top-gifters img:first-child { margin-left: 0; }
 .top-gifters .label { font-size: 10px; color: rgba(255,255,255,.65); margin-left: 7px; font-weight: 700; }
 
-/* HOST CONTROLS */
 #host-controls {
   display: none; position: absolute; top: 54px; right: 12px;
   z-index: 20; flex-direction: column; gap: 6px;
@@ -174,12 +180,11 @@ body, .app-shell, .live-screen {
 .h-ctrl {
   width: 36px; height: 36px; border-radius: 50%;
   background: rgba(0,0,0,.6); backdrop-filter: blur(8px);
-  border: 1px solid rgba(160,90,255,.3);
+  border: 1px solid rgba(157,92,255,.3);
   display: flex; align-items: center; justify-content: center;
   color: #fff; cursor: pointer; font-size: 14px;
 }
 
-/* MIC LEVEL */
 .mic-wrap {
   position: absolute; bottom: 8px; right: 12px; z-index: 20;
   width: 4px; height: 40px; background: rgba(255,255,255,.1);
@@ -188,39 +193,40 @@ body, .app-shell, .live-screen {
 .host-mode .mic-wrap { display: block; }
 #mic-level {
   position: absolute; bottom: 0; width: 100%;
-  background: #A05AFF; border-radius: 4px; height: 0%;
+  background: #FF3D7F; border-radius: 4px; height: 0%;
   transition: height .08s;
 }
 
 /* ══════════════════════════
-   HOST CARD — centerpiece, rotating aura ring (podcast violet).
-   Enlarged + moved up so there's room below for the matchmaking
-   guest frames (male / female), same treatment as live.html.
+   HOST CARD — clamp()-sized, identical sizing rules to
+   podcast-live.html so it never crowds the guest frames / seat
+   rows on a small screen, on either page.
 ══════════════════════════ */
 .host-card-wrap {
   position: absolute; z-index: 5;
-  left: 50%; top: 32%; transform: translate(-50%,-50%);
-  width: 150px; height: 150px;
+  left: 50%; top: 30%; transform: translate(-50%,-50%);
+  width: clamp(104px, 30vw, 168px);
+  height: clamp(104px, 30vw, 168px);
 }
 
 .host-aura {
-  position: absolute; inset: -7px; border-radius: 50%;
-  background: conic-gradient(from 0deg, #A05AFF, #6A1ADF, #C890FF, #A05AFF);
+  position: absolute; inset: -8px; border-radius: 50%;
+  background: conic-gradient(from 0deg, #FF3D7F, #9D5CFF, #6A1ADF, #FF3D7F);
   animation: aura-spin 5s linear infinite;
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
-  filter: drop-shadow(0 0 10px rgba(160,90,255,.55));
+  filter: drop-shadow(0 0 10px rgba(255,61,127,.55));
 }
 @keyframes aura-spin { to { transform: rotate(360deg); } }
 
 .host-card-wrap.speaking .host-aura {
   animation-duration: 1.6s;
-  filter: drop-shadow(0 0 18px rgba(160,90,255,.85)) drop-shadow(0 0 30px rgba(106,26,223,.4));
+  filter: drop-shadow(0 0 18px rgba(255,61,127,.85)) drop-shadow(0 0 30px rgba(157,92,255,.4));
 }
 .host-card-wrap.speaking .host-frame { animation: host-pulse 1s ease-in-out infinite; }
 @keyframes host-pulse {
-  0%,100% { box-shadow: 0 0 0 0 rgba(160,90,255,.55); }
-  50% { box-shadow: 0 0 0 8px rgba(160,90,255,0); }
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,61,127,.55); }
+  50% { box-shadow: 0 0 0 8px rgba(255,61,127,0); }
 }
 
 .host-frame {
@@ -253,133 +259,132 @@ body, .app-shell, .live-screen {
   font-size: 10.5px; font-weight: 800; color: #fff; white-space: nowrap;
 }
 .stage-label .pulse-dot {
-  width: 5px; height: 5px; border-radius: 50%; background: #A05AFF;
+  width: 5px; height: 5px; border-radius: 50%; background: #FF3D7F;
   animation: pulse-anim 1.4s infinite; flex: none;
 }
 
-/* AUDIO-ONLY MODE — replaces the video inside the circular host
-   frame when the host turns their camera off, showing cover art
-   and a small soundwave instead. Detected via a MutationObserver
-   watching #stage-video's inline opacity (set by live.js's
-   toggleCamera()). */
-.audio-mode-overlay {
-  position: absolute; inset: 0; z-index: 4;
-  display: none; flex-direction: column; align-items: center; justify-content: center;
-  gap: 6px; background: radial-gradient(circle at 50% 40%, #1c0c33 0%, #120a1f 100%);
-}
-.audio-mode-overlay.show { display: flex; }
-.pod-cover-art {
-  width: 66px; height: 66px; border-radius: 14px;
-  object-fit: cover; border: 2px solid rgba(160,90,255,.5);
-  box-shadow: 0 6px 18px rgba(160,90,255,.3);
-}
-.pod-cover-fallback {
-  width: 66px; height: 66px; border-radius: 14px;
-  background: linear-gradient(135deg,#1c0c33,#2a0d4e);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 28px; border: 2px solid rgba(160,90,255,.35);
-}
-.soundwave {
-  display: flex; align-items: center; gap: 2px; height: 14px;
-}
-.sw-bar {
-  width: 2px; border-radius: 2px;
-  background: linear-gradient(to top, #A05AFF, #C890FF);
-  animation: sw-anim .6s ease-in-out infinite alternate;
-}
-@keyframes sw-anim { from{height:2px} to{height:12px} }
-
 /* ══════════════════════════
-   MATCHMAKING GUEST FRAMES — the two "hot seats" the host (as
-   matchmaker) brings people into. Sit just under the host card,
-   moderate size: bigger than a regular mic seat, smaller than
-   the host. Mirrors live.html, tinted podcast violet.
+   MATCHMAKING GUEST FRAMES — same clamp()-sizing rules as
+   podcast-live.html so a room looks/feels identical whether it's
+   Social or Podcast; only the accent tint differs.
 ══════════════════════════ */
 .guest-frames {
   position: absolute; z-index: 5;
-  left: 50%; top: 55%; transform: translate(-50%,-50%);
-  display: flex; align-items: center; gap: 16px;
+  left: 50%; top: 54%; transform: translate(-50%,-50%);
+  display: flex; align-items: center; gap: clamp(10px, 4vw, 18px);
 }
 .guest-frame {
-  position: relative; width: 100px; height: 100px; border-radius: 50%;
+  position: relative;
+  width: clamp(68px, 21vw, 116px); height: clamp(68px, 21vw, 116px);
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, rgba(160,90,255,.22), rgba(255,255,255,.05));
-  border: 2px dashed rgba(160,90,255,.4);
+  background: linear-gradient(135deg, rgba(157,92,255,.22), rgba(255,255,255,.05));
+  border: 2px dashed rgba(157,92,255,.4);
   cursor: pointer; transition: border-color .2s, background .2s, transform .15s;
 }
 .guest-frame:active { transform: scale(.95); }
 .guest-frame.occupied {
-  border-style: solid; border-color: rgba(160,90,255,.55);
+  border-style: solid; border-color: rgba(157,92,255,.55);
   background: transparent;
 }
 .guest-frame.occupied.speaking {
-  border-color: #C890FF;
-  box-shadow: 0 0 0 3px rgba(200,144,255,.25);
+  border-color: #FF3D7F;
+  box-shadow: 0 0 0 3px rgba(255,61,127,.25);
 }
 .guest-placeholder {
-  font-size: 32px; color: rgba(255,255,255,.32); pointer-events: none;
+  font-size: clamp(20px, 7vw, 36px); color: rgba(255,255,255,.32); pointer-events: none;
 }
 .guest-frame.occupied .guest-placeholder { display: none; }
 .guest-tag {
   position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%);
-  font-size: 9.5px; font-weight: 800; padding: 2px 9px; border-radius: 10px;
+  font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 10px;
   background: rgba(0,0,0,.6); color: #fff; white-space: nowrap; pointer-events: none;
 }
 .guest-frame[data-slot="male"] .guest-tag { color: #6FC7FF; }
 .guest-frame[data-slot="female"] .guest-tag { color: #FF8FD1; }
 .guest-link {
-  font-size: 20px; filter: drop-shadow(0 0 6px rgba(160,90,255,.6));
+  font-size: clamp(15px, 4.5vw, 22px); filter: drop-shadow(0 0 6px rgba(255,61,127,.6));
   animation: pulse-anim 1.8s ease-in-out infinite;
 }
 
 /* ══════════════════════════
-   MIC SEAT RING — same mechanism as live.html, positioned by
-   js/live-mic-ring.js. Podcast tiles are circular avatars too,
-   consistent with the shared design language.
+   MIC SEAT ROW — identical structure/positioning to
+   podcast-live.html: left/right wings + bottom row, all
+   position:absolute so they flank the arena instead of stacking
+   and can never be clipped by overflow:hidden. This block MUST
+   stay byte-for-byte compatible with what podcast-live.html
+   defines, since js/live-mic-ring.js's createSeatSlots() builds
+   the exact same .seat-wing-left/.seat-wing-right/.seat-row-bottom
+   DOM on both pages.
 ══════════════════════════ */
 #participants-strip {
-  position: absolute; inset: 0; z-index: 4;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
   pointer-events: none;
+}
+#participants-strip > * { pointer-events: auto; }
+
+.seat-wing {
+  position: absolute;
+  top: 58%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 2.5vh, 16px);
+  z-index: 4;
+}
+.seat-wing-left  { left: 4px; }
+.seat-wing-right { right: 4px; }
+
+.seat-row {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: clamp(6px, 2.5vw, 12px);
+  width: max-content;
+  max-width: calc(100% - 12px);
+  z-index: 4;
 }
 
 #local-tile, .participant-tile {
-  position: absolute;
-  left: 50%; top: 88%;
-  transform: translate(-50%,-50%);
   display: none;
   flex-direction: column; align-items: center; gap: 0;
-  width: 58px; pointer-events: auto;
-  transition: left .45s cubic-bezier(.34,1.2,.64,1), top .45s cubic-bezier(.34,1.2,.64,1),
-              opacity .3s ease, transform .3s ease;
+  width: clamp(40px, 12vw, 58px);
+  flex: 0 0 auto;
 }
 #local-tile.seated, .participant-tile.seated {
   display: flex;
   animation: seat-in .38s cubic-bezier(.34,1.4,.64,1);
 }
 @keyframes seat-in {
-  from { opacity: 0; transform: translate(-50%,-50%) scale(.5); }
-  to   { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  from { opacity: 0; transform: scale(.5); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
-/* Docked = parked inside a .guest-frame. The frame now owns
-   position and size; the tile just fills it. */
 #local-tile.docked, .participant-tile.docked {
-  position: static; width: 100%; height: 100%; left: auto; top: auto;
-  transform: none; animation: seat-in .32s cubic-bezier(.34,1.4,.64,1);
+  width: 100%; height: 100%;
+  animation: seat-in .32s cubic-bezier(.34,1.4,.64,1);
 }
 #local-tile.docked .seat-frame, .participant-tile.docked .seat-frame {
   width: 100%; height: 100%;
 }
 
 .seat-frame {
-  position: relative; width: 52px; height: 52px; border-radius: 50%;
+  position: relative;
+  width: clamp(34px, 10vw, 52px); height: clamp(34px, 10vw, 52px);
+  border-radius: 50%;
   padding: 2px;
-  background: linear-gradient(135deg, rgba(160,90,255,.5), rgba(255,255,255,.08));
+  background: linear-gradient(135deg, rgba(157,92,255,.5), rgba(255,255,255,.08));
 }
-#local-tile .seat-frame { background: linear-gradient(135deg, #C890FF, #A05AFF); }
+#local-tile .seat-frame { background: linear-gradient(135deg, #FF3D7F, #9D5CFF); }
 .participant-tile.speaking .seat-frame,
 #local-tile.speaking .seat-frame {
-  background: conic-gradient(from 0deg, #A05AFF, #C890FF, #A05AFF);
+  background: conic-gradient(from 0deg, #9D5CFF, #FF3D7F, #9D5CFF);
   animation: aura-spin 1.4s linear infinite;
 }
 
@@ -406,8 +411,8 @@ body, .app-shell, .live-screen {
 }
 
 #local-name, .ptile-name {
-  font-size: 8.5px; color: rgba(255,255,255,.7); font-weight: 700;
-  text-align: center; max-width: 58px; margin-top: 3px;
+  font-size: clamp(7px, 2vw, 8.5px); color: rgba(255,255,255,.7); font-weight: 700;
+  text-align: center; max-width: clamp(40px, 12vw, 58px); margin-top: 3px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -426,7 +431,7 @@ body, .app-shell, .live-screen {
   padding: 0; line-height: 1;
 }
 .local-ctrl-btn:active { transform: scale(.85); }
-.local-ctrl-btn.muted { background: rgba(160,90,255,.75); border-color: rgba(160,90,255,.5); }
+.local-ctrl-btn.muted { background: rgba(157,92,255,.75); border-color: rgba(157,92,255,.5); }
 
 .ptile-muted-badge {
   position: absolute; top: -3px; right: -3px; z-index: 4;
@@ -436,38 +441,65 @@ body, .app-shell, .live-screen {
   font-size: 8px; line-height: 1;
 }
 
-.strip-empty-hint {
-  position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
-  color: rgba(255,255,255,.25); font-size: 10.5px;
-  z-index: 4; pointer-events: none;
+.strip-empty-hint { display: none; }
+
+/* ══════════════════════════
+   SEAT SLOTS — the 8 permanent mic-seat placeholders. Same rules
+   as podcast-live.html: without this block, seats render as bare
+   numbers regardless of page.
+══════════════════════════ */
+.seat-slot {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: clamp(40px, 12vw, 58px);
+  flex: 0 0 auto;
+}
+.seat-slot-frame {
+  width: clamp(34px, 10vw, 52px); height: clamp(34px, 10vw, 52px);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px dashed rgba(157,92,255,.35);
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+  transition: border-color .2s, background .2s, transform .15s;
+}
+.seat-slot:active .seat-slot-frame { transform: scale(.9); }
+.seat-slot:not(.occupied):hover .seat-slot-frame {
+  border-color: rgba(157,92,255,.7);
+  background: rgba(157,92,255,.08);
+}
+.seat-plus {
+  font-size: 18px; line-height: 1; font-weight: 300;
+  color: rgba(255,255,255,.32); pointer-events: none;
+}
+.seat-slot-num {
+  font-size: 8px; font-weight: 800; color: rgba(255,255,255,.35);
+}
+.seat-slot.occupied .seat-slot-frame,
+.seat-slot.occupied .seat-slot-num {
+  display: none;
 }
 
 /* ══════════════════════════
-   EPISODE META BAR — sits just under the arena so it never
-   competes for space with the mic-seat ring.
+   STREAM TITLE BAR — the social-live equivalent of the podcast
+   episode meta bar. No episode/show fields here (those are
+   podcast-only) — just the room title.
 ══════════════════════════ */
-.episode-meta-bar {
+.stream-meta-bar {
   flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px;
   padding: 10px 14px; background: #0d0718;
-  border-top: 1px solid rgba(160,90,255,.14);
-  border-bottom: 1px solid rgba(160,90,255,.08);
+  border-top: 1px solid rgba(157,92,255,.14);
+  border-bottom: 1px solid rgba(157,92,255,.08);
 }
-.pod-episode-label {
-  font-size: 9.5px; font-weight: 800; letter-spacing: .08em;
-  text-transform: uppercase; color: rgba(160,90,255,.9);
-}
-.pod-title {
+.stream-title {
   font-size: 14px; font-weight: 900; color: #fff; line-height: 1.25;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.pod-show-name {
+.stream-desc {
   font-size: 11px; color: rgba(255,255,255,.55); font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ══════════════════════════
-   LOWER PANEL
-══════════════════════════ */
 .lower-panel {
   flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column;
   background: linear-gradient(to bottom, #0d0718 0%, #08050F 100%);
@@ -494,7 +526,7 @@ body, .app-shell, .live-screen {
 .gift-banner {
   display: flex; align-items: center; gap: 8px;
   background: rgba(0,0,0,.65); backdrop-filter: blur(10px);
-  border: 1px solid rgba(160,90,255,.25);
+  border: 1px solid rgba(157,92,255,.25);
   border-radius: 20px; padding: 6px 12px;
   animation: slide-in-left .35s ease-out, fade-out 2.6s .4s ease-in forwards;
   max-width: 85%;
@@ -502,7 +534,7 @@ body, .app-shell, .live-screen {
 .gift-banner-avatar { font-size: 18px; flex: none; }
 .gift-banner-text { font-size: 11px; color: #fff; line-height: 1.4; }
 .gift-banner-text strong { font-weight: 800; }
-.gift-banner-text em { font-style: normal; color: #C890FF; font-weight: 700; }
+.gift-banner-text em { font-style: normal; color: #FF3D7F; font-weight: 700; }
 @keyframes slide-in-left { from{transform:translateX(-16px);opacity:0} to{transform:translateX(0);opacity:1} }
 @keyframes fade-out { 0%{opacity:1} 100%{opacity:0} }
 
@@ -525,19 +557,18 @@ body, .app-shell, .live-screen {
   border-radius: 12px; padding: 5px 9px; font-size: 11.5px;
   color: rgba(255,255,255,.9); line-height: 1.4; max-width: 88%; word-break: break-word;
 }
-.comment-row .uname { display: inline; font-weight: 800; color: #C890FF; margin-right: 4px; }
-.comment-row.gift-row .bubble { background: rgba(160,90,255,.16); border: 1px solid rgba(160,90,255,.28); }
-.comment-row.system .bubble { background: rgba(160,90,255,.12); color: rgba(255,255,255,.7); font-size: 10.5px; }
+.comment-row .uname { display: inline; font-weight: 800; color: #FF3D7F; margin-right: 4px; }
+.comment-row.gift-row .bubble { background: rgba(157,92,255,.16); border: 1px solid rgba(157,92,255,.28); }
+.comment-row.system .bubble { background: rgba(157,92,255,.12); color: rgba(255,255,255,.7); font-size: 10.5px; }
 
-/* Bottom control bar */
 .live-controls {
   flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
   padding: 8px 12px 20px;
-  border-top: 1px solid rgba(160,90,255,.1);
+  border-top: 1px solid rgba(157,92,255,.1);
 }
 .comment-bar {
   flex: 1; display: flex; align-items: center;
-  background: rgba(255,255,255,.07); border: 1px solid rgba(160,90,255,.18);
+  background: rgba(255,255,255,.07); border: 1px solid rgba(157,92,255,.18);
   border-radius: 22px; padding: 0 12px; height: 40px; gap: 6px;
 }
 .comment-bar input {
@@ -546,21 +577,18 @@ body, .app-shell, .live-screen {
 }
 .comment-bar input::placeholder { color: rgba(255,255,255,.38); }
 .comment-send {
-  background: none; border: none; color: #A05AFF;
+  background: none; border: none; color: #FF3D7F;
   font-size: 12px; font-weight: 800; cursor: pointer; flex: none;
 }
 .ctrl-icon {
   width: 40px; height: 40px; border-radius: 50%;
-  background: rgba(255,255,255,.07); border: 1px solid rgba(160,90,255,.18);
+  background: rgba(255,255,255,.07); border: 1px solid rgba(157,92,255,.18);
   display: flex; align-items: center; justify-content: center;
   color: #fff; cursor: pointer; flex: none;
   transition: background .15s, transform .1s; font-size: 17px;
 }
 .ctrl-icon:active { transform: scale(.88); }
 
-/* ══════════════════════════
-   GIFT SHEET
-══════════════════════════ */
 .sheet-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   backdrop-filter: blur(4px); z-index: 50;
@@ -572,45 +600,92 @@ body, .app-shell, .live-screen {
   max-width: 480px; margin: 0 auto; z-index: 51;
   background: #100a1c; border-radius: 24px 24px 0 0;
   padding: 0 0 36px; transition: bottom .3s cubic-bezier(.34,1.56,.64,1);
-  border-top: 1px solid rgba(160,90,255,.2);
+  border-top: 1px solid rgba(157,92,255,.2);
 }
 .gift-sheet.open { bottom: 0; }
 .sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; margin: 12px auto 0; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 4px; }
 .sheet-head h3 { font-size: 15px; font-weight: 800; color: #fff; }
 .gift-target-row { padding: 0 18px 10px; font-size: 11.5px; color: rgba(255,255,255,.5); }
-#gift-target-name { color: #A05AFF; font-weight: 700; }
-.coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.25); border-radius: 18px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #C890FF; }
+#gift-target-name { color: #FF3D7F; font-weight: 700; }
+.coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(157,92,255,.12); border: 1px solid rgba(157,92,255,.25); border-radius: 18px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #C890FF; }
 .gift-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; padding: 0 14px 14px; max-height: 240px; overflow-y: auto; scrollbar-width: none; }
 .gift-grid::-webkit-scrollbar { display: none; }
 .gift-tile { display: flex; flex-direction: column; align-items: center; gap: 3px; background: rgba(255,255,255,.06); border: 1.5px solid transparent; border-radius: 14px; padding: 10px 5px; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
 .gift-tile:active { transform: scale(.92); }
-.gift-tile.selected { border-color: #A05AFF; background: rgba(160,90,255,.15); }
+.gift-tile.selected { border-color: #FF3D7F; background: rgba(255,61,127,.15); }
 .gift-tile .emoji { font-size: 20px; }
 .gift-tile .name { font-size: 9.5px; font-weight: 700; color: rgba(255,255,255,.8); text-align: center; }
-.gift-tile .price { font-size: 9.5px; font-weight: 800; color: #C890FF; background: rgba(160,90,255,.12); border-radius: 7px; padding: 2px 5px; }
-.send-gift-btn { width: calc(100% - 28px); margin: 0 14px; height: 46px; border-radius: 14px; font-size: 13px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg,#A05AFF,#6A1ADF); color: #fff; transition: opacity .2s; }
+.gift-tile .price { font-size: 9.5px; font-weight: 800; color: #C890FF; background: rgba(157,92,255,.12); border-radius: 7px; padding: 2px 5px; }
+.send-gift-btn { width: calc(100% - 28px); margin: 0 14px; height: 46px; border-radius: 14px; font-size: 13px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg,#FF3D7F,#9D5CFF); color: #fff; transition: opacity .2s; }
 .send-gift-btn:disabled { opacity: .4; cursor: not-allowed; }
-.insufficient-cta { display: none; margin: 0 14px 10px; padding: 9px 12px; background: rgba(200,144,255,.1); border: 1px solid rgba(200,144,255,.25); border-radius: 10px; font-size: 11.5px; color: #C890FF; align-items: center; justify-content: space-between; gap: 8px; }
+.insufficient-cta { display: none; margin: 0 14px 10px; padding: 9px 12px; background: rgba(255,61,127,.1); border: 1px solid rgba(255,61,127,.25); border-radius: 10px; font-size: 11.5px; color: #FF8FD1; align-items: center; justify-content: space-between; gap: 8px; }
 .insufficient-cta.show { display: flex; }
-.insufficient-cta button { background: #C890FF; color: #1a0a2e; border: none; border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 800; cursor: pointer; flex: none; }
+.insufficient-cta button { background: #FF8FD1; color: #1a0a2e; border: none; border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 800; cursor: pointer; flex: none; }
 
-/* Toast */
 .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 200; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
 .toast.show { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .arena-blob, .host-aura, .host-card-wrap.speaking .host-frame,
   .participant-tile.speaking .seat-frame, #local-tile.speaking .seat-frame,
-  .stage-label .pulse-dot, .live-badge .dot, .sw-bar, .guest-link { animation: none !important; }
+  .stage-label .pulse-dot, .live-badge .dot, .guest-link { animation: none !important; }
 }
+
+/* ══════════════════════════
+   HOST CONTROL OVERLAY — kick (✕) / mute (🔇) buttons that
+   live-mic-ring.js injects into every occupied seat-slot and
+   guest-frame. Same rules as podcast-live.html.
+══════════════════════════ */
+.host-ctrl-overlay {
+  position: absolute; inset: 0; z-index: 8;
+  display: none;
+  pointer-events: none;
+}
+.host-mode .seat-slot.occupied .host-ctrl-overlay,
+.host-mode .guest-frame.occupied .host-ctrl-overlay {
+  display: block;
+}
+.host-ctrl-overlay.hidden-self {
+  display: none !important;
+}
+
+.host-ctrl-btn {
+  position: absolute;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,.5);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; line-height: 1;
+  background: rgba(0,0,0,.85);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 0;
+  transition: transform .1s, background .15s;
+}
+.host-ctrl-btn:active { transform: scale(.85); }
+
+.host-ctrl-mute {
+  top: -4px; left: -4px;
+}
+.host-ctrl-kick {
+  top: -4px; right: -4px;
+  background: rgba(255,61,127,.9);
+  border-color: rgba(255,61,127,.6);
+}
+
+.guest-frame .host-ctrl-btn {
+  width: 20px; height: 20px; font-size: 10px;
+}
+.guest-frame .host-ctrl-mute { top: -6px; left: -6px; }
+.guest-frame .host-ctrl-kick { top: -6px; right: -6px; }
 </style>
 </head>
 <body>
 <div class="app-shell">
 <div class="live-screen">
 
-  <!-- ══ ARENA — background + host card + guest frames + mic-seat ring ══ -->
   <div class="stage-panel arena" id="arena">
     <canvas id="arena-particles"></canvas>
     <div class="arena-blob b1"></div>
@@ -622,7 +697,7 @@ body, .app-shell, .live-screen {
         <img id="host-avatar" src="" alt="">
         <div class="ht">
           <span class="name" id="host-name">Loading…</span>
-          <span class="sub">Podcast · <span id="live-duration">00:00</span></span>
+          <span class="sub">Live · <span id="live-duration">00:00</span></span>
         </div>
         <button class="follow-btn" id="follow-btn">Follow</button>
       </div>
@@ -630,7 +705,7 @@ body, .app-shell, .live-screen {
         <button id="end-live-btn" class="end-live-btn">End</button>
         <span id="network-badge">HD</span>
         <span class="viewer-chip">👁 <span id="viewer-count">0</span></span>
-        <div class="live-badge"><span class="dot"></span>POD LIVE</div>
+        <div class="live-badge"><span class="dot"></span>LIVE</div>
         <button class="close-btn" id="close-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="14" height="14">
             <path d="m6 6 12 12M18 6 6 18"/>
@@ -643,7 +718,6 @@ body, .app-shell, .live-screen {
       <span class="label">Top Gifters</span>
     </div>
 
-    <!-- Host-only media controls -->
     <div id="host-controls">
       <button class="h-ctrl" id="mic-btn" title="Mute mic">🎤</button>
       <button class="h-ctrl" id="camera-btn" title="Camera off">📷</button>
@@ -652,21 +726,13 @@ body, .app-shell, .live-screen {
 
     <div class="mic-wrap"><div id="mic-level"></div></div>
 
-    <!-- Host card: centerpiece, enlarged -->
     <div class="host-card-wrap" id="host-card-wrap">
       <div class="host-aura"></div>
       <div class="host-frame">
         <video id="stage-video" autoplay playsinline></video>
 
-        <!-- Audio-only mode: shown when host's camera is off -->
-        <div class="audio-mode-overlay" id="audio-mode-overlay">
-          <img class="pod-cover-art" id="pod-cover-art" src="" alt="" onerror="this.style.display='none'">
-          <div class="pod-cover-fallback" id="pod-cover-fallback">🎙️</div>
-          <div class="soundwave" id="soundwave"></div>
-        </div>
-
         <div class="stage-offline" id="stage-offline">
-          <span class="icon">🎙️</span>
+          <span class="icon">📡</span>
           <span>Waiting for host…</span>
         </div>
         <span class="host-online-dot"></span>
@@ -677,10 +743,6 @@ body, .app-shell, .live-screen {
       </div>
     </div>
 
-    <!-- Matchmaking guest frames: host (matchmaker) brings a male
-         and a female guest up here from the seats below. Anyone
-         can tap a vacant frame to take it themselves; tapping your
-         own occupied frame steps you back down to the seat ring. -->
     <div class="guest-frames" id="guest-frames">
       <div class="guest-frame" id="guest-frame-male" data-slot="male">
         <span class="guest-placeholder">♂</span>
@@ -693,8 +755,6 @@ body, .app-shell, .live-screen {
       </div>
     </div>
 
-    <!-- Mic-seat ring: local + remote tiles get positioned here by
-         js/live-mic-ring.js. Structure/IDs unchanged from before. -->
     <div id="participants-strip">
       <div id="local-tile">
         <div class="seat-frame">
@@ -712,14 +772,11 @@ body, .app-shell, .live-screen {
     <span id="viewer-count-label" style="display:none;">0 online</span>
   </div>
 
-  <!-- ══ EPISODE META BAR ══ -->
-  <div class="episode-meta-bar">
-    <span class="pod-episode-label" id="pod-episode-label">● PODCAST LIVE</span>
-    <div class="pod-title" id="pod-title">Loading…</div>
-    <div class="pod-show-name" id="pod-show-name"></div>
+  <div class="stream-meta-bar">
+    <div class="stream-title" id="stream-title">Loading…</div>
+    <div class="stream-desc" id="stream-desc"></div>
   </div>
 
-  <!-- ══ LOWER PANEL — comments + controls ══ -->
   <div class="lower-panel">
     <div class="fx-layer" id="fx-layer"></div>
     <div class="gift-streak-layer" id="gift-streak-layer"></div>
@@ -739,10 +796,9 @@ body, .app-shell, .live-screen {
     </div>
   </div>
 
-</div><!-- /live-screen -->
-</div><!-- /app-shell -->
+</div>
+</div>
 
-<!-- Gift sheet -->
 <div class="sheet-backdrop" id="sheet-backdrop"></div>
 <div class="gift-sheet" id="gift-sheet">
   <div class="sheet-handle"></div>
@@ -761,64 +817,27 @@ body, .app-shell, .live-screen {
 
 <div class="toast" id="toast"></div>
 
-<!-- 2D Gift Animation Engine mount point -->
 <div id="gift-engine-root"></div>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
 <script>
-  /* Soundwave bars (scaled for the compact circular host frame) */
-  const sw = document.getElementById("soundwave");
-  for (let i = 0; i < 12; i++) {
-    const b = document.createElement("div");
-    b.className = "sw-bar";
-    b.style.animationDelay = (i * 0.06) + "s";
-    b.style.height = "2px";
-    sw.appendChild(b);
-  }
-
-  /* Podcast meta from URL — ?room=X&title=…&show=…&cover=…
-     Host sets these when they start the podcast live session.
-     Listeners see them immediately without waiting for API. */
+  /* Room title/description from URL, mirroring the pattern
+     podcast-live.html uses for its own title/show params — but
+     social rooms only ever carry a plain title/description, no
+     show/cover/episode metadata. */
   const _params = new URLSearchParams(window.location.search);
-  const _titleEl = document.getElementById("pod-title");
-  const _showEl  = document.getElementById("pod-show-name");
-  const _coverEl = document.getElementById("pod-cover-art");
-  const _fallEl  = document.getElementById("pod-cover-fallback");
+  const _titleEl = document.getElementById("stream-title");
+  const _descEl  = document.getElementById("stream-desc");
 
   const _titleParam = _params.get("title");
-  const _showParam  = _params.get("show");
-  const _coverParam = _params.get("cover");
+  const _descParam  = _params.get("description");
 
   if (_titleParam) _titleEl.textContent = decodeURIComponent(_titleParam);
-  if (_showParam)  _showEl.textContent  = decodeURIComponent(_showParam);
-  if (_coverParam) {
-    _coverEl.src = decodeURIComponent(_coverParam);
-    _coverEl.style.display = "block";
-    _fallEl.style.display  = "none";
-  }
-
-  /* Audio-only mode toggle — driven by live.js's toggleCamera(),
-     which sets #stage-video's inline opacity to "0.15" when the
-     host's camera is off. We mirror that into the host-frame's
-     audio-mode-overlay so listeners see cover art + soundwave
-     instead of a near-black video circle. */
-  const _stageVid = document.getElementById("stage-video");
-  const _audioOverlay = document.getElementById("audio-mode-overlay");
-  const _stageObserver = new MutationObserver(() => {
-    const isAudioOnly = _stageVid.style.opacity === "0.15";
-    _audioOverlay.classList.toggle("show", isAudioOnly);
-  });
-  _stageObserver.observe(_stageVid, { attributes: true, attributeFilter: ["style"] });
+  if (_descParam)  _descEl.textContent  = decodeURIComponent(_descParam);
 </script>
 
-<!-- live.js is the EXACT SAME file used by live.html — zero changes needed -->
 <script type="module" src="/js/live.js"></script>
-
-<!-- Visual-only enhancement layer: particles, seat ring, connection
-     lines, speaking glow, guest-seat docking. Shared with live.html;
-     themed via the --arena-accent / --arena-accent-2 CSS vars set on
-     #arena above. -->
 <script type="module" src="/js/live-mic-ring.js"></script>
 
 <script type="module">

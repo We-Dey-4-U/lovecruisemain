@@ -53,7 +53,7 @@
 //   publishes camera+mic immediately, since they're always the
 //   center broadcaster, never a seat occupant.
 //
-//   ── FIX-11 (LATE-JOIN SEAT SNAPSHOT — NEW) ──────────────────
+//   ── FIX-11 (LATE-JOIN SEAT SNAPSHOT) ──────────────────
 //   Root-cause fix for "seat placeholders missing when a viewer joins
 //   an already-active livestream": the server always sends a full
 //   guestSeatsUpdated / micSeatsUpdated snapshot to every joiner right
@@ -68,6 +68,25 @@
 //   cache once on its own init — guaranteeing every viewer sees the
 //   exact same, fully-populated seat layout the moment the arena
 //   renders, regardless of join timing.
+//
+//   ── SHARED ARENA — SOCIAL + PODCAST ──────────────────────────
+//   This file is loaded, byte-identical, by BOTH live.html (Social
+//   Live) and podcast-live.html (Podcast Live). It never branches on
+//   which page it's running in and never assumes podcast-only markup
+//   exists (pod-title, audio-mode-overlay, etc.) — everything it
+//   touches (#host-name, #stage-video, #local-video, #arena,
+//   #participants-strip, #guest-frame-male/female, ...) is present,
+//   with the same ids, on both pages. That's what guarantees the
+//   seating/host/guest-frame arena js/live-mic-ring.js builds looks
+//   and behaves identically regardless of which form (Social or
+//   Podcast) the room was created with.
+//
+//   loadRoom() now also populates #stream-title / #stream-desc,
+//   which only exist on live.html (Social Live's title bar —
+//   podcast-live.html uses its own #pod-title/#pod-show-name,
+//   populated separately by that page's inline URL-param script).
+//   $() returns null for ids that don't exist on the current page,
+//   so this is a safe no-op on podcast-live.html.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -1006,6 +1025,20 @@ async function loadRoom() {
 
     $("host-name").textContent = room.username || room.display_name || "Host";
     $("viewer-count").textContent = window.formatCoins(viewerCount);
+
+    // Social Live's title bar (live.html only — no-op elsewhere).
+    // Falls back to the room's own title/description so the bar is
+    // still correct even when the page was opened without ?title=
+    // in the URL (e.g. a card on discover.html linking bare
+    // live.html?room=X).
+    const titleEl = $("stream-title");
+    if (titleEl && !titleEl.textContent.trim()) {
+      titleEl.textContent = room.title || "Live Stream";
+    }
+    const descEl = $("stream-desc");
+    if (descEl && !descEl.textContent.trim() && room.description) {
+      descEl.textContent = room.description;
+    }
 
     const hostAvatar = $("host-avatar");
     if (hostAvatar) {
