@@ -366,7 +366,6 @@
 .gifted-person-total .amt::after { content: " 🪙"; }
 .gifted-person-total .sub { font-size: 9.5px; color: var(--text-dim); }
 
-
 .seller-status-card { margin: 16px 18px 0; padding: 16px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); }
 .seller-apply-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 16px; color: #fff; font-weight: 800; font-size: 14px; padding: 13px; cursor: pointer; }
 .seller-pending-pill { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #ffc857; background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); border-radius: 14px; padding: 12px 14px; }
@@ -434,8 +433,28 @@
 .comment-input-row textarea:focus { border-color: #ff3d7f; }
 .comment-send-btn { width: 40px; height: 40px; border-radius: 50%; border: none; background: #ff3d7f; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
 .comment-send-btn:active { transform: scale(.9); }
+
+/* ══════════════════════════════════════════
+   FOLLOWERS / FOLLOWING LIST SHEET  (NEW)
+══════════════════════════════════════════ */
+.follow-list-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+.follow-list-item:last-child { border-bottom: none; }
+.follow-list-item img { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); flex: none; cursor: pointer; }
+.follow-list-info { flex: 1; min-width: 0; cursor: pointer; }
+.follow-list-info strong { display: flex; align-items: center; gap: 4px; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.follow-list-info small { font-size: 12px; color: var(--text-dim); }
+.follow-list-btn {
+  flex: none; background: var(--magenta); color: #fff; border: none;
+  border-radius: 18px; font-size: 12.5px; font-weight: 800;
+  padding: 7px 16px; cursor: pointer; transition: opacity .2s, transform .1s;
+}
+.follow-list-btn:active { transform: scale(.93); }
+.follow-list-btn.following { background: transparent; border: 1.5px solid var(--border); color: var(--text-dim); }
+.follow-list-btn:disabled { opacity: .55; cursor: not-allowed; }
+.follow-list-empty { text-align: center; padding: 50px 20px; color: var(--text-dim); font-size: 13px; }
+.follow-list-skel { display: flex; align-items: center; gap: 12px; padding: 12px 4px; }
 </style>
-  <script type="module" crossorigin src="/assets/profile-CndPlnDS.js"></script>
+  <script type="module" crossorigin src="/assets/profile-Cosu_QHc.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-By3Wcv2E.js">
   <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
 </head>
@@ -688,6 +707,14 @@
   <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Gifting <b style="color:#ff3d7f" id="gift-target-name">User</b></div>
   <div class="gift-modal-grid" id="gift-modal-grid"></div>
   <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
+</div>
+
+<!-- ── FOLLOWERS / FOLLOWING LIST SHEET (NEW) ── -->
+<div class="sheet-backdrop" id="followlist-backdrop"></div>
+<div class="bottom-sheet" id="followlist-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title" id="followlist-title">Followers</div>
+  <div id="followlist-content" style="max-height:60vh;overflow-y:auto;"></div>
 </div>
 
 <!-- ── COMMENT MODAL ── -->

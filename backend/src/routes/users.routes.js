@@ -25,6 +25,10 @@ router.post("/me/verification", requireAuth, UserController.submitVerification);
 router.post("/:id/follow", requireAuth, UserController.followUser);
 router.delete("/:id/follow", requireAuth, UserController.unfollowUser);
 
+// ================= FOLLOWERS / FOLLOWING LISTS =================
+router.get("/:id/followers", requireAuth, UserController.listFollowers);
+router.get("/:id/following", requireAuth, UserController.listFollowing);
+
 // ================= ROOM / GIFTS =================
 router.get("/:id/current-room", requireAuth, UserController.currentRoom);
 router.get("/:id/gifts", requireAuth, UserController.giftHistory);

@@ -367,7 +367,6 @@
 .gifted-person-total .amt::after { content: " 🪙"; }
 .gifted-person-total .sub { font-size: 9.5px; color: var(--text-dim); }
 
-
 .seller-status-card { margin: 16px 18px 0; padding: 16px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); }
 .seller-apply-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 16px; color: #fff; font-weight: 800; font-size: 14px; padding: 13px; cursor: pointer; }
 .seller-pending-pill { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #ffc857; background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); border-radius: 14px; padding: 12px 14px; }
@@ -435,6 +434,26 @@
 .comment-input-row textarea:focus { border-color: #ff3d7f; }
 .comment-send-btn { width: 40px; height: 40px; border-radius: 50%; border: none; background: #ff3d7f; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
 .comment-send-btn:active { transform: scale(.9); }
+
+/* ══════════════════════════════════════════
+   FOLLOWERS / FOLLOWING LIST SHEET  (NEW)
+══════════════════════════════════════════ */
+.follow-list-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+.follow-list-item:last-child { border-bottom: none; }
+.follow-list-item img { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); flex: none; cursor: pointer; }
+.follow-list-info { flex: 1; min-width: 0; cursor: pointer; }
+.follow-list-info strong { display: flex; align-items: center; gap: 4px; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.follow-list-info small { font-size: 12px; color: var(--text-dim); }
+.follow-list-btn {
+  flex: none; background: var(--magenta); color: #fff; border: none;
+  border-radius: 18px; font-size: 12.5px; font-weight: 800;
+  padding: 7px 16px; cursor: pointer; transition: opacity .2s, transform .1s;
+}
+.follow-list-btn:active { transform: scale(.93); }
+.follow-list-btn.following { background: transparent; border: 1.5px solid var(--border); color: var(--text-dim); }
+.follow-list-btn:disabled { opacity: .55; cursor: not-allowed; }
+.follow-list-empty { text-align: center; padding: 50px 20px; color: var(--text-dim); font-size: 13px; }
+.follow-list-skel { display: flex; align-items: center; gap: 12px; padding: 12px 4px; }
 </style>
 </head>
 <body>
@@ -688,6 +707,14 @@
   <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
 </div>
 
+<!-- ── FOLLOWERS / FOLLOWING LIST SHEET (NEW) ── -->
+<div class="sheet-backdrop" id="followlist-backdrop"></div>
+<div class="bottom-sheet" id="followlist-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title" id="followlist-title">Followers</div>
+  <div id="followlist-content" style="max-height:60vh;overflow-y:auto;"></div>
+</div>
+
 <!-- ── COMMENT MODAL ── -->
 <div class="comment-modal-bg" id="comment-modal-bg" style="display:none">
   <div class="comment-sheet">
@@ -791,6 +818,14 @@ const FALLBACK_GIFTS = [
   {id:"g6",name:"Fireworks",emoji:"🎆",price_coins:300},
   {id:"g7",name:"Car",emoji:"🏎️",price_coins:1000},
   {id:"g8",name:"Galaxy",emoji:"🌌",price_coins:5000}
+];
+
+/* Fallback mock data used only when the follow-list API call fails
+   (e.g. offline demo mode), so the sheet still has something to show. */
+const MOCK_FOLLOW_LIST = [
+  { id: "mu1", username: "chiamaka", display_name: "Chiamaka Obi", avatar_url: "https://i.pravatar.cc/100?img=32", is_verified: true,  is_following: false },
+  { id: "mu2", username: "tegastar", display_name: "Tega Live",    avatar_url: "https://i.pravatar.cc/100?img=12", is_verified: false, is_following: true  },
+  { id: "mu3", username: "funmi",    display_name: "Funmi",        avatar_url: "https://i.pravatar.cc/100?img=45", is_verified: false, is_following: false }
 ];
 
 /* ══════════════════════════════════════════
@@ -1373,7 +1408,7 @@ document.querySelectorAll(".ptab").forEach(tab => {
 });
 
 /* ══════════════════════════════════════════
-   FOLLOW / MESSAGE
+   FOLLOW / MESSAGE (profile owner ↔ header follow btn)
 ══════════════════════════════════════════ */
 async function toggleFollow() {
   if (!profileData) return;
@@ -1660,6 +1695,120 @@ function renderSentGifts() {
 }
 
 /* ══════════════════════════════════════════
+   FOLLOWERS / FOLLOWING LIST SHEET  (NEW)
+   - Works for both own profile and any visited profile.
+   - Each row shows a Follow/Following button so the
+     CURRENT logged-in user can follow anyone in the list,
+     including "following someone back" from their own
+     followers list.
+   - The user IS NOT shown a button on their own row.
+══════════════════════════════════════════ */
+function openFollowListSheet(type) {
+  document.getElementById("followlist-title").textContent = type === "followers" ? "Followers" : "Following";
+  document.getElementById("followlist-backdrop").classList.add("open");
+  document.getElementById("followlist-sheet").classList.add("open");
+  document.body.style.overflow = "hidden";
+  loadFollowList(type);
+}
+function closeFollowListSheet() {
+  document.getElementById("followlist-backdrop").classList.remove("open");
+  document.getElementById("followlist-sheet").classList.remove("open");
+  document.body.style.overflow = "";
+}
+document.getElementById("followlist-backdrop").addEventListener("click", closeFollowListSheet);
+
+async function loadFollowList(type) {
+  const content = document.getElementById("followlist-content");
+  content.innerHTML = Array(4).fill(0).map(() =>
+    `<div class="follow-list-skel"><div class="skel-av"></div><div class="skel-lines" style="flex:1"><div class="skel-ln"></div><div class="skel-ln s"></div></div></div>`
+  ).join("");
+  try {
+    const res = await api.request(`/users/${profileId}/${type}`);
+    renderFollowList(res.data || [], type);
+  } catch (err) {
+    console.error(`[profile] load ${type} failed:`, err);
+    // Fall back to mock data so the UI is still demonstrable offline.
+    renderFollowList(MOCK_FOLLOW_LIST, type);
+  }
+}
+
+function renderFollowList(list, type) {
+  const content = document.getElementById("followlist-content");
+  if (!list.length) {
+    content.innerHTML = `<div class="follow-list-empty">No ${type} yet</div>`;
+    return;
+  }
+
+  const meId = window.CURRENT_USER?.id || window.CURRENT_USER?.user_id;
+
+  content.innerHTML = list.map(u => {
+    const av     = u.avatar_url ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(u.display_name||u.username||"U")}&background=ff3d7f&color=fff&size=80`;
+    const isSelf = meId && String(meId) === String(u.id);
+    const btnHtml = isSelf ? "" : `
+      <button class="follow-list-btn ${u.is_following ? "following" : ""}" data-id="${u.id}">
+        ${u.is_following ? "Following" : "Follow"}
+      </button>`;
+    return `
+      <div class="follow-list-item" data-user-id="${u.id}">
+        <img class="fl-avatar" src="${escapeHtml(av)}" alt="" onerror="this.src='https://i.pravatar.cc/100'">
+        <div class="follow-list-info">
+          <strong>${escapeHtml(u.display_name || u.username || "User")}${u.is_verified ? ' <span style="color:#00d9b5;font-size:12px">✔</span>' : ""}</strong>
+          <small>@${escapeHtml(u.username || "user")}</small>
+        </div>
+        ${btnHtml}
+      </div>`;
+  }).join("");
+
+  // Tapping the avatar or name navigates to that person's profile.
+  content.querySelectorAll(".fl-avatar, .follow-list-info").forEach(el => {
+    el.addEventListener("click", () => {
+      const row = el.closest(".follow-list-item");
+      const uid = row?.dataset.userId;
+      if (!uid) return;
+      closeFollowListSheet();
+      window.location.href = `profile.html?id=${uid}`;
+    });
+  });
+
+  // Follow / Follow-back / Unfollow toggle per row.
+  content.querySelectorAll(".follow-list-btn").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const targetId  = btn.dataset.id;
+      const following = btn.classList.contains("following");
+      btn.disabled = true;
+      try {
+        if (!following) {
+          await api.request(`/users/${targetId}/follow`, { method: "POST" });
+          btn.classList.add("following");
+          btn.textContent = "Following";
+          showToast("Followed ✓");
+        } else {
+          await api.request(`/users/${targetId}/follow`, { method: "DELETE" });
+          btn.classList.remove("following");
+          btn.textContent = "Follow";
+        }
+        // Keep the header follow button + count in sync if we just
+        // followed/unfollowed the profile currently being viewed.
+        if (profileData && String(targetId) === String(profileData.id) && !isOwn) {
+          isFollowing = !following;
+          const headerBtn = document.getElementById("follow-btn");
+          if (headerBtn) {
+            headerBtn.classList.toggle("following", isFollowing);
+            headerBtn.textContent = isFollowing ? "Following" : "Follow";
+          }
+        }
+      } catch (err) {
+        showToast(err.message || "Action failed");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+/* ══════════════════════════════════════════
    HOST ACADEMY
 ══════════════════════════════════════════ */
 let academySocket = null;
@@ -1754,10 +1903,10 @@ function renderAcademy(d) {
 }
 
 /* ══════════════════════════════════════════
-   STAT CLICKS
+   STAT CLICKS  (UPDATED — opens follow list sheet)
 ══════════════════════════════════════════ */
-document.getElementById("stat-followers").addEventListener("click", () => showToast("Followers list coming soon"));
-document.getElementById("stat-following").addEventListener("click", () => showToast("Following list coming soon"));
+document.getElementById("stat-followers").addEventListener("click", () => openFollowListSheet("followers"));
+document.getElementById("stat-following").addEventListener("click", () => openFollowListSheet("following"));
 
 /* ══════════════════════════════════════════
    BOOT

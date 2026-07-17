@@ -318,51 +318,6 @@ async updateMe(req, res, next) {
     }
   },
 
-
-
-
-async giftHistory(req, res) {
-  try {
-
-    const { rows } = await db.query(
-      `
-      SELECT
-        gt.*,
-        g.name AS gift_name,
-        g.icon_url,
-        u.username AS sender_username,
-        u.avatar_url AS sender_avatar
-      FROM gift_transactions gt
-      LEFT JOIN gifts g
-        ON g.id = gt.gift_id
-      LEFT JOIN users u
-        ON u.id = gt.sender_id
-      WHERE gt.receiver_id = $1
-      ORDER BY gt.created_at DESC
-      `,
-      [req.params.id]
-    );
-
-    res.json({
-      success: true,
-      data: rows
-    });
-
-  } catch (err) {
-
-    console.error("GIFT HISTORY ERROR");
-    console.error(err);
-
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
-  }
-},
-
-
-
   async unfollowUser(req, res, next) {
     try {
       await db.query(
@@ -372,6 +327,112 @@ async giftHistory(req, res) {
       res.json({ success: true, message: "User unfollowed" });
     } catch (err) {
       next(err);
+    }
+  },
+
+  /* ----------------------------------------------------------
+     FOLLOWERS / FOLLOWING LISTS
+     Both return the OTHER user in each relationship, plus
+     is_following = whether the REQUESTING user already
+     follows that person (so the UI knows whether to render
+     "Follow" or "Following" — this is what powers the
+     "follow back" button on a followers list).
+  ---------------------------------------------------------- */
+  async listFollowers(req, res, next) {
+    try {
+      const targetId = req.params.id;
+      const { rows } = await db.query(
+        `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          f.created_at AS followed_at,
+          EXISTS (
+            SELECT 1 FROM followers f2
+            WHERE f2.follower_id = $2 AND f2.following_id = u.id
+          ) AS is_following
+        FROM followers f
+        JOIN users u ON u.id = f.follower_id
+        WHERE f.following_id = $1
+        ORDER BY f.created_at DESC
+        `,
+        [targetId, req.user.id]
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listFollowing(req, res, next) {
+    try {
+      const targetId = req.params.id;
+      const { rows } = await db.query(
+        `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          f.created_at AS followed_at,
+          EXISTS (
+            SELECT 1 FROM followers f2
+            WHERE f2.follower_id = $2 AND f2.following_id = u.id
+          ) AS is_following
+        FROM followers f
+        JOIN users u ON u.id = f.following_id
+        WHERE f.follower_id = $1
+        ORDER BY f.created_at DESC
+        `,
+        [targetId, req.user.id]
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async giftHistory(req, res) {
+    try {
+
+      const { rows } = await db.query(
+        `
+        SELECT
+          gt.*,
+          g.name AS gift_name,
+          g.icon_url,
+          u.username AS sender_username,
+          u.avatar_url AS sender_avatar
+        FROM gift_transactions gt
+        LEFT JOIN gifts g
+          ON g.id = gt.gift_id
+        LEFT JOIN users u
+          ON u.id = gt.sender_id
+        WHERE gt.receiver_id = $1
+        ORDER BY gt.created_at DESC
+        `,
+        [req.params.id]
+      );
+
+      res.json({
+        success: true,
+        data: rows
+      });
+
+    } catch (err) {
+
+      console.error("GIFT HISTORY ERROR");
+      console.error(err);
+
+      res.status(500).json({
+        success: false,
+        message: err.message
+      });
+
     }
   },
 
