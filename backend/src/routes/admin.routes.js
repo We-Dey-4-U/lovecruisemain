@@ -4,6 +4,9 @@ const router = express.Router();
 const AdminController = require("../controllers/adminController");
 const { requireAuth, requireRole } = require("../middlewares/auth");
 
+
+
+
 // ================= SECURITY GUARD =================
 router.use(requireAuth);
 router.use(requireRole("admin"));

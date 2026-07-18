@@ -33,9 +33,9 @@ export default defineConfig({
          "podcast-live": resolve(__dirname, "podcast-live.html"),  // ← NEW
           "admin-dashboard.html": resolve(__dirname, "admin-dashboard.html"),
           "radio-room.html": resolve(__dirname, "radio-room.html"),
-           "radio-discover.html.html": resolve(__dirname, "radio-discover.html"),
+           "radio-discover.html": resolve(__dirname, "radio-discover.html"),
+            "radio-station.html": resolve(__dirname, "radio-station.html"),
 
-         
       }
     }
   }

@@ -178,6 +178,43 @@ CREATE TABLE IF NOT EXISTS radio_song_requests (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+
+
+
+
+CREATE TABLE IF NOT EXISTS radio_station_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  station_id UUID NOT NULL REFERENCES radio_stations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(station_id, user_id)
+);
+
+
+
+
+CREATE TABLE IF NOT EXISTS radio_polls (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  broadcast_id UUID NOT NULL REFERENCES radio_broadcasts(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  options JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_at TIMESTAMPTZ
+);
+
+
+
+
+CREATE TABLE IF NOT EXISTS radio_poll_votes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  poll_id UUID NOT NULL REFERENCES radio_polls(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  option_index INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(poll_id, user_id)
+);
 -- ============================================================
 -- 5. PRESENCE — extend the status machine with radio states.
 --    Mirrors what stream.socket.js already does for
@@ -223,3 +260,9 @@ CREATE TRIGGER trg_radio_shows_updated BEFORE UPDATE ON radio_shows
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;
+
+
+
+
+
+
