@@ -76,10 +76,150 @@ function logout() {
 }
 
 /* ============================================================
+   SOCKET.IO CLIENT LOADER
+   ============================================================ */
+const SOCKET_IO_CDN_URL = "https://cdn.socket.io/4.7.5/socket.io.min.js";
+let socketIoLoadingPromise = null;
+
+function ensureSocketIoLoaded() {
+  if (typeof window.io !== "undefined") return Promise.resolve();
+  if (socketIoLoadingPromise) return socketIoLoadingPromise;
+
+  socketIoLoadingPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${SOCKET_IO_CDN_URL}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("Failed to load socket.io")));
+      if (typeof window.io !== "undefined") resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = SOCKET_IO_CDN_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load socket.io"));
+    document.head.appendChild(script);
+  });
+
+  return socketIoLoadingPromise;
+}
+
+/* ============================================================
+   PRESENCE — "Follow User to Current Live Room"
+   ============================================================ */
+let presenceSocket = null;
+
+async function initPresenceSocket() {
+  if (presenceSocket || !window.CURRENT_USER?.id || !window.API_BASE_URL) return;
+
+  try {
+    await ensureSocketIoLoaded();
+  } catch (err) {
+    console.error("[initPresenceSocket] Could not load socket.io client:", err);
+    return;
+  }
+
+  if (presenceSocket) return;
+
+  presenceSocket = window.io(window.API_BASE_URL.replace("/api", ""), {
+    transports: ["websocket"],
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000
+  });
+
+  presenceSocket.on("connect", () => {
+    presenceSocket.emit("registerUser", window.CURRENT_USER.id);
+  });
+
+  presenceSocket.on("reconnect", () => {
+    presenceSocket.emit("registerUser", window.CURRENT_USER.id);
+  });
+
+  presenceSocket.on("presenceUpdated", (payload) => {
+    window.dispatchEvent(new CustomEvent("presenceUpdated", { detail: payload }));
+  });
+
+  // NEW: radio-specific + generic notifications pushed by
+  // radioController.js / radioNotifier.js land here too, so any
+  // page can listen for window "newNotification" without opening
+  // its own socket.
+  presenceSocket.on("newNotification", (payload) => {
+    window.dispatchEvent(new CustomEvent("newNotification", { detail: payload }));
+  });
+
+  window.__presenceSocket = presenceSocket;
+}
+
+/* ────────────────────────────────────────────────────────────
+   FIX #1 (audit bug 1): presenceStatusLabel had no case for
+   radio statuses, so a user hosting/listening to radio showed
+   as "Offline" everywhere (profile follow-list badges, live-
+   strip banner). Added HOSTING_RADIO / LISTENING_RADIO cases.
+──────────────────────────────────────────────────────────── */
+function presenceStatusLabel(p) {
+  if (!p) return "Offline";
+  switch (p.status) {
+    case "HOSTING_LIVE":     return "🔴 Hosting Live";
+    case "WATCHING_LIVE":    return p.hostName ? `Watching ${p.hostName}'s Live` : "🟢 Live";
+    case "CO_HOST":          return p.hostName ? `Co-hosting ${p.hostName}'s Live` : "Co-host";
+    case "GUEST_SEAT":       return p.hostName ? `Guest in ${p.hostName}'s Live` : "Guest";
+    case "HOSTING_RADIO":    return "📻 Hosting Radio";
+    case "LISTENING_RADIO":  return p.hostName ? `Listening to ${p.hostName}'s Radio` : "📻 Listening to Radio";
+    case "ONLINE":           return "Online";
+    default:                 return "Offline";
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   FIX #2 (audit bug 2): isPresenceLive() excluded radio statuses,
+   so profile.html's "Live now — Join" strip never appeared for
+   someone currently on radio. Added HOSTING_RADIO / LISTENING_RADIO.
+──────────────────────────────────────────────────────────── */
+function isPresenceLive(p) {
+  return !!p && [
+    "HOSTING_LIVE", "WATCHING_LIVE", "CO_HOST", "GUEST_SEAT",
+    "HOSTING_RADIO", "LISTENING_RADIO"
+  ].includes(p.status);
+}
+
+async function fetchFollowersLiveStatus() {
+  try {
+    const res = await api.request("/presence/followers/live-status");
+    return res.data || [];
+  } catch (err) {
+    console.error("[fetchFollowersLiveStatus] ❌", err);
+    return [];
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   FIX #3 (audit bug 3): goToUserLocation() always redirected to
+   live.html?room=... with no branch for radio, so tapping a
+   radio-listening/hosting follower sent them into the WebRTC
+   live-room UI with a broadcast ID it can't use. Now branches on
+   the `status` field the endpoint already returns.
+──────────────────────────────────────────────────────────── */
+async function goToUserLocation(userId) {
+  try {
+    const res = await api.request(`/presence/room/current/${userId}`);
+    const { roomId, status } = res.data || {};
+    if (roomId) {
+      const isRadio = status === "HOSTING_RADIO" || status === "LISTENING_RADIO";
+      window.location.href = isRadio
+        ? `radio-room.html?id=${roomId}`
+        : `live.html?room=${roomId}`;
+      return;
+    }
+  } catch (err) {
+    console.error("[goToUserLocation] ❌", err);
+  }
+  window.location.href = `profile.html?id=${userId}`;
+}
+
+/* ============================================================
    NOTE: GIFT_CATALOG is declared only in live.js
    ============================================================ */
 
-// Mock conversations for chat page (replace with real API)
 const CONVERSATIONS = [
   { id: "c1", name: "Chiamaka",  avatar: "https://i.pravatar.cc/100?img=32", last: "sent a 💍 Ring gift",                time: "2m",  unread: 2, online: true  },
   { id: "c2", name: "Tega Live", avatar: "https://i.pravatar.cc/100?img=12", last: "Pulling up to the stream tonight?", time: "18m", unread: 0, online: true  },
@@ -90,15 +230,21 @@ const CONVERSATIONS = [
 
 /* ============================================================
    WINDOW EXPORTS
-   Required so ES module scripts (live.js as type="module") and
-   any inline <script> on other pages can access these globals.
    ============================================================ */
-window.showToast            = showToast;
-window.formatCoins          = formatCoins;
-window.timeAgo              = timeAgo;
-window.escapeHtml           = escapeHtml;
-window.persistCurrentUser   = persistCurrentUser;
-window.refreshCurrentUser   = refreshCurrentUser;
-window.requireAuthOrRedirect = requireAuthOrRedirect;
-window.logout               = logout;
-window.CONVERSATIONS        = CONVERSATIONS;
+window.showToast              = showToast;
+window.formatCoins            = formatCoins;
+window.timeAgo                = timeAgo;
+window.escapeHtml             = escapeHtml;
+window.persistCurrentUser     = persistCurrentUser;
+window.refreshCurrentUser     = refreshCurrentUser;
+window.requireAuthOrRedirect  = requireAuthOrRedirect;
+window.logout                 = logout;
+window.CONVERSATIONS          = CONVERSATIONS;
+
+window.initPresenceSocket       = initPresenceSocket;
+window.presenceStatusLabel      = presenceStatusLabel;
+window.isPresenceLive           = isPresenceLive;
+window.fetchFollowersLiveStatus = fetchFollowersLiveStatus;
+window.goToUserLocation         = goToUserLocation;
+
+initPresenceSocket();

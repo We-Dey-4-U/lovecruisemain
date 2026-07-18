@@ -435,7 +435,7 @@
 .comment-send-btn:active { transform: scale(.9); }
 
 /* ══════════════════════════════════════════
-   FOLLOWERS / FOLLOWING LIST SHEET  (NEW)
+   FOLLOWERS / FOLLOWING LIST SHEET
 ══════════════════════════════════════════ */
 .follow-list-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
 .follow-list-item:last-child { border-bottom: none; }
@@ -453,9 +453,22 @@
 .follow-list-btn:disabled { opacity: .55; cursor: not-allowed; }
 .follow-list-empty { text-align: center; padding: 50px 20px; color: var(--text-dim); font-size: 13px; }
 .follow-list-skel { display: flex; align-items: center; gap: 12px; padding: 12px 4px; }
+
+/* Live/online presence badge inside the follow list (NEW) */
+.follow-live-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px;
+  margin-top: 3px; white-space: nowrap; width: fit-content;
+}
+.follow-live-badge.live {
+  background: rgba(255,61,127,.15); color: #ff3d7f; border: 1px solid rgba(255,61,127,.3);
+}
+.follow-live-badge.online {
+  background: rgba(0,200,100,.12); color: #00c864; border: 1px solid rgba(0,200,100,.25);
+}
 </style>
-  <script type="module" crossorigin src="/assets/profile-Cosu_QHc.js"></script>
-  <link rel="modulepreload" crossorigin href="/assets/app-By3Wcv2E.js">
+  <script type="module" crossorigin src="/assets/profile-CfSlMBd-.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/app-BmVCUKSj.js">
   <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
 </head>
 <body>
@@ -709,7 +722,7 @@
   <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
 </div>
 
-<!-- ── FOLLOWERS / FOLLOWING LIST SHEET (NEW) ── -->
+<!-- ── FOLLOWERS / FOLLOWING LIST SHEET ── -->
 <div class="sheet-backdrop" id="followlist-backdrop"></div>
 <div class="bottom-sheet" id="followlist-sheet">
   <div class="sheet-handle"></div>

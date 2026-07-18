@@ -436,7 +436,7 @@
 .comment-send-btn:active { transform: scale(.9); }
 
 /* ══════════════════════════════════════════
-   FOLLOWERS / FOLLOWING LIST SHEET  (NEW)
+   FOLLOWERS / FOLLOWING LIST SHEET
 ══════════════════════════════════════════ */
 .follow-list-item { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
 .follow-list-item:last-child { border-bottom: none; }
@@ -454,6 +454,19 @@
 .follow-list-btn:disabled { opacity: .55; cursor: not-allowed; }
 .follow-list-empty { text-align: center; padding: 50px 20px; color: var(--text-dim); font-size: 13px; }
 .follow-list-skel { display: flex; align-items: center; gap: 12px; padding: 12px 4px; }
+
+/* Live/online presence badge inside the follow list (NEW) */
+.follow-live-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px;
+  margin-top: 3px; white-space: nowrap; width: fit-content;
+}
+.follow-live-badge.live {
+  background: rgba(255,61,127,.15); color: #ff3d7f; border: 1px solid rgba(255,61,127,.3);
+}
+.follow-live-badge.online {
+  background: rgba(0,200,100,.12); color: #00c864; border: 1px solid rgba(0,200,100,.25);
+}
 </style>
 </head>
 <body>
@@ -707,7 +720,7 @@
   <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
 </div>
 
-<!-- ── FOLLOWERS / FOLLOWING LIST SHEET (NEW) ── -->
+<!-- ── FOLLOWERS / FOLLOWING LIST SHEET ── -->
 <div class="sheet-backdrop" id="followlist-backdrop"></div>
 <div class="bottom-sheet" id="followlist-sheet">
   <div class="sheet-handle"></div>
@@ -1434,20 +1447,32 @@ async function messageUser() {
 }
 
 /* ══════════════════════════════════════════
-   LIVE CHECK
+   LIVE STATUS (NOW: powered by the presence system, not the
+   old /users/:id/current-room endpoint — shows the correct
+   "Watching X's Live" / "Hosting Live" / "Co-hosting" / "Guest"
+   label and jumps straight into the right room.)
 ══════════════════════════════════════════ */
 async function checkLive() {
   if (!profileData) return;
   try {
-    const res = await api.request(`/users/${profileData.id}/current-room`);
-    if (res.data) {
-      const strip = document.getElementById("live-strip");
-      strip.style.display = "flex";
-      document.getElementById("live-strip-title").textContent = res.data.title || "Live now";
-      strip.dataset.roomId = res.data.current_room_id;
-      strip.addEventListener("click", () => { window.location.href = `live.html?room=${res.data.current_room_id}`; });
-    }
-  } catch {}
+    const res = await api.request(`/presence/${profileData.id}`);
+    updateProfileLiveBanner(res.data);
+  } catch (err) { console.error("[checkLive] ❌", err); }
+}
+
+function updateProfileLiveBanner(presence) {
+  const strip = document.getElementById("live-strip");
+  if (!strip) return;
+
+  if (window.isPresenceLive(presence)) {
+    strip.style.display = "flex";
+    document.getElementById("live-strip-title").textContent = window.presenceStatusLabel(presence);
+    strip.onclick = () => window.goToUserLocation(profileData.id);
+    const joinBtn = strip.querySelector(".live-strip-join");
+    if (joinBtn) joinBtn.onclick = (e) => { e.stopPropagation(); window.goToUserLocation(profileData.id); };
+  } else {
+    strip.style.display = "none";
+  }
 }
 
 /* ══════════════════════════════════════════
@@ -1695,13 +1720,14 @@ function renderSentGifts() {
 }
 
 /* ══════════════════════════════════════════
-   FOLLOWERS / FOLLOWING LIST SHEET  (NEW)
+   FOLLOWERS / FOLLOWING LIST SHEET
    - Works for both own profile and any visited profile.
-   - Each row shows a Follow/Following button so the
-     CURRENT logged-in user can follow anyone in the list,
-     including "following someone back" from their own
-     followers list.
-   - The user IS NOT shown a button on their own row.
+   - Each row shows a Follow/Following button AND a live/online
+     presence badge sourced from the new presence system.
+   - Tapping the avatar/name jumps STRAIGHT INTO wherever that
+     person currently is (their own live, or the room they're
+     watching/guesting/co-hosting in) instead of always opening
+     their profile — per the follow-to-live-room spec.
 ══════════════════════════════════════════ */
 function openFollowListSheet(type) {
   document.getElementById("followlist-title").textContent = type === "followers" ? "Followers" : "Following";
@@ -1727,7 +1753,6 @@ async function loadFollowList(type) {
     renderFollowList(res.data || [], type);
   } catch (err) {
     console.error(`[profile] load ${type} failed:`, err);
-    // Fall back to mock data so the UI is still demonstrable offline.
     renderFollowList(MOCK_FOLLOW_LIST, type);
   }
 }
@@ -1755,19 +1780,21 @@ function renderFollowList(list, type) {
         <div class="follow-list-info">
           <strong>${escapeHtml(u.display_name || u.username || "User")}${u.is_verified ? ' <span style="color:#00d9b5;font-size:12px">✔</span>' : ""}</strong>
           <small>@${escapeHtml(u.username || "user")}</small>
+          <div class="follow-live-badge" data-presence-for="${u.id}" style="display:none"></div>
         </div>
         ${btnHtml}
       </div>`;
   }).join("");
 
-  // Tapping the avatar or name navigates to that person's profile.
+  // Tapping the avatar or name jumps straight into wherever that
+  // person currently is — or their profile if they're offline.
   content.querySelectorAll(".fl-avatar, .follow-list-info").forEach(el => {
     el.addEventListener("click", () => {
       const row = el.closest(".follow-list-item");
       const uid = row?.dataset.userId;
       if (!uid) return;
       closeFollowListSheet();
-      window.location.href = `profile.html?id=${uid}`;
+      window.goToUserLocation(uid);
     });
   });
 
@@ -1789,8 +1816,6 @@ function renderFollowList(list, type) {
           btn.classList.remove("following");
           btn.textContent = "Follow";
         }
-        // Keep the header follow button + count in sync if we just
-        // followed/unfollowed the profile currently being viewed.
         if (profileData && String(targetId) === String(profileData.id) && !isOwn) {
           isFollowing = !following;
           const headerBtn = document.getElementById("follow-btn");
@@ -1806,7 +1831,62 @@ function renderFollowList(list, type) {
       }
     });
   });
+
+  loadFollowListPresence(list.map(u => u.id));
 }
+
+/**
+ * Fetches presence for every user currently shown in the follow
+ * list sheet and paints their live/online badge. Uses per-user
+ * lookups (list sizes here are small — a handful to a few dozen —
+ * so this stays well within "no polling" since it only runs once
+ * when the sheet opens; live updates afterwards come purely from
+ * the "presenceUpdated" socket event, no repeated fetching).
+ */
+async function loadFollowListPresence(userIds) {
+  const uniqueIds = [...new Set(userIds)].filter(Boolean);
+  await Promise.all(uniqueIds.map(async (uid) => {
+    try {
+      const res = await api.request(`/presence/${uid}`);
+      applyPresenceToFollowRow(uid, res.data);
+    } catch (err) {
+      // A single failed lookup shouldn't block the rest of the list.
+    }
+  }));
+}
+
+function applyPresenceToFollowRow(userId, presence) {
+  const badge = document.querySelector(`.follow-live-badge[data-presence-for="${userId}"]`);
+  if (!badge) return;
+  if (window.isPresenceLive(presence)) {
+    badge.style.display = "inline-flex";
+    badge.className = "follow-live-badge live";
+    badge.textContent = window.presenceStatusLabel(presence);
+  } else if (presence?.status === "ONLINE") {
+    badge.style.display = "inline-flex";
+    badge.className = "follow-live-badge online";
+    badge.textContent = "Online";
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+/* ══════════════════════════════════════════
+   REALTIME PRESENCE UPDATES
+   ------------------------------------------------------------
+   Fed by the shared presence socket initialized in js/app.js.
+   Updates the follow-list badges (if the sheet happens to be
+   open) and the profile's own live banner — no polling, no
+   page refresh.
+══════════════════════════════════════════ */
+window.addEventListener("presenceUpdated", (e) => {
+  const p = e.detail;
+  if (!p?.userId) return;
+  applyPresenceToFollowRow(p.userId, p);
+  if (profileData && String(p.userId) === String(profileData.id) && !isOwn) {
+    updateProfileLiveBanner(p);
+  }
+});
 
 /* ══════════════════════════════════════════
    HOST ACADEMY
@@ -1903,7 +1983,7 @@ function renderAcademy(d) {
 }
 
 /* ══════════════════════════════════════════
-   STAT CLICKS  (UPDATED — opens follow list sheet)
+   STAT CLICKS
 ══════════════════════════════════════════ */
 document.getElementById("stat-followers").addEventListener("click", () => openFollowListSheet("followers"));
 document.getElementById("stat-following").addEventListener("click", () => openFollowListSheet("following"));
@@ -1920,7 +2000,7 @@ loadNotifCount();
 loadSellerStatus();
 initAcademySocket();
 loadAcademy();
-loadGiftCatalog();   // ← eager load, same pattern as live.js
+loadGiftCatalog();
 setInterval(loadNotifCount, 30_000);
 </script>
 </body>

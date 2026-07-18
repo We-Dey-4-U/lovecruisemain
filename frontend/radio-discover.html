@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lovecruise — Radio</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+/* ══════════════════════════════════════════
+   SIDEBAR — identical structure/classes to every other page
+   so css/style.css's existing rules apply unchanged.
+══════════════════════════════════════════ */
+.sidebar-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(8px);
+  opacity: 0; pointer-events: none; transition: opacity .3s ease;
+}
+.sidebar-overlay.open { opacity: 1; pointer-events: auto; }
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 201;
+  width: 290px; max-width: 85vw;
+  background: var(--surface); border-right: 1px solid var(--border);
+  border-radius: 0 24px 24px 0;
+  display: flex; flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform .32s cubic-bezier(.34,1.26,.64,1);
+  box-shadow: 6px 0 40px rgba(0,0,0,.35); overflow: hidden;
+}
+.sidebar.open { transform: translateX(0); }
+.sidebar-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 52px 20px 20px; border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(255,61,127,.12), rgba(0,217,181,.08)); flex: none;
+}
+.sidebar-header img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--magenta); flex: none; }
+.sidebar-user-name { font-size: 15px; font-weight: 800; color: var(--text); }
+.sidebar-user-handle { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
+.sidebar-close { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.08); border: none; color: var(--text-dim); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; flex: none; }
+.sidebar-scroll { flex: 1; overflow-y: auto; padding: 12px 0 20px; }
+.sidebar-section-label { font-size: 10px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .1em; padding: 12px 20px 4px; }
+.sidebar-item { display: flex; align-items: center; gap: 13px; padding: 11px 20px; cursor: pointer; border: none; background: none; width: 100%; text-align: left; color: var(--text); font-size: 14px; font-weight: 600; transition: background .15s; text-decoration: none; }
+.sidebar-item:hover { background: rgba(255,255,255,.06); }
+.sidebar-item.active { color: var(--magenta); background: rgba(255,61,127,.08); }
+.sidebar-item .si-icon { width: 36px; height: 36px; border-radius: 10px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 17px; background: rgba(255,255,255,.06); }
+.sidebar-item.active .si-icon { background: rgba(255,61,127,.15); }
+.sidebar-item .si-soon { margin-left: auto; background: rgba(255,200,87,.15); color: #ffc857; font-size: 9px; font-weight: 800; border-radius: 6px; padding: 2px 6px; }
+.sidebar-divider { height: 1px; background: var(--border); margin: 8px 16px; }
+.sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--border); flex: none; display: flex; gap: 10px; }
+.sidebar-footer-btn { flex: 1; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.sidebar-footer-btn.danger { color: #ff4455; border-color: rgba(255,68,85,.2); }
+
+/* ══════════════════════════════════════════
+   TOPBAR
+══════════════════════════════════════════ */
+.radio-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 10;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+.topbar-icon-btn {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; flex: none; text-decoration: none;
+}
+.radio-title { font-size: 17px; font-weight: 900; flex: 1; display: flex; align-items: center; gap: 7px; }
+.radio-title .beta-pill { font-size: 9px; font-weight: 800; background: rgba(160,90,255,.15); color: #a05aff; border-radius: 8px; padding: 2px 7px; }
+.create-station-btn {
+  flex: none; background: linear-gradient(135deg,#ff3d7f,#a05aff); color: #fff; border: none;
+  border-radius: 14px; padding: 8px 14px; font-size: 12.5px; font-weight: 800; cursor: pointer;
+}
+
+/* ══════════════════════════════════════════
+   CATEGORY CHIPS
+══════════════════════════════════════════ */
+.category-scroll {
+  display: flex; gap: 8px; padding: 14px 16px 4px; overflow-x: auto;
+  scrollbar-width: none;
+}
+.category-scroll::-webkit-scrollbar { display: none; }
+.cat-chip {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 8px 14px; font-size: 12.5px; font-weight: 700;
+  color: var(--text-dim); cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.cat-chip.active {
+  background: linear-gradient(135deg, rgba(255,61,127,.16), rgba(160,90,255,.12));
+  border-color: rgba(255,61,127,.4); color: #ff3d7f;
+}
+
+/* ══════════════════════════════════════════
+   SECTIONS
+══════════════════════════════════════════ */
+.radio-section { padding: 18px 16px 4px; }
+.radio-section-title {
+  font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* Live-now horizontal scroll of station cards */
+.live-scroll { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.live-scroll::-webkit-scrollbar { display: none; }
+.live-card {
+  flex: none; width: 168px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; padding: 12px; cursor: pointer; transition: transform .15s, box-shadow .15s;
+}
+.live-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.live-card-cover { position: relative; border-radius: 12px; overflow: hidden; height: 90px; background: #1a1420; }
+.live-card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.live-badge-pill {
+  position: absolute; top: 7px; left: 7px; display: flex; align-items: center; gap: 4px;
+  background: rgba(255,61,127,.92); color: #fff; font-size: 9px; font-weight: 900;
+  padding: 3px 8px; border-radius: 8px; letter-spacing: .04em;
+}
+.live-badge-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse-anim 1.4s infinite; }
+@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.7)} }
+.live-card-title { font-size: 13px; font-weight: 800; margin-top: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-card-meta { font-size: 11px; color: var(--text-dim); margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+.live-card-host { font-size: 10.5px; color: var(--text-dim); margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+.live-card-host img { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; }
+
+/* Upcoming shows list */
+.show-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  margin-bottom: 8px; cursor: default;
+}
+.show-time-box {
+  flex: none; width: 52px; height: 52px; border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255,61,127,.15), rgba(160,90,255,.1));
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.show-time-box .day { font-size: 9.5px; font-weight: 800; color: #ff3d7f; text-transform: uppercase; }
+.show-time-box .time { font-size: 12.5px; font-weight: 900; margin-top: 2px; }
+.show-info { flex: 1; min-width: 0; }
+.show-info strong { font-size: 13.5px; font-weight: 800; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.show-info small { font-size: 11.5px; color: var(--text-dim); }
+.show-follow-btn {
+  flex: none; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 12px; padding: 7px 12px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+}
+
+/* Stations grid */
+.stations-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.station-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 12px; cursor: pointer; transition: transform .15s;
+}
+.station-card:hover { transform: translateY(-2px); }
+.station-cover { width: 100%; height: 74px; border-radius: 10px; object-fit: cover; background: #1a1420; }
+.station-name { font-size: 12.5px; font-weight: 800; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.station-sub { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+.station-live-dot { display: inline-flex; align-items: center; gap: 4px; color: #ff3d7f; font-weight: 800; font-size: 10px; }
+
+.empty-hint { text-align: center; padding: 30px 16px; color: var(--text-dim); font-size: 12.5px; }
+.skel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; height: 150px; animation: skel-pulse 1.5s infinite; }
+@keyframes skel-pulse { 0%,100%{opacity:.4} 50%{opacity:.85} }
+
+/* ══════════════════════════════════════════
+   CREATE STATION SHEET
+══════════════════════════════════════════ */
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+.bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 88vh; overflow-y: auto; }
+.bottom-sheet.open { bottom: 0; }
+.sheet-handle { width: 38px; height: 4px; background: var(--border); border-radius: 2px; margin: 14px auto 20px; }
+.sheet-title { font-size: 17px; font-weight: 900; margin-bottom: 20px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
+.form-group input, .form-group textarea, .form-group select { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; font-family: inherit; }
+.form-group textarea { resize: vertical; min-height: 70px; }
+.save-btn { width: 100%; margin-top: 6px; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
+.save-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <img id="sb-avatar" src="https://i.pravatar.cc/100?img=3" alt="">
+    <div>
+      <div class="sidebar-user-name" id="sb-name">Loading…</div>
+      <div class="sidebar-user-handle" id="sb-handle">@user</div>
+    </div>
+    <button class="sidebar-close" id="sb-close">✕</button>
+  </div>
+  <div class="sidebar-scroll">
+    <div class="sidebar-section-label">Menu</div>
+    <a href="home.html" class="sidebar-item"><span class="si-icon">🏠</span> Home</a>
+    <a href="profile.html" class="sidebar-item"><span class="si-icon">👤</span> Profile</a>
+    <a href="go-live.html" class="sidebar-item"><span class="si-icon">🎥</span> Go Live</a>
+    <a href="podcast-listen.html" class="sidebar-item"><span class="si-icon">🎙️</span> Podcasts</a>
+    <a href="radio-discover.html" class="sidebar-item active"><span class="si-icon">📻</span> Radio</a>
+    <a href="coins.html" class="sidebar-item"><span class="si-icon">🪙</span> Coins</a>
+    <a href="leaderboard.html" class="sidebar-item"><span class="si-icon">🏆</span> Leaderboard</a>
+    <a href="marketplace.html" class="sidebar-item"><span class="si-icon">🛍️</span> Marketplace</a>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section-label">Account</div>
+    <a href="settings.html" class="sidebar-item"><span class="si-icon">⚙️</span> Settings</a>
+  </div>
+  <div class="sidebar-footer">
+    <button class="sidebar-footer-btn" onclick="window.location.href='settings.html'">⚙️ Settings</button>
+    <button class="sidebar-footer-btn danger" id="sb-logout-btn">🚪 Logout</button>
+  </div>
+</div>
+
+<div class="app-shell">
+  <div class="screen" style="padding:0;overflow-y:auto;">
+
+    <div class="radio-topbar">
+      <button class="topbar-icon-btn" id="hamburger-btn" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="17" height="17">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <div class="radio-title">📻 Lovecruise Radio <span class="beta-pill">BETA</span></div>
+      <button class="create-station-btn" id="create-station-btn">+ Station</button>
+    </div>
+
+    <div class="category-scroll" id="category-scroll">
+      <div class="cat-chip active" data-key="">All</div>
+    </div>
+
+    <div class="radio-section">
+      <div class="radio-section-title">🔴 Live Now</div>
+      <div class="live-scroll" id="live-scroll">
+        <div class="skel-card" style="width:168px;flex:none;"></div>
+        <div class="skel-card" style="width:168px;flex:none;"></div>
+      </div>
+    </div>
+
+    <div class="radio-section">
+      <div class="radio-section-title">📅 Upcoming Shows</div>
+      <div id="shows-list">
+        <div class="skel-card" style="height:70px;margin-bottom:8px;"></div>
+        <div class="skel-card" style="height:70px;"></div>
+      </div>
+    </div>
+
+    <div class="radio-section" style="padding-bottom:100px;">
+      <div class="radio-section-title">Stations</div>
+      <div class="stations-grid" id="stations-grid">
+        <div class="skel-card" style="height:130px;"></div>
+        <div class="skel-card" style="height:130px;"></div>
+        <div class="skel-card" style="height:130px;"></div>
+        <div class="skel-card" style="height:130px;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <nav class="tabbar">
+    <a class="tab" href="home.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</a>
+    <a class="tab" href="discover.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>Discover</a>
+    <a class="tab tab-mid active" href="radio-discover.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="2"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14M7.76 16.24a6 6 0 0 1 0-8.49M16.24 7.76a6 6 0 0 1 0 8.49"/></svg>Radio</a>
+    <a class="tab" href="chat.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.55L3 20l1.05-5.4A8.5 8.5 0 1 1 21 11.5Z"/></svg>Chat</a>
+    <a class="tab" href="profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 5-6 8-6s6.5 2 8 6"/></svg>Profile</a>
+  </nav>
+</div>
+
+<!-- ── CREATE STATION SHEET ── -->
+<div class="sheet-backdrop" id="station-backdrop"></div>
+<div class="bottom-sheet" id="station-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Create a Radio Station</div>
+  <div class="form-group">
+    <label>Station Name</label>
+    <input type="text" id="station-title" placeholder="e.g. Love FM with Tega" maxlength="150">
+  </div>
+  <div class="form-group">
+    <label>Category</label>
+    <select id="station-category"></select>
+  </div>
+  <div class="form-group">
+    <label>Description</label>
+    <textarea id="station-desc" placeholder="What's your station about?" maxlength="300"></textarea>
+  </div>
+  <button class="save-btn" id="station-save-btn">Create Station</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import "./js/api.js";
+import "./js/app.js";
+
+if (!requireAuthOrRedirect()) { throw new Error("auth required"); }
+
+let CATEGORIES = [];
+let activeCategory = "";
+
+/* ══════════════════════════════════════════
+   SIDEBAR / BOOT
+══════════════════════════════════════════ */
+function initSidebar() {
+  const u = window.CURRENT_USER || {};
+  const av = u.avatarUrl || u.avatar_url ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(u.displayName||u.display_name||u.username||"U")}&background=ff3d7f&color=fff&size=80`;
+  document.getElementById("sb-avatar").src = av;
+  document.getElementById("sb-name").textContent = u.displayName || u.display_name || u.username || "User";
+  document.getElementById("sb-handle").textContent = "@" + (u.username || "user");
+}
+document.getElementById("hamburger-btn").addEventListener("click", () => {
+  document.getElementById("sidebar").classList.add("open");
+  document.getElementById("sidebar-overlay").classList.add("open");
+  document.body.style.overflow = "hidden";
+});
+document.getElementById("sb-close").addEventListener("click", closeSidebar);
+document.getElementById("sidebar-overlay").addEventListener("click", closeSidebar);
+function closeSidebar() {
+  document.getElementById("sidebar").classList.remove("open");
+  document.getElementById("sidebar-overlay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+document.getElementById("sb-logout-btn").addEventListener("click", () => { if (confirm("Log out?")) logout(); });
+
+/* ══════════════════════════════════════════
+   CATEGORIES
+══════════════════════════════════════════ */
+async function loadCategories() {
+  try {
+    const res = await api.request("/radio/categories");
+    CATEGORIES = res.data || [];
+  } catch (err) {
+    console.error("[radio] categories load failed:", err);
+    CATEGORIES = [
+      { key: "matchmaking", label: "Matchmaking & Dating Advice", icon: "❤️" },
+      { key: "music", label: "Music Radio", icon: "🎵" },
+      { key: "comedy", label: "Comedy Hour", icon: "😂" },
+      { key: "night_talk", label: "Late Night Love Confessions", icon: "🌙" }
+    ];
+  }
+  renderCategoryChips();
+  populateStationCategorySelect();
+}
+
+function renderCategoryChips() {
+  const scroll = document.getElementById("category-scroll");
+  scroll.innerHTML = `<div class="cat-chip ${activeCategory === "" ? "active" : ""}" data-key="">All</div>` +
+    CATEGORIES.map(c => `<div class="cat-chip ${activeCategory === c.key ? "active" : ""}" data-key="${c.key}">${c.icon || "📻"} ${escapeHtml(c.label)}</div>`).join("");
+
+  scroll.querySelectorAll(".cat-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      activeCategory = chip.dataset.key;
+      renderCategoryChips();
+      loadStations();
+    });
+  });
+}
+
+function populateStationCategorySelect() {
+  const sel = document.getElementById("station-category");
+  sel.innerHTML = CATEGORIES.map(c => `<option value="${c.key}">${c.icon || "📻"} ${escapeHtml(c.label)}</option>`).join("");
+}
+
+/* ══════════════════════════════════════════
+   LIVE NOW STRIP
+══════════════════════════════════════════ */
+async function loadLiveBroadcasts() {
+  const wrap = document.getElementById("live-scroll");
+  try {
+    const res = await api.request("/radio/live");
+    const broadcasts = res.data || [];
+    if (!broadcasts.length) {
+      wrap.innerHTML = `<div class="empty-hint" style="width:100%">Nobody's live right now — check back soon, or start your own station!</div>`;
+      return;
+    }
+    wrap.innerHTML = broadcasts.map(b => {
+      const cover = b.station_cover || `https://ui-avatars.com/api/?name=${encodeURIComponent(b.station_title||"Radio")}&background=ff3d7f&color=fff&size=200`;
+      const hostAv = b.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(b.username||"Host")}&size=40`;
+      return `
+        <div class="live-card" data-broadcast-id="${b.id}">
+          <div class="live-card-cover">
+            <img src="${escapeHtml(cover)}" alt="" onerror="this.src='https://i.pravatar.cc/200'">
+            <div class="live-badge-pill"><span class="dot"></span>LIVE</div>
+          </div>
+          <div class="live-card-title">${escapeHtml(b.title || b.station_title)}</div>
+          <div class="live-card-meta">${b.category_icon||"📻"} ${formatCoins(b.listener_count||0)} listening</div>
+          <div class="live-card-host"><img src="${escapeHtml(hostAv)}" alt="" onerror="this.src='https://i.pravatar.cc/40'">${escapeHtml(b.display_name||b.username||"Host")}</div>
+        </div>`;
+    }).join("");
+
+    wrap.querySelectorAll(".live-card").forEach(card => {
+      card.addEventListener("click", () => {
+        window.location.href = `radio-room.html?id=${card.dataset.broadcastId}`;
+      });
+    });
+  } catch (err) {
+    console.error("[radio] live broadcasts load failed:", err);
+    wrap.innerHTML = `<div class="empty-hint" style="width:100%">Couldn't load live broadcasts</div>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   UPCOMING SHOWS
+══════════════════════════════════════════ */
+async function loadUpcomingShows() {
+  const list = document.getElementById("shows-list");
+  try {
+    const res = await api.request("/radio/shows/upcoming");
+    const shows = res.data || [];
+    if (!shows.length) {
+      list.innerHTML = `<div class="empty-hint">No shows scheduled yet</div>`;
+      return;
+    }
+    list.innerHTML = shows.map(sh => {
+      let day = "—", time = "—";
+      if (sh.scheduled_at) {
+        const d = new Date(sh.scheduled_at);
+        day = d.toLocaleDateString("en-US", { weekday: "short" });
+        time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      }
+      return `
+        <div class="show-row" data-show-id="${sh.id}">
+          <div class="show-time-box"><div class="day">${day}</div><div class="time">${time}</div></div>
+          <div class="show-info">
+            <strong>${escapeHtml(sh.title)}</strong>
+            <small>${escapeHtml(sh.station_title)} · ${escapeHtml(sh.display_name || sh.username || "Host")}</small>
+          </div>
+          <button class="show-follow-btn" data-station-id="${sh.station_id}">Remind me</button>
+        </div>`;
+    }).join("");
+
+    list.querySelectorAll(".show-follow-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await api.request(`/radio/stations/${btn.dataset.stationId}/follow`, { method: "POST" });
+          btn.textContent = "✓ Following";
+          btn.disabled = true;
+          showToast("We'll notify you when this show starts");
+        } catch (err) {
+          showToast(err.message || "Could not follow station");
+        }
+      });
+    });
+  } catch (err) {
+    console.error("[radio] upcoming shows load failed:", err);
+    list.innerHTML = `<div class="empty-hint">Couldn't load the schedule</div>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   STATIONS GRID
+══════════════════════════════════════════ */
+async function loadStations() {
+  const grid = document.getElementById("stations-grid");
+  grid.innerHTML = `<div class="skel-card" style="height:130px;"></div><div class="skel-card" style="height:130px;"></div>`;
+  try {
+    const qs = activeCategory ? `?category=${encodeURIComponent(activeCategory)}` : "";
+    const res = await api.request(`/radio/stations${qs}`);
+    const stations = res.data || [];
+    if (!stations.length) {
+      grid.innerHTML = `<div class="empty-hint" style="grid-column:1/-1">No stations in this category yet</div>`;
+      return;
+    }
+    grid.innerHTML = stations.map(s => {
+      const cover = s.cover_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(s.title)}&background=random&color=fff&size=200`;
+      return `
+        <div class="station-card" data-station-id="${s.id}">
+          <img class="station-cover" src="${escapeHtml(cover)}" alt="" onerror="this.src='https://i.pravatar.cc/200'">
+          <div class="station-name">${escapeHtml(s.title)}</div>
+          <div class="station-sub">
+            ${s.is_live ? `<span class="station-live-dot">🔴 LIVE</span>` : `${formatCoins(s.follower_count||0)} followers`}
+          </div>
+        </div>`;
+    }).join("");
+
+    grid.querySelectorAll(".station-card").forEach(card => {
+      card.addEventListener("click", () => {
+        window.location.href = `radio-station.html?id=${card.dataset.stationId}`;
+      });
+    });
+  } catch (err) {
+    console.error("[radio] stations load failed:", err);
+    grid.innerHTML = `<div class="empty-hint" style="grid-column:1/-1">Couldn't load stations</div>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   CREATE STATION SHEET
+══════════════════════════════════════════ */
+document.getElementById("create-station-btn").addEventListener("click", () => {
+  document.getElementById("station-backdrop").classList.add("open");
+  document.getElementById("station-sheet").classList.add("open");
+});
+document.getElementById("station-backdrop").addEventListener("click", closeStationSheet);
+function closeStationSheet() {
+  document.getElementById("station-backdrop").classList.remove("open");
+  document.getElementById("station-sheet").classList.remove("open");
+}
+
+document.getElementById("station-save-btn").addEventListener("click", async () => {
+  const title = document.getElementById("station-title").value.trim();
+  const categoryKey = document.getElementById("station-category").value;
+  const description = document.getElementById("station-desc").value.trim();
+
+  if (!title) { showToast("Station name is required"); return; }
+
+  const btn = document.getElementById("station-save-btn");
+  btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const res = await api.request("/radio/stations", {
+      method: "POST",
+      body: JSON.stringify({ title, categoryKey, description })
+    });
+    showToast("Station created ✓");
+    closeStationSheet();
+    document.getElementById("station-title").value = "";
+    document.getElementById("station-desc").value = "";
+    window.location.href = `radio-station.html?id=${res.data.id}`;
+  } catch (err) {
+    showToast(err.message || "Could not create station");
+  } finally {
+    btn.disabled = false; btn.textContent = "Create Station";
+  }
+});
+
+/* ══════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════ */
+initSidebar();
+await loadCategories();
+loadLiveBroadcasts();
+loadUpcomingShows();
+loadStations();
+setInterval(loadLiveBroadcasts, 60_000);
+</script>
+</body>
+</html>

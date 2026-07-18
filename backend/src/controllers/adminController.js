@@ -502,6 +502,117 @@ const AdminController = {
         }
     },
 
+
+
+
+    // =====================================================
+    // RADIO MODERATION (Phase 2 — fixes "admin visibility ❌")
+    // =====================================================
+    async radioStations(req, res, next) {
+        try {
+            const { rows } = await db.query(`
+                SELECT s.*, u.username, u.display_name,
+                       (SELECT COUNT(*) FROM radio_broadcasts b WHERE b.station_id = s.id) AS broadcast_count,
+                       EXISTS (SELECT 1 FROM radio_broadcasts b WHERE b.station_id = s.id AND b.status = 'live') AS is_live
+                FROM radio_stations s
+                JOIN users u ON u.id = s.host_id
+                ORDER BY s.created_at DESC
+            `);
+            return res.json({ success: true, data: rows });
+        } catch (err) {
+            next(err);
+        }
+    },
+
+    async updateRadioStationStatus(req, res, next) {
+        try {
+            const { status } = req.body; // 'active' | 'suspended'
+            if (!["active", "suspended"].includes(status)) {
+                return res.status(400).json({ success: false, message: "Invalid status" });
+            }
+            const { rows } = await db.query(
+                `UPDATE radio_stations SET status = $1 WHERE id = $2 RETURNING *`,
+                [status, req.params.id]
+            );
+            if (!rows.length) {
+                return res.status(404).json({ success: false, message: "Station not found" });
+            }
+
+            // If suspending, end any currently-live broadcast for it.
+            if (status === "suspended") {
+                await db.query(
+                    `UPDATE radio_broadcasts SET status = 'ended', ended_at = NOW()
+                     WHERE station_id = $1 AND status = 'live'`,
+                    [req.params.id]
+                );
+            }
+
+            return res.json({ success: true, data: rows[0] });
+        } catch (err) {
+            next(err);
+        }
+    },
+
+    async updateRadioStationOfficial(req, res, next) {
+        try {
+            const { isOfficial } = req.body;
+            const { rows } = await db.query(
+                `UPDATE radio_stations SET is_official = $1 WHERE id = $2 RETURNING *`,
+                [!!isOfficial, req.params.id]
+            );
+            if (!rows.length) {
+                return res.status(404).json({ success: false, message: "Station not found" });
+            }
+            return res.json({ success: true, data: rows[0] });
+        } catch (err) {
+            next(err);
+        }
+    },
+
+    async radioAnalytics(req, res, next) {
+        try {
+            const [stations, liveNow, broadcasts, listeners, giftCoins] = await Promise.all([
+                db.query(`SELECT COUNT(*) FROM radio_stations`),
+                db.query(`SELECT COUNT(*) FROM radio_broadcasts WHERE status = 'live'`),
+                db.query(`SELECT COUNT(*) FROM radio_broadcasts`),
+                db.query(`SELECT COALESCE(SUM(listener_count),0) AS total FROM radio_broadcasts WHERE status = 'live'`),
+                db.query(`SELECT COALESCE(SUM(total_coins),0) AS total FROM gift_transactions WHERE context_type = 'radio_broadcast'`)
+            ]);
+
+            return res.json({
+                success: true,
+                data: {
+                    totalStations: toInt(stations.rows[0]?.count),
+                    liveNow: toInt(liveNow.rows[0]?.count),
+                    totalBroadcasts: toInt(broadcasts.rows[0]?.count),
+                    currentListeners: toInt(listeners.rows[0]?.total),
+                    lifetimeGiftCoins: giftCoins.rows[0]?.total || 0
+                }
+            });
+        } catch (err) {
+            next(err);
+        }
+    },
+
+    async createRadioCategory(req, res, next) {
+        try {
+            const { key, label, icon, sortOrder } = req.body;
+            if (!key || !label) {
+                return res.status(400).json({ success: false, message: "key and label are required" });
+            }
+            const { rows } = await db.query(
+                `INSERT INTO radio_categories (key, label, icon, sort_order, is_active)
+                 VALUES ($1, $2, $3, $4, TRUE)
+                 ON CONFLICT (key) DO UPDATE SET label = $2, icon = $3, sort_order = $4
+                 RETURNING *`,
+                [key, label, icon || "📻", sortOrder ?? 99]
+            );
+            return res.status(201).json({ success: true, data: rows[0] });
+        } catch (err) {
+            next(err);
+        }
+    },
+
     // =====================================================
     // LOGS
     // =====================================================
@@ -550,5 +661,11 @@ const AdminController = {
         }
     }
 };
+
+
+
+
+
+
 
 module.exports = AdminController;

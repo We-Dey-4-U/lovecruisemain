@@ -1,4 +1,4 @@
-import"./app-By3Wcv2E.js";/* empty css              */var e=new URLSearchParams(window.location.search),t=e.get(`tx_ref`),n=e.get(`status`);console.log(`[flw-success] tx_ref:`,t,`status param:`,n);var r=document.getElementById(`result-screen`);function i(){r.innerHTML=`
+import"./app-BmVCUKSj.js";/* empty css              */var e=new URLSearchParams(window.location.search),t=e.get(`tx_ref`),n=e.get(`status`);console.log(`[flw-success] tx_ref:`,t,`status param:`,n);var r=document.getElementById(`result-screen`);function i(){r.innerHTML=`
       <div class="result-spinner"></div>
       <div class="result-title">Confirming your payment…</div>
       <div class="result-sub">This usually takes just a few seconds. Please don't close this page.</div>

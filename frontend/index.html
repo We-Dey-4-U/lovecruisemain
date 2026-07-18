@@ -421,6 +421,8 @@
     <a href="#" class="sidebar-item" data-protected="1"><span class="si-icon">🎁</span> Gifts</a>
     <a href="leaderboard.html" class="sidebar-item"><span class="si-icon">🏆</span> Leaderboard</a>
     <a href="marketplace.html" class="sidebar-item"><span class="si-icon">🛍️</span> Marketplace</a>
+    <a href="podcast-listen.html" class="sidebar-item"><span class="si-icon">🎙️</span> Podcasts</a>
+<a href="radio-discover.html" class="sidebar-item" data-protected="1"><span class="si-icon">📻</span> Radio</a>
     <a href="#" class="sidebar-item" data-protected="1"><span class="si-icon">📊</span> Analytics</a>
     <div class="sidebar-divider"></div>
     <div class="sidebar-section-label">Coming Soon</div>
@@ -490,6 +492,16 @@
         </button>
       </div>
     </div>
+
+
+
+    <div class="radio-strip-wrap" id="radio-strip-wrap" style="display:none; margin:14px 12px 0;">
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:0 2px 8px;">
+    <span style="font-size:14px; font-weight:800; display:flex; align-items:center; gap:6px;">📻 Live Radio</span>
+    <a href="radio-discover.html" style="font-size:12px; font-weight:700; color:var(--magenta); text-decoration:none;">See all</a>
+  </div>
+  <div id="radio-strip" style="display:flex; gap:10px; overflow-x:auto; scrollbar-width:none; padding-bottom:2px;"></div>
+</div>
 
     <div id="feed" class="feed">
       <div class="skeleton-post"><div class="skel-row"><div class="skel-circle"></div><div class="skel-lines"><div class="skel-line"></div><div class="skel-line short"></div></div></div><div class="skel-rect"></div></div>
@@ -1003,6 +1015,76 @@ function renderFeed(posts, append = false) {
     document.getElementById("load-more-btn")?.remove();
   }
 }
+
+
+
+/* ============================================================
+   Add this to home.html's <script type="module"> block, near
+   the other function definitions, and call loadLiveRadioStrip()
+   once at boot (alongside loadFeed()/loadNotificationCount()).
+   ============================================================ */
+
+async function loadLiveRadioStrip() {
+  try {
+    const res = await window.api.request("/radio/live");
+    renderRadioStrip(res.data || []);
+  } catch (err) {
+    // Fails silently — the strip just stays hidden. No mock data
+    // here since an empty/failed radio feed shouldn't be treated
+    // as a demo-mode fallback the way the post feed is.
+    console.error("[loadLiveRadioStrip] ❌", err);
+  }
+}
+
+function renderRadioStrip(broadcasts) {
+  const wrap = document.getElementById("radio-strip-wrap");
+  const strip = document.getElementById("radio-strip");
+  if (!wrap || !strip) return;
+
+  if (!broadcasts.length) {
+    wrap.style.display = "none";
+    return;
+  }
+
+  wrap.style.display = "block";
+  strip.innerHTML = broadcasts.map(b => {
+    const avatar = b.station_cover || b.avatar_url ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(b.station_title||"Radio")}&background=ff3d7f&color=fff&size=100`;
+    return `
+      <div class="radio-strip-card" data-broadcast-id="${b.id}" style="
+        flex:none; width:150px; background:var(--surface); border:1px solid var(--border);
+        border-radius:16px; padding:10px; cursor:pointer;">
+        <div style="position:relative;">
+          <img src="${window.escapeHtml(avatar)}" alt="" style="width:100%; height:80px; object-fit:cover; border-radius:10px;" onerror="this.src='https://i.pravatar.cc/150'">
+          <span style="position:absolute; top:6px; left:6px; background:rgba(255,61,127,.9); color:#fff; font-size:9px; font-weight:900; padding:2px 7px; border-radius:8px; letter-spacing:.04em;">🔴 LIVE</span>
+        </div>
+        <div style="font-size:12.5px; font-weight:800; margin-top:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${window.escapeHtml(b.title || b.station_title)}</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">${b.category_icon||"📻"} ${window.escapeHtml(b.category_label||"Radio")} · ${window.formatCoins(b.listener_count||0)} listening</div>
+      </div>`;
+  }).join("");
+
+  strip.querySelectorAll(".radio-strip-card").forEach(card => {
+    card.addEventListener("click", () => {
+      window.location.href = `radio-room.html?id=${card.dataset.broadcastId}`;
+    });
+  });
+}
+
+/* Call at boot:
+   loadLiveRadioStrip();
+   And optionally refresh it every ~60s like a live "who's on air"
+   ticker, since radio shows can start any time (no polling needed
+   for the rest of the feed, but this one benefits from it):
+   setInterval(loadLiveRadioStrip, 60_000);
+*/
+
+
+
+
+
+
+
+
 
 function buildPostCard(p) {
   const wrapper = document.createElement("div");

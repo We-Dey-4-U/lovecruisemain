@@ -92,8 +92,11 @@ const hostAcademyRoutes = require("./src/routes/hostAcademy.routes");
 const leaderboardRoutes = require("./src/routes/leaderboard.routes");
 const marketplaceRoutes = require("./src/routes/marketplace.routes");
 const sellersRoutes = require("./src/routes/sellers.routes");
-const walletRoutes = require("./src/routes/wallet.routes");           // ← NEW
-const withdrawalsRoutes = require("./src/routes/withdrawals.routes"); // ← NEW
+const walletRoutes = require("./src/routes/wallet.routes");
+const withdrawalsRoutes = require("./src/routes/withdrawals.routes");
+const presenceRoutes = require("./src/routes/presence.routes");
+const radioRoutes = require("./src/routes/radio.routes");
+const adminRadioRoutes = require("./src/routes/admin.radio.routes"); // ← NEW
 
 safeUse("/api/auth", authRoutes);
 safeUse("/api/users", userRoutes);
@@ -112,8 +115,29 @@ safeUse("/api/host-academy", hostAcademyRoutes);
 safeUse("/api/leaderboard", leaderboardRoutes);
 safeUse("/api/marketplace", marketplaceRoutes);
 safeUse("/api/sellers", sellersRoutes);
-safeUse("/api/wallet", walletRoutes);           // ← NEW: /api/wallet/earnings-summary, /api/wallet/ledger
-safeUse("/api/withdrawals", withdrawalsRoutes); // ← NEW: /api/withdrawals, /api/withdrawals/mine
+safeUse("/api/wallet", walletRoutes);
+safeUse("/api/withdrawals", withdrawalsRoutes);
+safeUse("/api/presence", presenceRoutes);
+
+safeUse("/api/radio", radioRoutes);
+safeUse("/api/admin/radio", adminRadioRoutes); // ← NEW: radio moderation panel
+
+/* =========================================================
+   RADIO SHOW-START NOTIFIER (Phase 2)
+   ------------------------------------------------------------
+   Starts a 60s interval that checks radio_shows for anything
+   starting soon and notifies station followers. If your socket
+   bootstrap file exposes `io` on the express app (e.g. via
+   `app.set('io', io)` right after creating the Socket.IO server),
+   this will also push notifications live; otherwise it still
+   writes durable rows to the `notifications` table.
+========================================================= */
+const radioNotifier = require("./src/services/radioNotifier");
+setImmediate(() => {
+  // app.get('io') will be undefined until your server bootstrap
+  // calls app.set('io', io) — radioNotifier.start() tolerates that.
+  radioNotifier.start(app.get("io"));
+});
 
 /* =========================================================
    ERROR HANDLERS

@@ -1,35 +1,44 @@
 // backend/src/sockets/stream.socket.js
 //
 // ═══════════════════════════════════════════════════════════════
-//   THIS PASS — 12 SEATS + FULL-ROOM PARTICIPANTS/KICK
+//   THIS PASS — FOLLOW-TO-LIVE-ROOM PRESENCE SYSTEM
 // ═══════════════════════════════════════════════════════════════
-//   1) MIC_SEAT_COUNT raised 8 → 12 (4 left wing, 4 right wing,
-//      4 bottom row — matches the new client layout).
-//   2) NEW: room.participants — a socketId → identity map (kept
-//      separately from mediasoup's room.peers) so the host can
-//      pull a full roster of everyone currently in the room,
-//      including pure audience members who never touched a seat.
-//      Only ever sent to the host socket — regular viewers have
-//      no way to fetch this.
-//   3) NEW socket events:
-//        "getParticipants" (host-only)      -> cb({participants}|{error})
-//        "hostKickUser"    (host-only)       -> removes ANY user from
-//           the room entirely (not just a seat/guest slot) — frees
-//           any seat/guest slot they held, boots them from the
-//           socket.io room, updates viewer counts, and tells their
-//           client to tear down and leave.
-//   4) Join announcements are now broadcast into the comment feed
-//      ("X joined the live") so regular viewers learn who's around
-//      only through chat / occupied seats — never a full roster.
+//   Every socket-driven room transition (join, seat/guest claim or
+//   release, kick, live end, disconnect) now also updates the
+//   user's realtime presence (OFFLINE / ONLINE / WATCHING_LIVE /
+//   HOSTING_LIVE / CO_HOST / GUEST_SEAT) via presenceService, and
+//   broadcasts the change to that user's followers (respecting
+//   their privacy settings) as a "presenceUpdated" event on each
+//   follower's personal `user:{id}` room.
 //
-//   Everything else (mediasoup transports/producers/consumers,
-//   seat/guest mute-vs-leave split, host seat/guest mute-kick) is
-//   UNCHANGED from the previous pass.
+//   Seat mapping used here:
+//     - 12 audio mic seats (requestMicSeat/leaveMicSeat)  -> CO_HOST
+//     - matchmaker male/female guest frames (requestGuestSeat/
+//       leaveGuestSeat)                                    -> GUEST_SEAT
+//
+//   New/explicit events added for spec compliance (aliases of the
+//   existing join/leave flow, safe to call directly too):
+//     "joinLiveRoom" -> same handler as "joinRoom"
+//     "leaveLive"    -> same handler as "leaveRoom"
+//     "startLive"    -> marks HOSTING_LIVE immediately (useful right
+//                       after go-live.html creates the room, before
+//                       the host's live.html page even finishes
+//                       loading mediasoup)
+//
+//   Disconnects get an 8s grace period before presence flips to
+//   OFFLINE, so a page refresh / brief network drop doesn't cause
+//   a flicker for followers. Reconnecting (registerUser/joinRoom)
+//   within that window cancels the pending OFFLINE flip.
+//
+//   Everything else — mediasoup transports/producers/consumers,
+//   host-only participants roster + full kick, seat/guest mute-vs-
+//   leave split — is UNCHANGED from the previous pass.
 // ═══════════════════════════════════════════════════════════════
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
 const { createRouter } = require("../mediasoup/router");
+const presenceService = require("../services/presenceService");
 
 /* ══════════════════════════════════════════════════════
    USER LOOKUP
@@ -48,15 +57,87 @@ async function getUserBrief(userId) {
   }
 }
 
+async function getUserPrivacy(userId) {
+  try {
+    const { rows } = await db.query(
+      `SELECT allow_followers_see_live, allow_followers_join_room, hide_viewing_activity
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    return rows[0] || {};
+  } catch (err) {
+    console.error("[getUserPrivacy] ❌", err);
+    return {};
+  }
+}
+
+function getHostUserId(room) {
+  if (!room?.hostSocketId) return null;
+  const info = room.peers.get(room.hostSocketId);
+  return info?.userId || null;
+}
+
+/* ══════════════════════════════════════════════════════
+   PRESENCE BROADCAST — pushes a presence change to every
+   follower of `userId`, respecting that user's own privacy
+   settings. Followers receive it only if they're currently
+   connected (joined their personal `user:{id}` room via
+   "registerUser").
+══════════════════════════════════════════════════════ */
+async function broadcastPresenceToFollowers(io, userId, presencePayload) {
+  try {
+    const privacy = await getUserPrivacy(userId);
+    const isHostingSelf = presencePayload.status === "HOSTING_LIVE";
+
+    let outPayload = { ...presencePayload };
+
+    if (!isHostingSelf && (privacy.allow_followers_see_live === false || privacy.hide_viewing_activity)) {
+      outPayload = {
+        userId,
+        status: presencePayload.status === "OFFLINE" ? "OFFLINE" : "ONLINE",
+        currentRoomId: null,
+        hostId: null,
+        hostName: null
+      };
+    } else if (!isHostingSelf && privacy.allow_followers_join_room === false) {
+      outPayload = { ...outPayload, currentRoomId: null };
+    }
+
+    const { rows } = await db.query(
+      `SELECT follower_id FROM follows WHERE following_id = $1`,
+      [userId]
+    );
+    for (const row of rows) {
+      io.to(`user:${row.follower_id}`).emit("presenceUpdated", outPayload);
+    }
+  } catch (err) {
+    console.error("[broadcastPresenceToFollowers] ❌", err);
+  }
+}
+
+async function resolveHostName(hostUserId) {
+  if (!hostUserId) return null;
+  const brief = await getUserBrief(hostUserId);
+  return brief?.display_name || brief?.username || null;
+}
+
+/* ══════════════════════════════════════════════════════
+   PENDING-OFFLINE GRACE TIMERS — module scope so they persist
+   across all connections (this file is require()'d once).
+══════════════════════════════════════════════════════ */
+const pendingOfflineTimers = new Map(); // userId -> timeout handle
+const OFFLINE_GRACE_MS = 8000;
+
+function cancelPendingOffline(userId) {
+  if (!userId) return;
+  if (pendingOfflineTimers.has(userId)) {
+    clearTimeout(pendingOfflineTimers.get(userId));
+    pendingOfflineTimers.delete(userId);
+  }
+}
+
 /* ══════════════════════════════════════════════════════
    ROOM PARTICIPANTS ROSTER — host-only visibility
-   ------------------------------------------------------
-   Separate from mediasoup's room.peers: this tracks display
-   identity (username/avatar) for every socket in the room,
-   whether or not they ever touch a seat/guest frame. Regular
-   viewers never receive this list — only the current host
-   socket does, via "getParticipants" or the "participantsUpdated"
-   push whenever the roster changes.
 ══════════════════════════════════════════════════════ */
 function getParticipantsMap(room) {
   if (!room.participants) room.participants = new Map();
@@ -94,9 +175,8 @@ function clearGuestSeatsForSocket(room, socketId) {
 }
 
 /* ══════════════════════════════════════════════════════
-   MIC SEATS — now 12 numbered slots: 4 left wing, 4 right
-   wing, 4 bottom row (client-side layout in live-mic-ring.js
-   mirrors this exact distribution).
+   MIC SEATS — 12 numbered slots: 4 left wing, 4 right
+   wing, 4 bottom row.
 ══════════════════════════════════════════════════════ */
 const MIC_SEAT_COUNT = 12;
 
@@ -119,15 +199,16 @@ function clearMicSeatForSocket(room, socketId) {
 module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
-     JOIN ROOM
+     JOIN ROOM  (aliased as "joinLiveRoom" per spec)
   ══════════════════════════════════════════════════════ */
-  socket.on("joinRoom", async ({ roomId, userId }) => {
+  async function handleJoinRoom({ roomId, userId }) {
     try {
       console.log(`[joinRoom] socket=${socket.id} room=${roomId} user=${userId}`);
 
       socket.join(`room:${roomId}`);
       socket.currentRoomId = roomId;
       socket.currentUserId = userId;
+      cancelPendingOffline(userId);
 
       let room = getRoom(roomId);
       if (!room) room = createRoom(roomId);
@@ -140,8 +221,6 @@ module.exports = (io, socket) => {
 
       room.addPeer(socket.id, userId);
 
-      // Host must be resolved from the DB's live_rooms.host_id, never
-      // from "first socket to connect".
       const { rows: roomRows } = await db.query(
         `SELECT host_id FROM live_rooms WHERE id = $1`,
         [roomId]
@@ -172,6 +251,18 @@ module.exports = (io, socket) => {
         [userId, socket.id, roomId]
       );
 
+      // ── Follow-to-live-room presence state ──
+      const presenceStatus = isActualHost ? "HOSTING_LIVE" : "WATCHING_LIVE";
+      const hostName = isActualHost ? null : await resolveHostName(dbHostId);
+      const presencePayload = await presenceService.setPresence(userId, {
+        status: presenceStatus,
+        currentRoomId: roomId,
+        hostId: dbHostId || userId,
+        hostName,
+        socketId: socket.id
+      });
+      broadcastPresenceToFollowers(io, userId, presencePayload).catch(() => {});
+
       // Viewer count
       const roomSockets = io.sockets.adapter.rooms.get(`room:${roomId}`);
       const viewerCount = roomSockets ? roomSockets.size : 0;
@@ -179,9 +270,7 @@ module.exports = (io, socket) => {
       io.to(`room:${roomId}`).emit("viewerCountUpdated", { roomId, viewerCount });
 
       // ── Roster tracking — identity info for the host-only
-      // participants modal. Regular viewers never receive this;
-      // they only learn who's around via the join comment below
-      // and via occupied seats/guest frames.
+      // participants modal.
       const brief = await getUserBrief(userId);
       getParticipantsMap(room).set(socket.id, {
         socketId: socket.id,
@@ -192,9 +281,7 @@ module.exports = (io, socket) => {
       });
       broadcastParticipants(io, room);
 
-      // ── Join announcement — the ONLY way a regular viewer learns
-      // someone new is here (besides seeing them take a seat/guest
-      // frame). Sent to everyone else already in the room.
+      // ── Join announcement
       socket.to(`room:${roomId}`).emit("newComment", {
         roomId,
         system: true,
@@ -223,18 +310,11 @@ module.exports = (io, socket) => {
         rtpCapabilities: room.router.rtpCapabilities
       });
 
-      // Guest-seat snapshot (matchmaker slots) — sent immediately so a
-      // fresh joiner sees who's already up without waiting on anything else.
       socket.emit("guestSeatsUpdated", getGuestSeats(room));
-
-      // Mic-seat snapshot (the 12 slots) — same idea.
       socket.emit("micSeatsUpdated", getMicSeats(room));
 
-      // If this socket just became host, give them the roster right away.
       if (becameHostJustNow) broadcastParticipants(io, room);
 
-      // Wait 150ms before sending existingProducers so the client has
-      // time to load the mediasoup device first.
       if (existingProducers.length > 0) {
         console.log(`[joinRoom] Scheduling existingProducers (${existingProducers.length}) with 150ms delay`);
         setTimeout(() => {
@@ -245,7 +325,6 @@ module.exports = (io, socket) => {
         }, 150);
       }
 
-      // Announce to existing peers
       socket.to(`room:${roomId}`).emit("peerJoined", {
         socketId: socket.id,
         userId,
@@ -256,6 +335,33 @@ module.exports = (io, socket) => {
     } catch (err) {
       console.error("[joinRoom] ❌ Error:", err);
       socket.emit("streamError", { message: "Failed to join room", code: "JOIN_FAILED" });
+    }
+  }
+
+  socket.on("joinRoom", handleJoinRoom);
+  socket.on("joinLiveRoom", handleJoinRoom); // spec alias
+
+  /* ══════════════════════════════════════════════════════
+     START LIVE — explicit presence flip to HOSTING_LIVE,
+     callable the moment a room is created (before the host's
+     live.html even finishes loading mediasoup), so followers
+     get notified as early as possible.
+  ══════════════════════════════════════════════════════ */
+  socket.on("startLive", async ({ roomId, userId }, callback) => {
+    try {
+      cancelPendingOffline(userId);
+      const presencePayload = await presenceService.setPresence(userId, {
+        status: "HOSTING_LIVE",
+        currentRoomId: roomId,
+        hostId: userId,
+        hostName: null,
+        socketId: socket.id
+      });
+      await broadcastPresenceToFollowers(io, userId, presencePayload);
+      callback?.({ ok: true });
+    } catch (err) {
+      console.error("[startLive] ❌", err);
+      callback?.({ error: err.message });
     }
   });
 
@@ -315,10 +421,6 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      PARTICIPANTS ROSTER (host-only)
-     ------------------------------------------------------
-     Returns everyone currently in the room — audience, seated,
-     and guest-frame occupants alike. Only the verified host
-     socket (room.hostSocketId === socket.id) may call this.
   ══════════════════════════════════════════════════════ */
   socket.on("getParticipants", ({ roomId }, callback) => {
     try {
@@ -335,11 +437,6 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      HOST: REMOVE ANY USER FROM THE ENTIRE ROOM
-     ------------------------------------------------------
-     Unlike hostKickSeat/hostKickGuest (which only free a seat or
-     guest slot), this removes the target from the live room
-     completely — audience member, seated speaker, or guest, it
-     doesn't matter. Authority check is server-side only.
   ══════════════════════════════════════════════════════ */
   socket.on("hostKickUser", async ({ roomId, targetSocketId }, callback) => {
     try {
@@ -351,14 +448,12 @@ module.exports = (io, socket) => {
       if (targetSocketId === socket.id) throw new Error("You can't remove yourself");
 
       const targetSocket = io.sockets.sockets.get(targetSocketId);
+      const targetInfo = room.peers.get(targetSocketId);
+      const targetUserId = targetInfo?.userId || null;
 
-      // Free any seat/guest slot they held first, so everyone's
-      // seat view updates immediately.
       if (clearMicSeatForSocket(room, targetSocketId)) broadcastMicSeats(io, roomId, room);
       if (clearGuestSeatsForSocket(room, targetSocketId)) broadcastGuestSeats(io, roomId, room);
 
-      // Tell the target first so their client can tear down local
-      // media/UI gracefully before we force-remove them.
       io.to(targetSocketId).emit("youWereKicked", { roomId });
 
       if (targetSocket) {
@@ -368,14 +463,19 @@ module.exports = (io, socket) => {
       getParticipantsMap(room).delete(targetSocketId);
       broadcastParticipants(io, room);
 
+      if (targetUserId) {
+        const presencePayload = await presenceService.setPresence(targetUserId, {
+          status: "ONLINE", currentRoomId: null, hostId: null, socketId: targetSocketId
+        });
+        broadcastPresenceToFollowers(io, targetUserId, presencePayload).catch(() => {});
+      }
+
       const roomSockets = io.sockets.adapter.rooms.get(`room:${roomId}`);
       const viewerCount = roomSockets ? roomSockets.size : 0;
       await db.query(`UPDATE live_rooms SET viewer_count = $2 WHERE id = $1`, [roomId, viewerCount]);
       io.to(`room:${roomId}`).emit("viewerCountUpdated", { roomId, viewerCount });
       io.to(`room:${roomId}`).emit("peerLeft", { socketId: targetSocketId, userId: null });
 
-      // Give the client a moment to receive "youWereKicked" and react
-      // before we sever the connection outright.
       if (targetSocket) {
         setTimeout(() => {
           try { targetSocket.disconnect(true); } catch (e) {}
@@ -391,7 +491,7 @@ module.exports = (io, socket) => {
   /* ══════════════════════════════════════════════════════
      HOST CONTROLS — kick/mute a mic seat or guest seat.
   ══════════════════════════════════════════════════════ */
-  socket.on("hostKickSeat", ({ roomId, seatIndex }, callback) => {
+  socket.on("hostKickSeat", async ({ roomId, seatIndex }, callback) => {
     try {
       if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
       const room = getRoom(roomId);
@@ -408,6 +508,15 @@ module.exports = (io, socket) => {
       seats[seatIndex] = null;
       broadcastMicSeats(io, roomId, room);
       io.to(occupant.socketId).emit("removedFromSeat", { roomId, seatIndex });
+
+      if (occupant.userId) {
+        const hostUserId = getHostUserId(room);
+        const hostName = await resolveHostName(hostUserId);
+        const presencePayload = await presenceService.setPresence(occupant.userId, {
+          status: "WATCHING_LIVE", currentRoomId: roomId, hostId: hostUserId, hostName, socketId: occupant.socketId
+        });
+        broadcastPresenceToFollowers(io, occupant.userId, presencePayload).catch(() => {});
+      }
 
       callback?.({ ok: true });
     } catch (err) {
@@ -440,7 +549,7 @@ module.exports = (io, socket) => {
     }
   });
 
-  socket.on("hostKickGuest", ({ roomId, slot }, callback) => {
+  socket.on("hostKickGuest", async ({ roomId, slot }, callback) => {
     try {
       if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
       if (slot !== "male" && slot !== "female") throw new Error("Invalid slot");
@@ -455,6 +564,15 @@ module.exports = (io, socket) => {
       seats[slot] = null;
       broadcastGuestSeats(io, roomId, room);
       io.to(occupant.socketId).emit("removedFromSeat", { roomId, slot });
+
+      if (occupant.userId) {
+        const hostUserId = getHostUserId(room);
+        const hostName = await resolveHostName(hostUserId);
+        const presencePayload = await presenceService.setPresence(occupant.userId, {
+          status: "WATCHING_LIVE", currentRoomId: roomId, hostId: hostUserId, hostName, socketId: occupant.socketId
+        });
+        broadcastPresenceToFollowers(io, occupant.userId, presencePayload).catch(() => {});
+      }
 
       callback?.({ ok: true });
     } catch (err) {
@@ -552,7 +670,6 @@ module.exports = (io, socket) => {
         console.log(`[produce] Producer closed: ${producer.id}`);
       });
 
-      // Notify all OTHER peers
       socket.to(`room:${socket.currentRoomId}`).emit("newProducer", {
         producerId: producer.id,
         socketId:   socket.id,
@@ -732,14 +849,7 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     GIFTS
-     "sendGift" handler intentionally does not exist here — the
-     gift broadcast is emitted exclusively from giftController.send()
-     immediately after the gift transaction commits in the database.
-  ══════════════════════════════════════════════════════ */
-
-  /* ══════════════════════════════════════════════════════
-     GUEST SEATS (matchmaker male/female slots)
+     GUEST SEATS (matchmaker male/female slots) -> GUEST_SEAT
   ══════════════════════════════════════════════════════ */
   socket.on("requestGuestSeat", async ({ roomId, slot }, callback) => {
     try {
@@ -749,8 +859,8 @@ module.exports = (io, socket) => {
       if (!room) throw new Error("Room not found");
 
       const seats = getGuestSeats(room);
-      clearGuestSeatsForSocket(room, socket.id); // hop between slots cleanly
-      clearMicSeatForSocket(room, socket.id);    // can't hold a mic seat + guest slot at once
+      clearGuestSeatsForSocket(room, socket.id);
+      clearMicSeatForSocket(room, socket.id);
 
       if (seats[slot]) throw new Error("Seat already taken");
 
@@ -765,20 +875,40 @@ module.exports = (io, socket) => {
       };
       broadcastGuestSeats(io, roomId, room);
       broadcastMicSeats(io, roomId, room);
+
+      const hostUserId = getHostUserId(room);
+      const hostName = await resolveHostName(hostUserId);
+      const presencePayload = await presenceService.setPresence(socket.currentUserId, {
+        status: "GUEST_SEAT", currentRoomId: roomId, hostId: hostUserId, hostName, socketId: socket.id
+      });
+      broadcastPresenceToFollowers(io, socket.currentUserId, presencePayload).catch(() => {});
+
       callback?.({ ok: true, slot });
     } catch (err) {
       callback?.({ error: err.message });
     }
   });
 
-  socket.on("leaveGuestSeat", ({ roomId }, callback) => {
-    if (roomId !== socket.currentRoomId) return callback?.({ error: "Not a member of this room" });
-    const room = getRoom(roomId);
-    if (!room) return callback?.({ error: "Room not found" });
-    if (clearGuestSeatsForSocket(room, socket.id)) {
-      broadcastGuestSeats(io, roomId, room);
+  socket.on("leaveGuestSeat", async ({ roomId }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+
+      if (clearGuestSeatsForSocket(room, socket.id)) {
+        broadcastGuestSeats(io, roomId, room);
+
+        const hostUserId = getHostUserId(room);
+        const hostName = await resolveHostName(hostUserId);
+        const presencePayload = await presenceService.setPresence(socket.currentUserId, {
+          status: "WATCHING_LIVE", currentRoomId: roomId, hostId: hostUserId, hostName, socketId: socket.id
+        });
+        broadcastPresenceToFollowers(io, socket.currentUserId, presencePayload).catch(() => {});
+      }
+      callback?.({ ok: true });
+    } catch (err) {
+      callback?.({ error: err.message });
     }
-    callback?.({ ok: true });
   });
 
   socket.on("toggleGuestMic", ({ roomId, slot }, callback) => {
@@ -802,7 +932,7 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     MIC SEATS (12 slots — 4 left wing, 4 right wing, 4 bottom row)
+     MIC SEATS (12 slots) -> CO_HOST
   ══════════════════════════════════════════════════════ */
   socket.on("requestMicSeat", async ({ roomId, seatIndex }, callback) => {
     try {
@@ -814,8 +944,8 @@ module.exports = (io, socket) => {
       if (!room) throw new Error("Room not found");
 
       const seats = getMicSeats(room);
-      clearMicSeatForSocket(room, socket.id); // hop between seats cleanly
-      clearGuestSeatsForSocket(room, socket.id); // can't hold both at once
+      clearMicSeatForSocket(room, socket.id);
+      clearGuestSeatsForSocket(room, socket.id);
 
       if (seats[seatIndex]) throw new Error("Seat already taken");
 
@@ -830,20 +960,40 @@ module.exports = (io, socket) => {
       };
       broadcastMicSeats(io, roomId, room);
       broadcastGuestSeats(io, roomId, room);
+
+      const hostUserId = getHostUserId(room);
+      const hostName = await resolveHostName(hostUserId);
+      const presencePayload = await presenceService.setPresence(socket.currentUserId, {
+        status: "CO_HOST", currentRoomId: roomId, hostId: hostUserId, hostName, socketId: socket.id
+      });
+      broadcastPresenceToFollowers(io, socket.currentUserId, presencePayload).catch(() => {});
+
       callback?.({ ok: true, seatIndex });
     } catch (err) {
       callback?.({ error: err.message });
     }
   });
 
-  socket.on("leaveMicSeat", ({ roomId }, callback) => {
-    if (roomId !== socket.currentRoomId) return callback?.({ error: "Not a member of this room" });
-    const room = getRoom(roomId);
-    if (!room) return callback?.({ error: "Room not found" });
-    if (clearMicSeatForSocket(room, socket.id)) {
-      broadcastMicSeats(io, roomId, room);
+  socket.on("leaveMicSeat", async ({ roomId }, callback) => {
+    try {
+      if (roomId !== socket.currentRoomId) throw new Error("Not a member of this room");
+      const room = getRoom(roomId);
+      if (!room) throw new Error("Room not found");
+
+      if (clearMicSeatForSocket(room, socket.id)) {
+        broadcastMicSeats(io, roomId, room);
+
+        const hostUserId = getHostUserId(room);
+        const hostName = await resolveHostName(hostUserId);
+        const presencePayload = await presenceService.setPresence(socket.currentUserId, {
+          status: "WATCHING_LIVE", currentRoomId: roomId, hostId: hostUserId, hostName, socketId: socket.id
+        });
+        broadcastPresenceToFollowers(io, socket.currentUserId, presencePayload).catch(() => {});
+      }
+      callback?.({ ok: true });
+    } catch (err) {
+      callback?.({ error: err.message });
     }
-    callback?.({ ok: true });
   });
 
   socket.on("toggleSeatMic", ({ roomId, seatIndex }, callback) => {
@@ -866,11 +1016,28 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     LIVE ENDED
+     LIVE ENDED — every connected participant's presence
+     resets to ONLINE and their followers are notified.
   ══════════════════════════════════════════════════════ */
   socket.on("liveEnded", async ({ roomId }) => {
     try {
+      const room = getRoom(roomId);
+
       io.to(`room:${roomId}`).emit("liveEnded", { roomId });
+
+      if (room) {
+        const affectedUserIds = [];
+        for (const [, peerInfo] of room.peers) {
+          if (peerInfo.userId) affectedUserIds.push(peerInfo.userId);
+        }
+        for (const uid of affectedUserIds) {
+          const presencePayload = await presenceService.setPresence(uid, {
+            status: "ONLINE", currentRoomId: null, hostId: null
+          });
+          broadcastPresenceToFollowers(io, uid, presencePayload).catch(() => {});
+        }
+      }
+
       closeRoom(roomId);
 
       await db.query(
@@ -883,24 +1050,42 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     LEAVE ROOM
+     LEAVE ROOM  (aliased as "leaveLive" per spec)
   ══════════════════════════════════════════════════════ */
-  socket.on("leaveRoom", async ({ roomId }) => {
+  async function handleLeaveRoom({ roomId }) {
     try {
       socket.leave(`room:${roomId}`);
-      await _handlePeerLeave(io, socket, roomId);
+      await _handlePeerLeave(io, socket, roomId, { isFullDisconnect: false });
     } catch (err) {
       console.error("[leaveRoom] ❌", err);
     }
-  });
+  }
+
+  socket.on("leaveRoom", handleLeaveRoom);
+  socket.on("leaveLive", handleLeaveRoom); // spec alias
 
   /* ══════════════════════════════════════════════════════
-     REGISTER USER
+     REGISTER USER — joins the personal notification room used
+     for presenceUpdated broadcasts, and defaults presence to
+     ONLINE if nothing richer is already tracked. Also cancels
+     any pending OFFLINE grace timer from a recent disconnect.
   ══════════════════════════════════════════════════════ */
-  socket.on("registerUser", (userId) => {
-    if (userId) {
-      socket.join(`user:${userId}`);
-      console.log(`[registerUser] userId=${userId} socket=${socket.id}`);
+  socket.on("registerUser", async (userId) => {
+    if (!userId) return;
+    socket.join(`user:${userId}`);
+    socket.currentUserId = socket.currentUserId || userId;
+    console.log(`[registerUser] userId=${userId} socket=${socket.id}`);
+
+    cancelPendingOffline(userId);
+
+    try {
+      const existing = await presenceService.getPresence(userId);
+      if (!existing.currentRoomId) {
+        const payload = await presenceService.setPresence(userId, { status: "ONLINE", socketId: socket.id });
+        broadcastPresenceToFollowers(io, userId, payload).catch(() => {});
+      }
+    } catch (err) {
+      console.error("[registerUser] presence init failed:", err.message);
     }
   });
 
@@ -929,7 +1114,15 @@ module.exports = (io, socket) => {
       }
 
       if (currentRoomId) {
-        await _handlePeerLeave(io, socket, currentRoomId);
+        await _handlePeerLeave(io, socket, currentRoomId, { isFullDisconnect: true });
+      } else if (currentUserId) {
+        // Not in a room, just dropped the socket entirely.
+        const timer = setTimeout(async () => {
+          pendingOfflineTimers.delete(currentUserId);
+          const payload = await presenceService.setOffline(currentUserId);
+          broadcastPresenceToFollowers(io, currentUserId, payload).catch(() => {});
+        }, OFFLINE_GRACE_MS);
+        pendingOfflineTimers.set(currentUserId, timer);
       }
 
       const { removeSocketTransports } = require("../mediasoup/transport");
@@ -941,30 +1134,48 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      INTERNAL: PEER LEAVE CLEANUP
+     - isFullDisconnect=false (explicit "leaveRoom"/"leaveLive"):
+       user is still connected, just left the room -> ONLINE now.
+     - isFullDisconnect=true (socket dropped): grace-period timer
+       before flipping to OFFLINE, so quick reconnects don't flicker.
   ══════════════════════════════════════════════════════ */
-  async function _handlePeerLeave(io, socket, roomId) {
+  async function _handlePeerLeave(io, socket, roomId, { isFullDisconnect = false } = {}) {
     const room = getRoom(roomId);
     if (room) {
       const wasHost = room.hostSocketId === socket.id;
       room.removePeer(socket.id);
 
-      // Free any guest seat this socket held, and tell everyone.
       if (clearGuestSeatsForSocket(room, socket.id)) {
         io.to(`room:${roomId}`).emit("guestSeatsUpdated", getGuestSeats(room));
       }
 
-      // Same cleanup for mic seats.
       if (clearMicSeatForSocket(room, socket.id)) {
         io.to(`room:${roomId}`).emit("micSeatsUpdated", getMicSeats(room));
       }
 
-      // Remove from the roster and let the host's modal (if open) update.
       getParticipantsMap(room).delete(socket.id);
       broadcastParticipants(io, room);
 
       if (wasHost) {
         room.hostSocketId = null;
         io.to(`room:${roomId}`).emit("hostLeft", { roomId });
+      }
+    }
+
+    const userId = socket.currentUserId;
+    if (userId) {
+      if (isFullDisconnect) {
+        const timer = setTimeout(async () => {
+          pendingOfflineTimers.delete(userId);
+          const payload = await presenceService.setOffline(userId);
+          broadcastPresenceToFollowers(io, userId, payload).catch(() => {});
+        }, OFFLINE_GRACE_MS);
+        pendingOfflineTimers.set(userId, timer);
+      } else {
+        const payload = await presenceService.setPresence(userId, {
+          status: "ONLINE", currentRoomId: null, hostId: null, socketId: socket.id
+        });
+        broadcastPresenceToFollowers(io, userId, payload).catch(() => {});
       }
     }
 

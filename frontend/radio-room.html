@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lovecruise — Radio Room</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+
+  /* ── CO-HOST / CALLER UI ── */
+.cohost-strip {
+  display: flex; align-items: center; gap: 8px; margin: 10px 16px 0;
+  overflow-x: auto;
+}
+.cohost-chip {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 10px 5px 5px; font-size: 11.5px; font-weight: 700;
+}
+.cohost-chip img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.cohost-chip .rm { background: none; border: none; color: #ff3d7f; cursor: pointer; font-size: 13px; padding: 0 2px; }
+.cohost-request-btn {
+  background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.3); color: #a05aff;
+}
+.cohost-request-btn.pending { opacity: .6; pointer-events: none; }
+
+.cohost-requests-sheet .req-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.cohost-requests-sheet .req-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.cohost-requests-sheet .req-row .rn { flex: 1; font-size: 13px; font-weight: 700; }
+.cohost-approve-btn, .cohost-reject-btn {
+  border: none; border-radius: 10px; padding: 6px 12px; font-size: 11.5px; font-weight: 800; cursor: pointer;
+}
+.cohost-approve-btn { background: #00d9b5; color: #00231d; }
+.cohost-reject-btn { background: rgba(255,61,127,.15); color: #ff3d7f; margin-left: 6px; }
+
+/* ── LIVE POLL WIDGET ── */
+.poll-widget {
+  display: none; margin: 12px 16px 0; padding: 14px; background: var(--surface);
+  border: 1px solid rgba(160,90,255,.3); border-radius: 18px;
+}
+.poll-widget.show { display: block; }
+.poll-question { font-size: 13.5px; font-weight: 800; margin-bottom: 10px; }
+.poll-option { position: relative; margin-bottom: 8px; cursor: pointer; }
+.poll-option-bar {
+  position: absolute; inset: 0; background: rgba(160,90,255,.15); border-radius: 12px;
+  width: 0%; transition: width .4s;
+}
+.poll-option-label {
+  position: relative; z-index: 1; display: flex; justify-content: space-between;
+  padding: 9px 12px; font-size: 12.5px; font-weight: 700; border: 1px solid var(--border); border-radius: 12px;
+}
+.poll-option.voted .poll-option-label { border-color: #a05aff; }
+.poll-total { font-size: 10.5px; color: var(--text-dim); margin-top: 4px; }
+.poll-close-btn {
+  margin-top: 8px; width: 100%; background: rgba(255,61,127,.12); color: #ff3d7f;
+  border: 1px solid rgba(255,61,127,.3); border-radius: 10px; padding: 8px; font-size: 11.5px; font-weight: 800; cursor: pointer;
+}
+/* ══════════════════════════════════════════
+   TOPBAR
+══════════════════════════════════════════ */
+.room-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 20;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+.topbar-icon-btn {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; flex: none; text-decoration: none;
+}
+.room-topbar-info { flex: 1; min-width: 0; }
+.room-topbar-info strong { font-size: 14.5px; font-weight: 800; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-topbar-info small { font-size: 11.5px; color: var(--text-dim); display: flex; align-items: center; gap: 5px; }
+.live-pill-sm {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255,61,127,.92); color: #fff; font-size: 9px; font-weight: 900;
+  padding: 2px 7px; border-radius: 7px; letter-spacing: .04em;
+}
+.live-pill-sm .dot { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse-anim 1.4s infinite; }
+@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.7)} }
+
+/* ══════════════════════════════════════════
+   HERO / PLAYER
+══════════════════════════════════════════ */
+.radio-hero {
+  position: relative; margin: 14px 16px 0; border-radius: 24px; overflow: hidden;
+  background: linear-gradient(155deg, #1a1420 0%, #241428 60%, #1a1420 100%);
+  border: 1px solid rgba(255,61,127,.25);
+  padding: 26px 20px 22px; text-align: center;
+}
+.radio-hero-glow {
+  position: absolute; inset: -30% -10% auto -10%; height: 160%;
+  background: radial-gradient(circle at 30% 20%, rgba(255,61,127,.22), transparent 60%),
+              radial-gradient(circle at 80% 70%, rgba(160,90,255,.18), transparent 55%);
+  pointer-events: none;
+}
+.station-cover-wrap { position: relative; width: 148px; height: 148px; margin: 0 auto; }
+.station-cover-ring {
+  width: 100%; height: 100%; border-radius: 28px; padding: 4px;
+  background: conic-gradient(from 220deg, #ff3d7f, #ffc857, #00d9b5, #a05aff, #ff3d7f);
+  box-shadow: 0 10px 34px rgba(255,61,127,.35);
+}
+.station-cover-ring.spinning { animation: cover-spin 8s linear infinite; }
+@keyframes cover-spin { from { filter: hue-rotate(0deg);} to { filter: hue-rotate(360deg);} }
+.station-cover-ring img { width: 100%; height: 100%; border-radius: 24px; object-fit: cover; display: block; border: 3px solid #1a1420; }
+.station-title-lg { font-size: 19px; font-weight: 900; margin-top: 16px; position: relative; }
+.station-host-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; position: relative; }
+.station-host-row img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.station-host-row span { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
+.listener-count-lg { font-size: 12px; color: var(--text-dim); margin-top: 8px; position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; }
+
+.player-controls-row { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; position: relative; }
+.play-toggle-btn {
+  width: 62px; height: 62px; border-radius: 50%; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #ff3d7f, #a05aff); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 26px rgba(255,61,127,.4); transition: transform .15s;
+  font-size: 24px;
+}
+.play-toggle-btn:active { transform: scale(.92); }
+.vol-btn, .follow-mini-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 17px;
+}
+.follow-mini-btn.following { color: #ff3d7f; border-color: rgba(255,61,127,.4); background: rgba(255,61,127,.08); }
+.buffering-hint { font-size: 11px; color: var(--text-dim); margin-top: 10px; position: relative; display: none; }
+.buffering-hint.show { display: block; }
+
+/* ══════════════════════════════════════════
+   TOP GIFTERS STRIP
+══════════════════════════════════════════ */
+.top-gifters-strip {
+  display: flex; align-items: center; gap: 6px; margin: 14px 16px 0;
+  padding: 10px 14px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; overflow-x: auto;
+}
+.top-gifters-strip img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid var(--bg); margin-left: -8px; flex: none; }
+.top-gifters-strip img:first-child { margin-left: 0; }
+.top-gifters-strip .label { font-size: 11px; color: var(--text-dim); margin-left: 8px; font-weight: 700; white-space: nowrap; }
+
+/* ══════════════════════════════════════════
+   ACTION ROW (gift / request / share)
+══════════════════════════════════════════ */
+.room-actions-row { display: flex; gap: 10px; margin: 14px 16px 0; }
+.room-action-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 6px; border-radius: 16px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700;
+}
+.room-action-btn .ic { font-size: 19px; }
+.room-action-btn.gift { color: #ffc857; border-color: rgba(255,200,87,.3); background: rgba(255,200,87,.06); }
+
+/* ══════════════════════════════════════════
+   CHAT
+══════════════════════════════════════════ */
+.chat-section { margin: 16px 16px 0; padding: 0 0 100px; }
+.chat-title { font-size: 12.5px; font-weight: 800; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.chat-scroll {
+  height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.chat-row { display: flex; gap: 8px; align-items: flex-start; }
+.chat-row img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; margin-top: 2px; }
+.chat-bubble { background: var(--bg); border-radius: 14px; padding: 7px 12px; font-size: 12.5px; line-height: 1.45; max-width: 100%; }
+.chat-bubble .uname { font-weight: 800; color: #ff3d7f; margin-right: 5px; }
+.chat-row.system { justify-content: center; }
+.chat-row.system .chat-bubble { background: transparent; color: var(--text-dim); font-size: 11px; text-align: center; }
+.chat-row.gift .chat-bubble { background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); }
+.chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
+.chat-input-row input {
+  flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+  padding: 11px 16px; color: var(--text); font-size: 13.5px; outline: none;
+}
+.chat-send-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: none; background: #ff3d7f;
+  color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none;
+}
+
+/* ══════════════════════════════════════════
+   FLOATING REACTIONS
+══════════════════════════════════════════ */
+.fx-layer { position: fixed; bottom: 110px; right: 10px; width: 60px; height: 200px; pointer-events: none; z-index: 15; }
+.fx-particle { position: absolute; bottom: 0; right: 10px; font-size: 22px; animation: float-up 2.6s ease-out forwards; }
+@keyframes float-up {
+  0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(-180px) translateX(var(--drift, 0)) rotate(var(--rot, 0deg)); opacity: 0; }
+}
+.reaction-row { display: flex; gap: 10px; justify-content: center; margin: 12px 16px 0; }
+.reaction-btn {
+  width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface); font-size: 19px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ══════════════════════════════════════════
+   HOST-ONLY BAR
+══════════════════════════════════════════ */
+.host-bar {
+  display: none; align-items: center; gap: 10px; margin: 14px 16px 0;
+  padding: 12px 14px; background: rgba(255,61,127,.08); border: 1px solid rgba(255,61,127,.25);
+  border-radius: 16px; flex-wrap: wrap;
+}
+.host-bar.show { display: flex; }
+.host-bar .htxt { flex: 1; font-size: 12px; color: var(--text-dim); min-width: 100%; margin-bottom: 4px; }
+.end-live-room-btn {
+  background: #ff3d7f; color: #fff; border: none; border-radius: 14px;
+  padding: 9px 16px; font-size: 12.5px; font-weight: 800; cursor: pointer; flex: none;
+}
+
+/* ══════════════════════════════════════════
+   SHEETS (gift / song request) — same pattern as live.js
+══════════════════════════════════════════ */
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+.bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 80vh; overflow-y: auto; }
+.bottom-sheet.open { bottom: 0; }
+.sheet-handle { width: 38px; height: 4px; background: var(--border); border-radius: 2px; margin: 14px auto 20px; }
+.sheet-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.sheet-title-row span { font-size: 16px; font-weight: 900; }
+.gift-balance-pill { display: flex; align-items: center; gap: 5px; background: rgba(255,200,87,.12); border: 1px solid rgba(255,200,87,.25); border-radius: 20px; padding: 5px 12px; font-size: 13px; font-weight: 700; color: #ffc857; }
+.gift-modal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-bottom: 16px; max-height: 260px; overflow-y: auto; }
+.gift-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px; padding: 12px 4px; cursor: pointer; }
+.gift-tile.selected { border-color: #ff3d7f; background: rgba(255,61,127,.08); }
+.gift-tile .g-emoji { font-size: 22px; }
+.gift-tile .g-name { font-size: 9.5px; font-weight: 700; color: var(--text-dim); text-align: center; }
+.gift-tile .g-price { font-size: 9.5px; font-weight: 800; color: #ffc857; }
+.gift-send-btn { width: 100%; height: 50px; border-radius: 16px; font-size: 14px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg, #ff3d7f, #c2185b); color: #fff; }
+.gift-send-btn:disabled { opacity: .4; cursor: not-allowed; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
+.form-group input { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; }
+.save-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
+
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="screen" style="padding:0;overflow-y:auto;">
+
+    <div class="room-topbar">
+      <a href="radio-discover.html" class="topbar-icon-btn" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="17" height="17"><polyline points="15 18 9 12 15 6"/></svg>
+      </a>
+      <div class="room-topbar-info">
+        <strong id="topbar-station-title">Loading…</strong>
+        <small><span class="live-pill-sm"><span class="dot"></span>LIVE</span> <span id="topbar-listener-count">0</span> listening</small>
+      </div>
+      <button class="topbar-icon-btn" id="share-btn" aria-label="Share">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      </button>
+    </div>
+
+    <div class="radio-hero">
+      <div class="radio-hero-glow"></div>
+      <div class="station-cover-wrap">
+        <div class="station-cover-ring" id="cover-ring">
+          <img id="station-cover" src="" alt="">
+        </div>
+      </div>
+      <div class="station-title-lg" id="station-title">Loading…</div>
+      <div class="station-host-row">
+        <img id="host-avatar" src="https://i.pravatar.cc/100?img=3" alt="">
+        <span id="host-name">Host</span>
+      </div>
+      <div class="listener-count-lg">🎧 <span id="listener-count">0</span> listening now</div>
+
+      <div class="player-controls-row">
+        <button class="vol-btn" id="vol-btn" aria-label="Mute">🔊</button>
+        <button class="play-toggle-btn" id="play-toggle-btn" aria-label="Play">▶</button>
+        <button class="follow-mini-btn" id="follow-mini-btn" aria-label="Follow">➕</button>
+      </div>
+      <div class="buffering-hint" id="buffering-hint">Buffering…</div>
+    </div>
+
+    <div class="host-bar" id="host-bar">
+      <span class="htxt">You're broadcasting live to this station</span>
+      <button class="end-live-room-btn" id="open-cohost-requests-btn" style="background:#a05aff;margin-right:8px;">🙋 Requests</button>
+      <button class="end-live-room-btn" id="open-create-poll-btn" style="background:#00d9b5;color:#00231d;margin-right:8px;">📊 Poll</button>
+      <button class="end-live-room-btn" id="end-live-room-btn">End broadcast</button>
+    </div>
+
+    <div class="top-gifters-strip" id="top-gifters-strip">
+      <span class="label">Loading top gifters…</span>
+    </div>
+
+    <div class="cohost-strip" id="cohost-strip" style="display:none;"></div>
+    <div class="poll-widget" id="poll-widget"></div>
+
+    <div class="reaction-row">
+      <button class="reaction-btn" id="heart-btn">❤️</button>
+      <button class="reaction-btn" id="fire-btn">🔥</button>
+      <button class="reaction-btn" id="clap-btn">👏</button>
+      <button class="reaction-btn" id="laugh-btn">😂</button>
+    </div>
+
+    <div class="room-actions-row">
+      <button class="room-action-btn gift" id="open-gift-sheet-btn"><span class="ic">🎁</span>Send gift</button>
+      <button class="room-action-btn" id="open-request-sheet-btn"><span class="ic">🎵</span>Request song</button>
+      <button class="room-action-btn cohost-request-btn" id="request-cohost-btn"><span class="ic">🙋</span>Join as caller</button>
+      <button class="room-action-btn" id="leave-room-btn"><span class="ic">🚪</span>Leave</button>
+    </div>
+
+    <div class="chat-section">
+      <div class="chat-title">Live chat</div>
+      <div class="chat-scroll" id="chat-scroll"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Say something…" maxlength="200">
+        <button class="chat-send-btn" id="chat-send-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="fx-layer" id="fx-layer"></div>
+
+<!-- ── GIFT SHEET ── -->
+<div class="sheet-backdrop" id="gift-backdrop"></div>
+<div class="bottom-sheet" id="gift-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row">
+    <span>Send a Gift</span>
+    <span class="gift-balance-pill">🪙 <span id="gift-balance">0</span></span>
+  </div>
+  <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Gifting <b style="color:#ff3d7f" id="gift-target-name">Host</b></div>
+  <div class="gift-modal-grid" id="gift-modal-grid"></div>
+  <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
+</div>
+
+<!-- ── SONG REQUEST SHEET ── -->
+<div class="sheet-backdrop" id="request-backdrop"></div>
+<div class="bottom-sheet" id="request-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>Request a Song</span></div>
+  <div class="form-group"><label>Song name</label><input type="text" id="request-song" placeholder="e.g. Love Nwantiti" maxlength="150"></div>
+  <div class="form-group"><label>Artist (optional)</label><input type="text" id="request-artist" placeholder="e.g. CKay" maxlength="100"></div>
+  <button class="save-btn" id="request-send-btn">Send Request</button>
+</div>
+
+<!-- ── CO-HOST REQUESTS SHEET (host only) ── -->
+<div class="sheet-backdrop" id="cohost-requests-backdrop"></div>
+<div class="bottom-sheet cohost-requests-sheet" id="cohost-requests-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>Caller Requests</span></div>
+  <div id="cohost-requests-list" style="max-height:50vh;overflow-y:auto;"></div>
+</div>
+
+<!-- ── CREATE POLL SHEET (host only) ── -->
+<div class="sheet-backdrop" id="create-poll-backdrop"></div>
+<div class="bottom-sheet" id="create-poll-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>Start a Poll</span></div>
+  <div class="form-group"><label>Question</label><input type="text" id="poll-question" placeholder="e.g. Who's your favorite host?" maxlength="150"></div>
+  <div class="form-group"><label>Option 1</label><input type="text" id="poll-opt-0" maxlength="60"></div>
+  <div class="form-group"><label>Option 2</label><input type="text" id="poll-opt-1" maxlength="60"></div>
+  <div class="form-group"><label>Option 3 (optional)</label><input type="text" id="poll-opt-2" maxlength="60"></div>
+  <div class="form-group"><label>Option 4 (optional)</label><input type="text" id="poll-opt-3" maxlength="60"></div>
+  <button class="save-btn" id="poll-create-btn">Start Poll</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script type="module">
+import "./js/api.js";
+import "./js/app.js";
+
+if (!requireAuthOrRedirect()) { throw new Error("auth required"); }
+
+/* ══════════════════════════════════════════
+   URL / STATE
+══════════════════════════════════════════ */
+const params      = new URLSearchParams(window.location.search);
+const broadcastId = params.get("id");
+if (!broadcastId) showToast("Invalid broadcast link");
+
+let broadcast     = null;
+let isHost        = false;
+let following     = false;
+let isPlaying     = false;
+let isMuted       = false;
+let hlsInstance   = null;
+let GIFT_LIST     = [];
+let selectedGift  = null;
+let coinBalance   = Number(window.CURRENT_USER?.coinBalance ?? window.CURRENT_USER?.coin_balance ?? 0);
+
+const audioEl = new Audio();
+audioEl.preload = "none";
+
+/* ══════════════════════════════════════════
+   SOCKET (shared connection pattern from live.js /
+   stream.socket.js — radio.socket.js on the backend
+   handles: joinRadio, leaveRadio, radioComment ->
+   newRadioComment, radioReaction -> newRadioReaction,
+   listenerCountUpdated, radioEnded, radioGiftReceived,
+   topRadioGiftersUpdated, plus Phase 2: radioCohosts*,
+   radioPoll*)
+══════════════════════════════════════════ */
+const socket = io(window.API_BASE_URL.replace("/api", ""), {
+  transports: ["websocket"],
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+});
+
+function $(id) { return document.getElementById(id); }
+
+/* ══════════════════════════════════════════
+   LOAD BROADCAST
+══════════════════════════════════════════ */
+async function loadBroadcast() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}`);
+    broadcast = res.data;
+    renderBroadcast(broadcast);
+    return broadcast;
+  } catch (err) {
+    console.error("[loadBroadcast] ❌", err);
+    showToast("Couldn't load this broadcast");
+    return null;
+  }
+}
+
+function renderBroadcast(b) {
+  const cover = b.station_cover ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(b.station_title||"Radio")}&background=ff3d7f&color=fff&size=300`;
+  const hostAv = b.avatar_url ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(b.username||"Host")}&size=80`;
+
+  $("station-cover").src = cover;
+  $("station-title").textContent = b.title || b.station_title || "Live Radio";
+  $("topbar-station-title").textContent = b.title || b.station_title || "Live Radio";
+  $("host-avatar").src = hostAv;
+  $("host-name").textContent = b.display_name || b.username || "Host";
+  $("gift-target-name").textContent = b.display_name || b.username || "Host";
+
+  isHost = String(b.host_id) === String(window.CURRENT_USER?.id);
+  $("host-bar").classList.toggle("show", isHost);
+  if (isHost) $("open-gift-sheet-btn").style.display = "none";
+
+  // ── Phase 2: hide host-only controls from listeners, and hide
+  // the "Join as caller" button for the host themself.
+  if (isHost) {
+    $("request-cohost-btn").style.display = "none";
+  } else {
+    $("open-cohost-requests-btn")?.remove();
+    $("open-create-poll-btn")?.remove();
+  }
+
+  if (b.listener_count != null) updateListenerCount(b.listener_count);
+
+  if (b.hls_playlist_url) initPlayer(b.hls_playlist_url);
+}
+
+function updateListenerCount(n) {
+  $("listener-count").textContent = formatCoins(n || 0);
+  $("topbar-listener-count").textContent = formatCoins(n || 0);
+}
+
+/* ══════════════════════════════════════════
+   HLS PLAYER
+══════════════════════════════════════════ */
+function initPlayer(url) {
+  if (window.Hls && Hls.isSupported()) {
+    hlsInstance = new Hls({ liveDurationInfinity: true, lowLatencyMode: true });
+    hlsInstance.loadSource(url);
+    hlsInstance.attachMedia(audioEl);
+    hlsInstance.on(Hls.Events.ERROR, (evt, data) => {
+      if (data.fatal) {
+        console.error("[hls] fatal error:", data);
+        showToast("Stream connection lost — retrying…");
+        setTimeout(() => hlsInstance?.startLoad(), 2000);
+      }
+    });
+  } else if (audioEl.canPlayType("application/vnd.apple.mpegurl")) {
+    audioEl.src = url;
+  } else {
+    showToast("Audio streaming isn't supported on this browser");
+  }
+}
+
+audioEl.addEventListener("waiting", () => $("buffering-hint").classList.add("show"));
+audioEl.addEventListener("playing", () => $("buffering-hint").classList.remove("show"));
+
+function togglePlay() {
+  if (!isPlaying) {
+    audioEl.play().then(() => {
+      isPlaying = true;
+      $("cover-ring").classList.add("spinning");
+      $("play-toggle-btn").innerHTML = "⏸";
+    }).catch(err => {
+      console.error("[togglePlay] ❌", err);
+      showToast("Couldn't start playback");
+    });
+  } else {
+    audioEl.pause();
+    isPlaying = false;
+    $("cover-ring").classList.remove("spinning");
+    $("play-toggle-btn").innerHTML = "▶";
+  }
+}
+
+function toggleMute() {
+  isMuted = !isMuted;
+  audioEl.muted = isMuted;
+  $("vol-btn").textContent = isMuted ? "🔇" : "🔊";
+}
+
+/* ══════════════════════════════════════════
+   JOIN / LEAVE (REST + socket)
+══════════════════════════════════════════ */
+async function joinBroadcast() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}/join`, { method: "POST" });
+    if (res.data?.listenerCount != null) updateListenerCount(res.data.listenerCount);
+  } catch (err) {
+    console.error("[joinBroadcast] ❌", err);
+    if (err.message?.includes("members-only") || err.message?.includes("subscribe")) {
+      showToast(err.message);
+    }
+  }
+  socket.emit("joinRadio", { broadcastId, userId: window.CURRENT_USER.id });
+}
+
+async function leaveBroadcast() {
+  try { await api.request(`/radio/broadcasts/${broadcastId}/leave`, { method: "POST" }); } catch (e) {}
+  socket.emit("leaveRadio", { broadcastId, userId: window.CURRENT_USER.id });
+}
+
+/* ══════════════════════════════════════════
+   FOLLOW (station-level follow — reuses /radio/stations/:id/follow)
+══════════════════════════════════════════ */
+async function toggleFollow() {
+  if (!broadcast?.station_id) return;
+  const btn = $("follow-mini-btn");
+  try {
+    if (!following) {
+      await api.request(`/radio/stations/${broadcast.station_id}/follow`, { method: "POST" });
+      following = true; btn.textContent = "✓"; btn.classList.add("following");
+      showToast("Following station");
+    } else {
+      await api.request(`/radio/stations/${broadcast.station_id}/follow`, { method: "DELETE" });
+      following = false; btn.textContent = "➕"; btn.classList.remove("following");
+    }
+  } catch (err) { showToast(err.message || "Action failed"); }
+}
+
+/* ══════════════════════════════════════════
+   CHAT
+══════════════════════════════════════════ */
+function appendChat({ avatar, name, text, type = "chat" }) {
+  const wrap = $("chat-scroll");
+  const row = document.createElement("div");
+  row.className = `chat-row ${type === "gift" ? "gift" : type === "system" ? "system" : ""}`;
+  row.innerHTML = (type !== "system")
+    ? `<img src="${escapeHtml(avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(name||"U")}&size=40`)}" alt=""><div class="chat-bubble"><span class="uname">${escapeHtml(name||"User")}</span>${escapeHtml(text)}</div>`
+    : `<div class="chat-bubble">${escapeHtml(text)}</div>`;
+  wrap.appendChild(row);
+  while (wrap.children.length > 80) wrap.removeChild(wrap.firstChild);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function sendChat() {
+  const input = $("chat-input");
+  const text = input.value.trim();
+  if (!text || text.length > 200) return;
+  socket.emit("radioComment", {
+    broadcastId,
+    userId: window.CURRENT_USER.id,
+    avatar: window.CURRENT_USER.avatar_url || window.CURRENT_USER.avatarUrl,
+    name: window.CURRENT_USER.username || window.CURRENT_USER.display_name,
+    text
+  });
+  input.value = "";
+}
+
+/* ══════════════════════════════════════════
+   REACTIONS
+══════════════════════════════════════════ */
+function sendReaction(emoji) {
+  socket.emit("radioReaction", { broadcastId, emoji, userId: window.CURRENT_USER.id });
+  spawnParticle(emoji);
+}
+function spawnParticle(emoji) {
+  const layer = $("fx-layer");
+  const el = document.createElement("span");
+  el.className = "fx-particle";
+  el.textContent = emoji;
+  el.style.setProperty("--drift", `${(Math.random()*60-30).toFixed(0)}px`);
+  el.style.setProperty("--rot", `${(Math.random()*30-15).toFixed(0)}deg`);
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 2700);
+}
+
+/* ══════════════════════════════════════════
+   TOP GIFTERS
+══════════════════════════════════════════ */
+async function loadTopGifters() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}/top-gifters`);
+    renderTopGifters(res.data || []);
+  } catch (err) {
+    $("top-gifters-strip").innerHTML = `<span class="label">No gifters yet</span>`;
+  }
+}
+function renderTopGifters(list) {
+  const el = $("top-gifters-strip");
+  if (!list.length) { el.innerHTML = `<span class="label">Be the first to gift 🎁</span>`; return; }
+  el.innerHTML = list.map(u =>
+    `<img src="${escapeHtml(u.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.username)}&size=60`)}" alt="${escapeHtml(u.username)}" title="${escapeHtml(u.username)} · ${formatCoins(u.total)} coins" onerror="this.src='https://i.pravatar.cc/60'">`
+  ).join("") + `<span class="label">Top Gifters</span>`;
+}
+
+/* ══════════════════════════════════════════
+   GIFTS
+══════════════════════════════════════════ */
+async function loadGiftCatalog() {
+  try {
+    const r = await api.request("/gifts");
+    GIFT_LIST = r.data || [];
+  } catch (err) {
+    GIFT_LIST = [
+      {id:"g1",name:"Rose",emoji:"🌹",price_coins:5},
+      {id:"g2",name:"Heart",emoji:"❤️",price_coins:10},
+      {id:"g3",name:"Crown",emoji:"👑",price_coins:500}
+    ];
+  }
+  renderGiftGrid();
+}
+function renderGiftGrid() {
+  const grid = $("gift-modal-grid");
+  grid.innerHTML = GIFT_LIST.map(g => `<div class="gift-tile" data-id="${g.id}"><span class="g-emoji">${g.emoji||"🎁"}</span><span class="g-name">${escapeHtml(g.name)}</span><span class="g-price">${g.price_coins}🪙</span></div>`).join("");
+  grid.querySelectorAll(".gift-tile").forEach(t => t.addEventListener("click", () => {
+    grid.querySelectorAll(".gift-tile").forEach(x => x.classList.remove("selected"));
+    t.classList.add("selected");
+    selectedGift = GIFT_LIST.find(g => String(g.id) === t.dataset.id);
+    const btn = $("gift-send-btn");
+    btn.disabled = false;
+    btn.textContent = `Send ${selectedGift.emoji||"🎁"} ${selectedGift.name} (${selectedGift.price_coins} coins)`;
+  }));
+}
+function openGiftSheet() {
+  $("gift-balance").textContent = formatCoins(coinBalance);
+  $("gift-backdrop").classList.add("open");
+  $("gift-sheet").classList.add("open");
+}
+function closeGiftSheet() {
+  $("gift-backdrop").classList.remove("open");
+  $("gift-sheet").classList.remove("open");
+}
+async function sendSelectedGift() {
+  if (!selectedGift || !broadcast) return;
+  if (coinBalance < selectedGift.price_coins) { showToast("Not enough coins"); setTimeout(() => window.location.href = "coins.html", 700); return; }
+  try {
+    await api.request("/gifts/send", {
+      method: "POST",
+      body: JSON.stringify({
+        receiverId: broadcast.host_id,
+        giftId: selectedGift.id,
+        quantity: 1,
+        contextType: "radio_broadcast",
+        contextId: broadcastId
+      })
+    });
+    coinBalance -= selectedGift.price_coins;
+    persistCurrentUser({ coinBalance, coin_balance: coinBalance });
+    showToast(`🎁 Sent ${selectedGift.name}!`);
+    closeGiftSheet();
+  } catch (err) {
+    showToast(err.message || "Gift failed");
+  }
+}
+
+/* ══════════════════════════════════════════
+   SONG REQUEST
+══════════════════════════════════════════ */
+function openRequestSheet() {
+  $("request-backdrop").classList.add("open");
+  $("request-sheet").classList.add("open");
+}
+function closeRequestSheet() {
+  $("request-backdrop").classList.remove("open");
+  $("request-sheet").classList.remove("open");
+}
+async function sendSongRequest() {
+  const songName = $("request-song").value.trim();
+  const artistName = $("request-artist").value.trim();
+  if (!songName) { showToast("Enter a song name"); return; }
+  const btn = $("request-send-btn");
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/song-request`, {
+      method: "POST",
+      body: JSON.stringify({ songName, artistName })
+    });
+    showToast("Request sent 🎵");
+    closeRequestSheet();
+    $("request-song").value = ""; $("request-artist").value = "";
+  } catch (err) {
+    showToast(err.message || "Request failed");
+  } finally {
+    btn.disabled = false; btn.textContent = "Send Request";
+  }
+}
+
+/* ══════════════════════════════════════════
+   CO-HOSTS / CALLERS (Phase 2)
+══════════════════════════════════════════ */
+let cohostPending = false;
+
+function renderCohostStrip(roster) {
+  const wrap = $("cohost-strip");
+  const approved = (roster || []).filter(r => r.status === "approved");
+  if (!approved.length) { wrap.style.display = "none"; }
+  else {
+    wrap.style.display = "flex";
+    wrap.innerHTML = approved.map(r => {
+      const av = r.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(r.username||"U")}&size=44`;
+      const canRemove = isHost || String(r.user_id) === String(window.CURRENT_USER?.id);
+      return `<div class="cohost-chip" data-uid="${r.user_id}">
+        <img src="${escapeHtml(av)}" alt="">
+        <span>${escapeHtml(r.display_name || r.username || "Caller")}</span>
+        ${canRemove ? `<button class="rm" data-uid="${r.user_id}">✕</button>` : ""}
+      </div>`;
+    }).join("");
+
+    wrap.querySelectorAll(".rm").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const uid = btn.dataset.uid;
+        if (isHost && String(uid) !== String(window.CURRENT_USER?.id)) {
+          socket.emit("radioKickCohost", { broadcastId, targetUserId: uid });
+        } else {
+          socket.emit("radioLeaveCohost", { broadcastId, userId: window.CURRENT_USER.id });
+        }
+      });
+    });
+  }
+
+  const mine = (roster || []).find(r => String(r.user_id) === String(window.CURRENT_USER?.id));
+  cohostPending = mine?.status === "pending";
+  const reqBtn = $("request-cohost-btn");
+  if (reqBtn && !isHost) {
+    reqBtn.classList.remove("pending");
+    const icEl = reqBtn.querySelector(".ic");
+    if (mine?.status === "approved") {
+      if (icEl) icEl.textContent = "✅";
+      reqBtn.childNodes[reqBtn.childNodes.length - 1].textContent = "On air";
+    } else if (cohostPending) {
+      reqBtn.classList.add("pending");
+      if (icEl) icEl.textContent = "⏳";
+      reqBtn.childNodes[reqBtn.childNodes.length - 1].textContent = "Requested";
+    } else {
+      if (icEl) icEl.textContent = "🙋";
+      reqBtn.childNodes[reqBtn.childNodes.length - 1].textContent = "Join as caller";
+    }
+  }
+}
+
+function requestCohost() {
+  if (isHost || cohostPending) return;
+  socket.emit("radioRequestCohost", { broadcastId, userId: window.CURRENT_USER.id }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("Request sent — waiting for host");
+  });
+}
+
+function openCohostRequestsSheet() {
+  $("cohost-requests-backdrop").classList.add("open");
+  $("cohost-requests-sheet").classList.add("open");
+}
+function closeCohostRequestsSheet() {
+  $("cohost-requests-backdrop").classList.remove("open");
+  $("cohost-requests-sheet").classList.remove("open");
+}
+function renderCohostRequests(roster) {
+  const list = $("cohost-requests-list");
+  const pending = (roster || []).filter(r => r.status === "pending");
+  if (!pending.length) { list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">No pending requests</div>`; return; }
+  list.innerHTML = pending.map(r => {
+    const av = r.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(r.username||"U")}&size=60`;
+    return `<div class="req-row">
+      <img src="${escapeHtml(av)}" alt="">
+      <span class="rn">${escapeHtml(r.display_name || r.username || "User")}</span>
+      <button class="cohost-approve-btn" data-uid="${r.user_id}">Approve</button>
+      <button class="cohost-reject-btn" data-uid="${r.user_id}">Reject</button>
+    </div>`;
+  }).join("");
+
+  list.querySelectorAll(".cohost-approve-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.uid, action: "approve" });
+    });
+  });
+  list.querySelectorAll(".cohost-reject-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.uid, action: "reject" });
+    });
+  });
+}
+
+/* ══════════════════════════════════════════
+   LIVE POLLS (Phase 2)
+══════════════════════════════════════════ */
+let activePoll = null;
+
+function renderPoll(poll) {
+  activePoll = poll;
+  const widget = $("poll-widget");
+  if (!poll) { widget.classList.remove("show"); return; }
+
+  if (poll.status === "closed") {
+    // Briefly show final results, then hide.
+    widget.classList.add("show");
+    renderPollHtml(poll, true);
+    setTimeout(() => { widget.classList.remove("show"); }, 4000);
+    return;
+  }
+
+  widget.classList.add("show");
+  renderPollHtml(poll, false);
+}
+
+function renderPollHtml(poll, closed) {
+  const widget = $("poll-widget");
+  const total = poll.totalVotes || 0;
+  const myVote = poll.myVote;
+
+  widget.innerHTML = `
+    <div class="poll-question">📊 ${escapeHtml(poll.question)}${closed ? " (closed)" : ""}</div>
+    ${poll.options.map((opt, i) => {
+      const count = poll.votes?.[i] || 0;
+      const pct = total ? Math.round((count / total) * 100) : 0;
+      const voted = myVote === i;
+      return `<div class="poll-option ${voted ? "voted" : ""}" data-idx="${i}">
+        <div class="poll-option-bar" style="width:${pct}%"></div>
+        <div class="poll-option-label"><span>${escapeHtml(opt)}</span><span>${pct}%</span></div>
+      </div>`;
+    }).join("")}
+    <div class="poll-total">${formatCoins(total)} vote${total===1?"":"s"}</div>
+    ${isHost && !closed ? `<button class="poll-close-btn" id="poll-close-inline-btn">Close poll</button>` : ""}
+  `;
+
+  if (!closed) {
+    widget.querySelectorAll(".poll-option").forEach(el => {
+      el.addEventListener("click", () => {
+        if (isHost) return; // host doesn't vote in its own poll UI here
+        socket.emit("radioVotePoll", {
+          broadcastId, pollId: poll.id, optionIndex: Number(el.dataset.idx), userId: window.CURRENT_USER.id
+        });
+      });
+    });
+  }
+  $("poll-close-inline-btn")?.addEventListener("click", () => {
+    socket.emit("radioClosePoll", { broadcastId, pollId: poll.id });
+  });
+}
+
+function openCreatePollSheet() {
+  $("create-poll-backdrop").classList.add("open");
+  $("create-poll-sheet").classList.add("open");
+}
+function closeCreatePollSheet() {
+  $("create-poll-backdrop").classList.remove("open");
+  $("create-poll-sheet").classList.remove("open");
+}
+function submitCreatePoll() {
+  const question = $("poll-question").value.trim();
+  const options = ["poll-opt-0", "poll-opt-1", "poll-opt-2", "poll-opt-3"]
+    .map(id => $(id).value.trim())
+    .filter(Boolean);
+
+  if (!question) { showToast("Enter a question"); return; }
+  if (options.length < 2) { showToast("Add at least 2 options"); return; }
+
+  socket.emit("radioCreatePoll", { broadcastId, question, options }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("Poll started 📊");
+    closeCreatePollSheet();
+    ["poll-question","poll-opt-0","poll-opt-1","poll-opt-2","poll-opt-3"].forEach(id => { if ($(id)) $(id).value = ""; });
+  });
+}
+
+/* ══════════════════════════════════════════
+   END BROADCAST (host only)
+══════════════════════════════════════════ */
+async function endBroadcast() {
+  if (!confirm("End this broadcast for all listeners?")) return;
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/end`, { method: "POST" });
+    socket.emit("radioEnded", { broadcastId });
+    window.location.href = "radio-discover.html";
+  } catch (err) {
+    showToast(err.message || "Couldn't end broadcast");
+  }
+}
+
+/* ══════════════════════════════════════════
+   SOCKET EVENTS
+══════════════════════════════════════════ */
+socket.on("connect", () => {
+  if (window.CURRENT_USER?.id) socket.emit("registerUser", window.CURRENT_USER.id);
+  joinBroadcast();
+});
+socket.on("listenerCountUpdated", ({ listenerCount }) => updateListenerCount(listenerCount));
+socket.on("newRadioComment", (payload) => {
+  if (payload.system) { appendChat({ type: "system", text: payload.text }); return; }
+  appendChat({ avatar: payload.avatar, name: payload.name, text: payload.text });
+});
+socket.on("newRadioReaction", ({ emoji }) => spawnParticle(emoji));
+socket.on("radioGiftReceived", (payload) => {
+  appendChat({ avatar: payload.avatar, name: payload.name, text: `sent ${payload.giftEmoji||"🎁"} ${payload.giftName}`, type: "gift" });
+  loadTopGifters();
+});
+socket.on("topRadioGiftersUpdated", (list) => renderTopGifters(list));
+socket.on("radioEnded", () => {
+  showToast("This broadcast has ended");
+  setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800);
+});
+socket.on("reconnect", () => { joinBroadcast(); });
+
+// ── Phase 2: co-host / caller roster events ──
+socket.on("radioCohostsUpdated", ({ broadcastId: bId, roster }) => {
+  if (bId !== broadcastId) return;
+  renderCohostStrip(roster);
+  if (isHost) renderCohostRequests(roster);
+});
+socket.on("radioCohostRequested", () => {
+  if (isHost) showToast("New caller request 🙋");
+});
+socket.on("radioCohostResponse", ({ action }) => {
+  showToast(action === "approve" ? "You're live as a caller! 🎙️" : "Caller request declined");
+});
+socket.on("radioCohostKicked", () => {
+  showToast("You were removed as caller");
+});
+
+// ── Phase 2: live poll events ──
+socket.on("radioPollUpdated", ({ broadcastId: bId, poll }) => {
+  if (bId !== broadcastId) return;
+  renderPoll(poll);
+});
+socket.on("radioPollClosed", ({ broadcastId: bId, poll }) => {
+  if (bId !== broadcastId) return;
+  renderPoll({ ...poll, status: "closed" });
+});
+
+/* ══════════════════════════════════════════
+   UI WIRING
+══════════════════════════════════════════ */
+$("play-toggle-btn").addEventListener("click", togglePlay);
+$("vol-btn").addEventListener("click", toggleMute);
+$("follow-mini-btn").addEventListener("click", toggleFollow);
+$("heart-btn").addEventListener("click", () => sendReaction("❤️"));
+$("fire-btn").addEventListener("click", () => sendReaction("🔥"));
+$("clap-btn").addEventListener("click", () => sendReaction("👏"));
+$("laugh-btn").addEventListener("click", () => sendReaction("😂"));
+$("chat-send-btn").addEventListener("click", sendChat);
+$("chat-input").addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+$("open-gift-sheet-btn").addEventListener("click", openGiftSheet);
+$("gift-backdrop").addEventListener("click", closeGiftSheet);
+$("gift-send-btn").addEventListener("click", sendSelectedGift);
+$("open-request-sheet-btn").addEventListener("click", openRequestSheet);
+$("request-backdrop").addEventListener("click", closeRequestSheet);
+$("request-send-btn").addEventListener("click", sendSongRequest);
+$("end-live-room-btn").addEventListener("click", endBroadcast);
+$("leave-room-btn").addEventListener("click", async () => {
+  await leaveBroadcast();
+  window.location.href = "radio-discover.html";
+});
+$("share-btn").addEventListener("click", () => {
+  const url = `${window.location.origin}/radio-room.html?id=${broadcastId}`;
+  navigator.clipboard?.writeText(url).then(() => showToast("Link copied!")).catch(() => showToast("Couldn't copy link"));
+});
+
+// ── Phase 2: co-host / poll UI wiring ──
+$("request-cohost-btn").addEventListener("click", requestCohost);
+$("open-cohost-requests-btn")?.addEventListener("click", openCohostRequestsSheet);
+$("cohost-requests-backdrop").addEventListener("click", closeCohostRequestsSheet);
+$("open-create-poll-btn")?.addEventListener("click", openCreatePollSheet);
+$("create-poll-backdrop").addEventListener("click", closeCreatePollSheet);
+$("poll-create-btn").addEventListener("click", submitCreatePoll);
+
+window.addEventListener("beforeunload", () => { leaveBroadcast(); });
+
+/* ══════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════ */
+(async function boot() {
+  const b = await loadBroadcast();
+  if (!b) { setTimeout(() => window.location.href = "radio-discover.html", 1500); return; }
+  await loadGiftCatalog();
+  await loadTopGifters();
+  appendChat({ type: "system", text: isHost ? "You're live! Say hi to your listeners 🎙️" : "Welcome to the room 🎧" });
+})();
+</script>
+</body>
+</html>
