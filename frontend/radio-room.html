@@ -132,6 +132,36 @@
 .buffering-hint.show { display: block; }
 
 /* ══════════════════════════════════════════
+   NOW PLAYING (music library queue) — persistent strip
+══════════════════════════════════════════ */
+.now-playing-bar {
+  display: none; align-items: center; gap: 12px; margin: 14px 16px 0;
+  padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px;
+}
+.now-playing-bar.show { display: flex; }
+.np-cover {
+  width: 46px; height: 46px; border-radius: 12px; object-fit: cover; flex: none;
+  background: linear-gradient(135deg, rgba(255,61,127,.25), rgba(160,90,255,.2));
+}
+.np-info { flex: 1; min-width: 0; }
+.np-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-progress-track { height: 3px; background: var(--border); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.np-progress-fill { height: 100%; background: linear-gradient(90deg, #ff3d7f, #a05aff); width: 0%; transition: width 1s linear; }
+.np-badge {
+  flex: none; font-size: 9.5px; font-weight: 900; color: #a05aff; background: rgba(160,90,255,.12);
+  border: 1px solid rgba(160,90,255,.3); border-radius: 8px; padding: 3px 8px; letter-spacing: .04em;
+}
+.np-transport { display: flex; gap: 4px; flex: none; }
+.np-transport button {
+  width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.np-empty-hint { font-size: 11.5px; color: var(--text-dim); }
+
+/* ══════════════════════════════════════════
    TOP GIFTERS STRIP
 ══════════════════════════════════════════ */
 .top-gifters-strip {
@@ -144,16 +174,23 @@
 .top-gifters-strip .label { font-size: 11px; color: var(--text-dim); margin-left: 8px; font-weight: 700; white-space: nowrap; }
 
 /* ══════════════════════════════════════════
-   ACTION ROW (gift / request / share)
+   ACTION ROW (gift / music / share)
 ══════════════════════════════════════════ */
 .room-actions-row { display: flex; gap: 10px; margin: 14px 16px 0; }
 .room-action-btn {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 12px 6px; border-radius: 16px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700;
+  position: relative;
 }
 .room-action-btn .ic { font-size: 19px; }
 .room-action-btn.gift { color: #ffc857; border-color: rgba(255,200,87,.3); background: rgba(255,200,87,.06); }
+.room-action-btn.music { color: #00d9b5; border-color: rgba(0,217,181,.3); background: rgba(0,217,181,.06); }
+.room-action-badge {
+  position: absolute; top: 4px; right: 10px; background: #ff3d7f; color: #fff;
+  font-size: 9px; font-weight: 900; border-radius: 8px; min-width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
 
 /* ══════════════════════════════════════════
    CHAT
@@ -213,11 +250,11 @@
 }
 
 /* ══════════════════════════════════════════
-   SHEETS (gift / song request) — same pattern as live.js
+   SHEETS (gift / music) — same pattern as live.js
 ══════════════════════════════════════════ */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s; }
 .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
-.bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 80vh; overflow-y: auto; }
+.bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 85vh; overflow-y: auto; }
 .bottom-sheet.open { bottom: 0; }
 .sheet-handle { width: 38px; height: 4px; background: var(--border); border-radius: 2px; margin: 14px auto 20px; }
 .sheet-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -233,11 +270,152 @@
 .gift-send-btn:disabled { opacity: .4; cursor: not-allowed; }
 .form-group { margin-bottom: 14px; }
 .form-group label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
-.form-group input { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; }
+.form-group input, .form-group select { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; }
 .save-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
+.save-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
 .toast.show { opacity: 1; }
+
+/* ══════════════════════════════════════════
+   MUSIC SHEET — search / request / queue / upload
+══════════════════════════════════════════ */
+.music-tabs {
+  display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 14px; padding: 4px; margin-bottom: 16px;
+}
+.music-tab-btn {
+  flex: 1; border: none; background: none; color: var(--text-dim); font-size: 11.5px; font-weight: 800;
+  padding: 9px 4px; border-radius: 10px; cursor: pointer; position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.music-tab-btn.active { background: var(--surface); color: #ff3d7f; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.music-tab-badge {
+  background: #ff3d7f; color: #fff; font-size: 9px; font-weight: 900; border-radius: 8px;
+  min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+.music-panel { display: none; }
+.music-panel.active { display: block; }
+
+.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-row input {
+  flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px;
+  color: var(--text); font-size: 13.5px; padding: 11px 14px; outline: none;
+}
+.search-row select {
+  flex: none; width: 96px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px;
+  color: var(--text); font-size: 12px; padding: 0 8px; outline: none;
+}
+.search-row button {
+  flex: none; width: 44px; height: 44px; border-radius: 14px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #ff3d7f, #a05aff); color: #fff; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.song-result-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+}
+.song-result-cover {
+  width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex: none;
+  background: linear-gradient(135deg, rgba(255,61,127,.25), rgba(160,90,255,.2));
+}
+.song-result-info { flex: 1; min-width: 0; }
+.song-result-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-result-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-result-tag {
+  font-size: 8.5px; font-weight: 800; color: #a05aff; background: rgba(160,90,255,.12);
+  border-radius: 6px; padding: 1px 5px; margin-left: 5px; letter-spacing: .03em;
+}
+.song-result-actions { display: flex; gap: 6px; flex: none; }
+.song-result-actions button {
+  border: none; border-radius: 10px; padding: 7px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer;
+  white-space: nowrap;
+}
+.btn-request { background: rgba(255,61,127,.12); color: #ff3d7f; }
+.btn-queue { background: rgba(0,217,181,.14); color: #00d9b5; }
+
+.divider-label {
+  display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; font-size: 10.5px;
+  font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em;
+}
+.divider-label::before, .divider-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+.freeform-request-btn {
+  width: 100%; background: var(--bg); border: 1.5px dashed var(--border); border-radius: 14px;
+  color: var(--text-dim); font-size: 12.5px; font-weight: 700; padding: 12px; cursor: pointer;
+}
+
+.request-row {
+  display: flex; align-items: center; gap: 10px; padding: 11px; margin-bottom: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+}
+.request-vote-btn {
+  flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer; font-size: 15px;
+}
+.request-vote-btn.voted { border-color: #ff3d7f; color: #ff3d7f; background: rgba(255,61,127,.08); }
+.request-vote-btn .vcount { font-size: 9.5px; font-weight: 800; margin-top: 1px; }
+.request-info { flex: 1; min-width: 0; }
+.request-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.request-meta { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.request-host-actions { display: flex; gap: 6px; flex: none; }
+.request-host-actions button {
+  border: none; border-radius: 10px; padding: 7px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer;
+}
+.btn-approve { background: #00d9b5; color: #00231d; }
+.btn-reject { background: rgba(255,61,127,.15); color: #ff3d7f; }
+
+.queue-now-card {
+  display: flex; align-items: center; gap: 12px; padding: 14px; margin-bottom: 14px;
+  background: linear-gradient(135deg, rgba(255,61,127,.1), rgba(160,90,255,.08));
+  border: 1px solid rgba(255,61,127,.25); border-radius: 16px;
+}
+.queue-now-cover { width: 54px; height: 54px; border-radius: 12px; object-fit: cover; flex: none; }
+.queue-now-info { flex: 1; min-width: 0; }
+.queue-now-title { font-size: 13.5px; font-weight: 800; }
+.queue-now-artist { font-size: 11px; color: var(--text-dim); }
+.queue-transport-row { display: flex; gap: 8px; flex: none; }
+.queue-transport-row button {
+  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.queue-item-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+}
+.queue-item-pos {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--surface);
+  display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: var(--text-dim);
+}
+.queue-item-info { flex: 1; min-width: 0; }
+.queue-item-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-item-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-item-actions { display: flex; gap: 4px; flex: none; }
+.queue-item-actions button {
+  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.queue-item-actions button.danger { color: #ff3d7f; }
+
+.upload-drop {
+  border: 1.5px dashed var(--border); border-radius: 16px; padding: 22px 14px; text-align: center;
+  cursor: pointer; margin-bottom: 16px; background: var(--bg);
+}
+.upload-drop.has-file { border-color: #00d9b5; background: rgba(0,217,181,.06); }
+.upload-drop .up-icon { font-size: 26px; margin-bottom: 6px; }
+.upload-drop .up-txt { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+.upload-progress-track { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 10px; display: none; }
+.upload-progress-track.show { display: block; }
+.upload-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00d9b5, #a05aff); transition: width .3s; }
+.upload-status-text { font-size: 11px; color: var(--text-dim); margin-top: 8px; text-align: center; display: none; }
+.upload-status-text.show { display: block; }
+
+.music-empty-hint { text-align: center; padding: 24px 16px; color: var(--text-dim); font-size: 12.5px; }
 </style>
 </head>
 <body>
@@ -287,6 +465,21 @@
       <button class="end-live-room-btn" id="end-live-room-btn">End broadcast</button>
     </div>
 
+    <!-- ── NOW PLAYING (music library queue) ── -->
+    <div class="now-playing-bar" id="now-playing-bar">
+      <img class="np-cover" id="np-cover" src="" alt="">
+      <div class="np-info">
+        <div class="np-title" id="np-title">—</div>
+        <div class="np-artist" id="np-artist">—</div>
+        <div class="np-progress-track"><div class="np-progress-fill" id="np-progress-fill"></div></div>
+      </div>
+      <span class="np-badge">ON QUEUE</span>
+      <div class="np-transport" id="np-host-transport" style="display:none;">
+        <button id="np-pause-btn" title="Pause">⏸</button>
+        <button id="np-next-btn" title="Next">⏭</button>
+      </div>
+    </div>
+
     <div class="top-gifters-strip" id="top-gifters-strip">
       <span class="label">Loading top gifters…</span>
     </div>
@@ -303,7 +496,10 @@
 
     <div class="room-actions-row">
       <button class="room-action-btn gift" id="open-gift-sheet-btn"><span class="ic">🎁</span>Send gift</button>
-      <button class="room-action-btn" id="open-request-sheet-btn"><span class="ic">🎵</span>Request song</button>
+      <button class="room-action-btn music" id="open-music-sheet-btn">
+        <span class="ic">🎵</span>Music
+        <span class="room-action-badge" id="music-action-badge" style="display:none;">0</span>
+      </button>
       <button class="room-action-btn cohost-request-btn" id="request-cohost-btn"><span class="ic">🙋</span>Join as caller</button>
       <button class="room-action-btn" id="leave-room-btn"><span class="ic">🚪</span>Leave</button>
     </div>
@@ -337,14 +533,67 @@
   <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
 </div>
 
-<!-- ── SONG REQUEST SHEET ── -->
-<div class="sheet-backdrop" id="request-backdrop"></div>
-<div class="bottom-sheet" id="request-sheet">
+<!-- ── MUSIC SHEET — search / request / queue / upload ── -->
+<div class="sheet-backdrop" id="music-backdrop"></div>
+<div class="bottom-sheet" id="music-sheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title-row"><span>Request a Song</span></div>
-  <div class="form-group"><label>Song name</label><input type="text" id="request-song" placeholder="e.g. Love Nwantiti" maxlength="150"></div>
-  <div class="form-group"><label>Artist (optional)</label><input type="text" id="request-artist" placeholder="e.g. CKay" maxlength="100"></div>
-  <button class="save-btn" id="request-send-btn">Send Request</button>
+  <div class="sheet-title-row"><span>🎵 Music</span></div>
+
+  <div class="music-tabs">
+    <button class="music-tab-btn active" data-tab="search">Search</button>
+    <button class="music-tab-btn" data-tab="requests">
+      Requests <span class="music-tab-badge" id="requests-tab-badge" style="display:none;">0</span>
+    </button>
+    <button class="music-tab-btn" data-tab="queue">Queue</button>
+    <button class="music-tab-btn" data-tab="upload" id="upload-tab-btn" style="display:none;">Upload</button>
+  </div>
+
+  <!-- SEARCH & REQUEST -->
+  <div class="music-panel active" id="panel-search">
+    <div class="search-row">
+      <input type="text" id="music-search-input" placeholder="Search songs or artists…" maxlength="150">
+      <select id="music-search-provider">
+        <option value="local">Library</option>
+        <option value="jamendo">Jamendo</option>
+      </select>
+      <button id="music-search-btn" aria-label="Search">🔍</button>
+    </div>
+    <div id="search-results-list"></div>
+
+    <div class="divider-label">or</div>
+    <button class="freeform-request-btn" id="open-freeform-btn">✏️ Can't find it? Type a song name instead</button>
+
+    <div id="freeform-form" style="display:none;margin-top:14px;">
+      <div class="form-group"><label>Song name</label><input type="text" id="request-song" placeholder="e.g. Love Nwantiti" maxlength="150"></div>
+      <div class="form-group"><label>Artist (optional)</label><input type="text" id="request-artist" placeholder="e.g. CKay" maxlength="100"></div>
+      <button class="save-btn" id="request-send-btn">Send Request</button>
+    </div>
+  </div>
+
+  <!-- PENDING REQUESTS + VOTING -->
+  <div class="music-panel" id="panel-requests">
+    <div id="requests-list"><div class="music-empty-hint">No pending requests yet</div></div>
+  </div>
+
+  <!-- QUEUE + NOW PLAYING + TRANSPORT -->
+  <div class="music-panel" id="panel-queue">
+    <div id="queue-now-wrap"></div>
+    <div id="queue-list"><div class="music-empty-hint">Queue is empty</div></div>
+  </div>
+
+  <!-- HOST UPLOAD -->
+  <div class="music-panel" id="panel-upload">
+    <div class="upload-drop" id="upload-drop">
+      <div class="up-icon">🎧</div>
+      <div class="up-txt" id="upload-drop-text">Tap to choose an audio file (mp3, m4a, wav, flac — up to 100MB)</div>
+      <input type="file" id="upload-file-input" accept="audio/mpeg,audio/mp4,audio/aac,audio/wav,audio/flac,.mp3,.m4a,.aac,.wav,.flac" style="display:none;">
+    </div>
+    <div class="form-group"><label>Title</label><input type="text" id="upload-title" placeholder="Song title" maxlength="150"></div>
+    <div class="form-group"><label>Artist (optional)</label><input type="text" id="upload-artist" placeholder="Artist name" maxlength="100"></div>
+    <button class="save-btn" id="upload-submit-btn">Upload Song</button>
+    <div class="upload-progress-track" id="upload-progress-track"><div class="upload-progress-fill" id="upload-progress-fill"></div></div>
+    <div class="upload-status-text" id="upload-status-text"></div>
+  </div>
 </div>
 
 <!-- ── CO-HOST REQUESTS SHEET (host only) ── -->
@@ -404,8 +653,12 @@ audioEl.preload = "none";
    handles: joinRadio, leaveRadio, radioComment ->
    newRadioComment, radioReaction -> newRadioReaction,
    listenerCountUpdated, radioEnded, radioGiftReceived,
-   topRadioGiftersUpdated, plus Phase 2: radioCohosts*,
-   radioPoll*)
+   topRadioGiftersUpdated, co-host/poll events; and
+   radioQueue.socket.js handles the music queue snapshot +
+   vote alias, while songRequestController's REST endpoints
+   broadcast radioSongRequested / radioRequestApproved /
+   radioRequestRejected / radioRequestVoted / radioQueueUpdated /
+   radioNowPlaying over the same `radio:{broadcastId}` room.)
 ══════════════════════════════════════════ */
 const socket = io(window.API_BASE_URL.replace("/api", ""), {
   transports: ["websocket"],
@@ -448,10 +701,12 @@ function renderBroadcast(b) {
   $("host-bar").classList.toggle("show", isHost);
   if (isHost) $("open-gift-sheet-btn").style.display = "none";
 
-  // ── Phase 2: hide host-only controls from listeners, and hide
+  // ── hide host-only controls from listeners, and hide
   // the "Join as caller" button for the host themself.
   if (isHost) {
     $("request-cohost-btn").style.display = "none";
+    $("upload-tab-btn").style.display = "flex";
+    $("np-host-transport").style.display = "flex";
   } else {
     $("open-cohost-requests-btn")?.remove();
     $("open-create-poll-btn")?.remove();
@@ -681,17 +936,130 @@ async function sendSelectedGift() {
   }
 }
 
-/* ══════════════════════════════════════════
-   SONG REQUEST
-══════════════════════════════════════════ */
-function openRequestSheet() {
-  $("request-backdrop").classList.add("open");
-  $("request-sheet").classList.add("open");
+/* ══════════════════════════════════════════════════════════
+   MUSIC SYSTEM — search (local + Jamendo), freeform request,
+   voting, host approve/reject, live queue, transport controls,
+   host upload. Every REST path below matches songRequestController
+   (mounted at /api/radio/broadcasts) and musicLibraryController
+   (mounted at /api/radio/music-library).
+══════════════════════════════════════════════════════════════ */
+
+let musicActiveTab   = "search";
+let pendingRequests   = [];
+let queueState        = { queue: [], nowPlaying: null };
+let npTicker          = null;
+let myVotedRequestIds  = new Set();
+
+function openMusicSheet(tab = "search") {
+  $("music-backdrop").classList.add("open");
+  $("music-sheet").classList.add("open");
+  switchMusicTab(tab);
+  loadRequests();
+  refreshQueueSnapshot();
 }
-function closeRequestSheet() {
-  $("request-backdrop").classList.remove("open");
-  $("request-sheet").classList.remove("open");
+function closeMusicSheet() {
+  $("music-backdrop").classList.remove("open");
+  $("music-sheet").classList.remove("open");
 }
+
+function switchMusicTab(tab) {
+  musicActiveTab = tab;
+  document.querySelectorAll(".music-tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".music-panel").forEach(p => p.classList.remove("active"));
+  $(`panel-${tab}`)?.classList.add("active");
+}
+document.querySelectorAll(".music-tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => switchMusicTab(btn.dataset.tab));
+});
+
+/* ── SEARCH ── */
+async function searchMusic() {
+  const q = $("music-search-input").value.trim();
+  const provider = $("music-search-provider").value;
+  const list = $("search-results-list");
+  list.innerHTML = `<div class="music-empty-hint">Searching…</div>`;
+  try {
+    const qs = new URLSearchParams({ provider });
+    if (q) qs.set("q", q);
+    const res = await api.request(`/radio/music-library/search?${qs.toString()}`);
+    renderSearchResults(res.data || []);
+  } catch (err) {
+    list.innerHTML = `<div class="music-empty-hint">Search failed — try again</div>`;
+  }
+}
+
+function renderSearchResults(results) {
+  const list = $("search-results-list");
+  if (!results.length) {
+    list.innerHTML = `<div class="music-empty-hint">No matches — try a different search or request a song by name below</div>`;
+    return;
+  }
+  list.innerHTML = results.map((r, i) => {
+    const cover = r.coverUrl || "";
+    const tag = r.provider === "jamendo" ? `<span class="song-result-tag">JAMENDO</span>` : "";
+    return `
+      <div class="song-result-row" data-idx="${i}">
+        ${cover ? `<img class="song-result-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="song-result-cover"></div>`}
+        <div class="song-result-info">
+          <div class="song-result-title">${escapeHtml(r.title || "Untitled")}${tag}</div>
+          <div class="song-result-artist">${escapeHtml(r.artist || "Unknown artist")}</div>
+        </div>
+        <div class="song-result-actions">
+          <button class="btn-request" data-action="request" data-idx="${i}">Request</button>
+          ${isHost ? `<button class="btn-queue" data-action="queue" data-idx="${i}">+ Queue</button>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  list.querySelectorAll("[data-action]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const r = results[Number(btn.dataset.idx)];
+      if (btn.dataset.action === "request") requestSongFromResult(r);
+      else addResultToQueue(r);
+    });
+  });
+}
+
+async function requestSongFromResult(result) {
+  try {
+    const body = result.provider === "local"
+      ? { songId: result.id }
+      : { externalProvider: result.provider, externalTrackId: result.id };
+    await api.request(`/radio/broadcasts/${broadcastId}/requests`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    showToast(`Requested "${result.title}" 🎵`);
+    switchMusicTab("requests");
+    loadRequests();
+  } catch (err) {
+    showToast(err.message || "Couldn't send request");
+  }
+}
+
+async function addResultToQueue(result) {
+  if (!isHost) return;
+  try {
+    const body = result.provider === "local"
+      ? { songId: result.id }
+      : { externalProvider: result.provider, externalTrackId: result.id };
+    await api.request(`/radio/broadcasts/${broadcastId}/queue`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    showToast(`Added "${result.title}" to queue`);
+    switchMusicTab("queue");
+  } catch (err) {
+    showToast(err.message || "Couldn't add to queue");
+  }
+}
+
+/* ── FREEFORM REQUEST ── */
+$("open-freeform-btn").addEventListener("click", () => {
+  const form = $("freeform-form");
+  form.style.display = form.style.display === "none" ? "block" : "none";
+});
+
 async function sendSongRequest() {
   const songName = $("request-song").value.trim();
   const artistName = $("request-artist").value.trim();
@@ -699,18 +1067,348 @@ async function sendSongRequest() {
   const btn = $("request-send-btn");
   btn.disabled = true; btn.textContent = "Sending…";
   try {
-    await api.request(`/radio/broadcasts/${broadcastId}/song-request`, {
+    await api.request(`/radio/broadcasts/${broadcastId}/requests`, {
       method: "POST",
       body: JSON.stringify({ songName, artistName })
     });
     showToast("Request sent 🎵");
-    closeRequestSheet();
     $("request-song").value = ""; $("request-artist").value = "";
+    $("freeform-form").style.display = "none";
+    switchMusicTab("requests");
+    loadRequests();
   } catch (err) {
     showToast(err.message || "Request failed");
   } finally {
     btn.disabled = false; btn.textContent = "Send Request";
   }
+}
+
+/* ── PENDING REQUESTS + VOTING + HOST MODERATION ── */
+async function loadRequests() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}/requests?status=pending`);
+    pendingRequests = res.data || [];
+    renderRequestsList();
+    updateRequestBadges();
+  } catch (err) {
+    $("requests-list").innerHTML = `<div class="music-empty-hint">Couldn't load requests</div>`;
+  }
+}
+
+function updateRequestBadges() {
+  const count = pendingRequests.length;
+  const badge1 = $("requests-tab-badge");
+  const badge2 = $("music-action-badge");
+  if (isHost && count > 0) {
+    badge1.style.display = "flex"; badge1.textContent = count;
+    badge2.style.display = "flex"; badge2.textContent = count;
+  } else {
+    badge1.style.display = "none";
+    badge2.style.display = "none";
+  }
+}
+
+function renderRequestsList() {
+  const wrap = $("requests-list");
+  if (!pendingRequests.length) {
+    wrap.innerHTML = `<div class="music-empty-hint">No pending requests yet</div>`;
+    return;
+  }
+  wrap.innerHTML = pendingRequests.map(r => {
+    const voted = myVotedRequestIds.has(String(r.id));
+    return `
+      <div class="request-row" data-id="${r.id}">
+        <button class="request-vote-btn ${voted ? "voted" : ""}" data-vote="${r.id}">
+          ▲<span class="vcount">${r.vote_count || 0}</span>
+        </button>
+        <div class="request-info">
+          <div class="request-title">${escapeHtml(r.song_name || r.title || "Untitled")}</div>
+          <div class="request-meta">${escapeHtml(r.artist_name || r.artist || "")} · requested by ${escapeHtml(r.username || "someone")}</div>
+        </div>
+        ${isHost ? `
+          <div class="request-host-actions">
+            <button class="btn-approve" data-approve="${r.id}">✓</button>
+            <button class="btn-reject" data-reject="${r.id}">✕</button>
+          </div>` : ""}
+      </div>`;
+  }).join("");
+
+  wrap.querySelectorAll("[data-vote]").forEach(btn => {
+    btn.addEventListener("click", () => voteOnRequest(btn.dataset.vote));
+  });
+  wrap.querySelectorAll("[data-approve]").forEach(btn => {
+    btn.addEventListener("click", () => approveRequest(btn.dataset.approve));
+  });
+  wrap.querySelectorAll("[data-reject]").forEach(btn => {
+    btn.addEventListener("click", () => rejectRequest(btn.dataset.reject));
+  });
+}
+
+async function voteOnRequest(requestId) {
+  if (myVotedRequestIds.has(String(requestId))) return;
+  try {
+    await api.request(`/radio/broadcasts/requests/${requestId}/vote`, { method: "POST" });
+    myVotedRequestIds.add(String(requestId));
+  } catch (err) {
+    showToast(err.message || "Couldn't vote");
+  }
+}
+
+async function approveRequest(requestId) {
+  try {
+    await api.request(`/radio/broadcasts/requests/${requestId}/approve`, { method: "POST" });
+    showToast("Approved — added to queue ✓");
+    loadRequests();
+    switchMusicTab("queue");
+    refreshQueueSnapshot();
+  } catch (err) {
+    showToast(err.message || "Couldn't approve — attach a library match first");
+  }
+}
+
+async function rejectRequest(requestId) {
+  try {
+    await api.request(`/radio/broadcasts/requests/${requestId}/reject`, { method: "POST" });
+    showToast("Request declined");
+    loadRequests();
+  } catch (err) {
+    showToast(err.message || "Couldn't decline request");
+  }
+}
+
+/* ── QUEUE + NOW PLAYING + TRANSPORT ── */
+function refreshQueueSnapshot() {
+  socket.emit("radioGetQueueSnapshot", { broadcastId }, (res) => {
+    if (res?.error) return;
+    if (res?.ok) {
+      queueState = { queue: res.queue || [], nowPlaying: res.nowPlaying || null };
+      renderQueueTab();
+      renderNowPlayingBar();
+    }
+  });
+}
+
+function renderQueueTab() {
+  const nowWrap = $("queue-now-wrap");
+  const np = queueState.nowPlaying;
+  if (np) {
+    const cover = np.cover_url || "";
+    nowWrap.innerHTML = `
+      <div class="queue-now-card">
+        ${cover ? `<img class="queue-now-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="queue-now-cover" style="background:linear-gradient(135deg, rgba(255,61,127,.3), rgba(160,90,255,.25));"></div>`}
+        <div class="queue-now-info">
+          <div class="queue-now-title">▶ ${escapeHtml(np.title || "Now playing")}</div>
+          <div class="queue-now-artist">${escapeHtml(np.artist || "")}</div>
+        </div>
+        ${isHost ? `
+          <div class="queue-transport-row">
+            <button id="qt-pause-btn" title="Pause/Resume">${np.is_paused ? "▶" : "⏸"}</button>
+            <button id="qt-next-btn" title="Skip to next">⏭</button>
+          </div>` : ""}
+      </div>`;
+    $("qt-pause-btn")?.addEventListener("click", () => togglePausePlayback(np.is_paused));
+    $("qt-next-btn")?.addEventListener("click", playNextInQueue);
+  } else {
+    nowWrap.innerHTML = isHost
+      ? `<div class="music-empty-hint">Nothing playing — approve a request or add from Search, then tap Next ⏭</div>`
+      : `<div class="music-empty-hint">Nothing queued right now</div>`;
+  }
+
+  const list = $("queue-list");
+  if (!queueState.queue.length) {
+    list.innerHTML = `<div class="music-empty-hint">Queue is empty</div>`;
+    return;
+  }
+  list.innerHTML = queueState.queue.map((item, i) => `
+    <div class="queue-item-row" data-item-id="${item.id}">
+      <div class="queue-item-pos">${i + 1}</div>
+      <div class="queue-item-info">
+        <div class="queue-item-title">${escapeHtml(item.title || "Untitled")}</div>
+        <div class="queue-item-artist">${escapeHtml(item.artist || "")}</div>
+      </div>
+      ${isHost ? `
+        <div class="queue-item-actions">
+          <button data-up="${item.id}" ${i === 0 ? "disabled" : ""} title="Move up">▲</button>
+          <button data-down="${item.id}" ${i === queueState.queue.length - 1 ? "disabled" : ""} title="Move down">▼</button>
+          <button class="danger" data-remove="${item.id}" title="Remove">✕</button>
+        </div>` : ""}
+    </div>`).join("");
+
+  if (isHost) {
+    list.querySelectorAll("[data-up]").forEach(btn => btn.addEventListener("click", () => moveQueueItem(btn.dataset.up, -1)));
+    list.querySelectorAll("[data-down]").forEach(btn => btn.addEventListener("click", () => moveQueueItem(btn.dataset.down, 1)));
+    list.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => removeQueueItem(btn.dataset.remove)));
+  }
+}
+
+function renderNowPlayingBar() {
+  const bar = $("now-playing-bar");
+  const np = queueState.nowPlaying;
+  if (npTicker) { clearInterval(npTicker); npTicker = null; }
+
+  if (!np) { bar.classList.remove("show"); return; }
+  bar.classList.add("show");
+  $("np-cover").src = np.cover_url || "";
+  $("np-title").textContent = np.title || "Now playing";
+  $("np-artist").textContent = np.artist || "";
+
+  const duration = Number(np.duration_seconds) || 0;
+  const startedAt = np.started_at ? new Date(np.started_at).getTime() : Date.now();
+
+  function tick() {
+    if (!duration) { $("np-progress-fill").style.width = "0%"; return; }
+    const elapsed = np.is_paused ? (np.position_seconds || 0) : (Date.now() - startedAt) / 1000;
+    const pct = Math.max(0, Math.min(100, (elapsed / duration) * 100));
+    $("np-progress-fill").style.width = pct + "%";
+  }
+  tick();
+  npTicker = setInterval(tick, 1000);
+
+  if (isHost) {
+    $("np-host-transport").style.display = "flex";
+    $("np-pause-btn").textContent = np.is_paused ? "▶" : "⏸";
+  }
+}
+
+async function moveQueueItem(itemId, direction) {
+  const idx = queueState.queue.findIndex(q => String(q.id) === String(itemId));
+  if (idx === -1) return;
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= queueState.queue.length) return;
+
+  const reordered = [...queueState.queue];
+  [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
+  const orderedItemIds = reordered.map(q => q.id);
+
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/queue/reorder`, {
+      method: "PATCH",
+      body: JSON.stringify({ orderedItemIds })
+    });
+  } catch (err) {
+    showToast(err.message || "Couldn't reorder queue");
+  }
+}
+
+async function removeQueueItem(itemId) {
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/queue/${itemId}`, { method: "DELETE" });
+    showToast("Removed from queue");
+  } catch (err) {
+    showToast(err.message || "Couldn't remove from queue");
+  }
+}
+
+async function playNextInQueue() {
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/next`, { method: "POST" });
+  } catch (err) {
+    showToast(err.message || "Couldn't skip to next track");
+  }
+}
+
+async function togglePausePlayback(currentlyPaused) {
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/${currentlyPaused ? "resume" : "pause"}`, { method: "POST" });
+  } catch (err) {
+    showToast(err.message || "Couldn't update playback");
+  }
+}
+
+$("np-pause-btn")?.addEventListener("click", () => togglePausePlayback(queueState.nowPlaying?.is_paused));
+$("np-next-btn")?.addEventListener("click", playNextInQueue);
+
+/* ── HOST UPLOAD ── */
+let selectedUploadFile = null;
+
+$("upload-drop").addEventListener("click", () => $("upload-file-input").click());
+$("upload-file-input").addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  selectedUploadFile = file;
+  $("upload-drop").classList.add("has-file");
+  $("upload-drop-text").textContent = `✓ ${file.name} (${(file.size / (1024*1024)).toFixed(1)}MB)`;
+  if (!$("upload-title").value.trim()) {
+    $("upload-title").value = file.name.replace(/\.[^/.]+$/, "");
+  }
+});
+
+async function submitUpload() {
+  const title = $("upload-title").value.trim();
+  const artist = $("upload-artist").value.trim();
+  if (!selectedUploadFile) { showToast("Choose an audio file first"); return; }
+  if (!title) { showToast("Give the song a title"); return; }
+
+  const btn = $("upload-submit-btn");
+  btn.disabled = true; btn.textContent = "Uploading…";
+  $("upload-progress-track").classList.add("show");
+  $("upload-status-text").classList.add("show");
+  $("upload-status-text").textContent = "Uploading file…";
+
+  try {
+    const formData = new FormData();
+    formData.append("audio", selectedUploadFile);
+    formData.append("title", title);
+    if (artist) formData.append("artist", artist);
+    if (broadcast?.station_id) formData.append("stationId", broadcast.station_id);
+
+    const accessToken = localStorage.getItem("accessToken");
+    const uploadRes = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${window.API_BASE_URL}/radio/music-library/songs/upload`);
+      xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable) {
+          const pct = Math.round((evt.loaded / evt.total) * 100);
+          $("upload-progress-fill").style.width = pct + "%";
+        }
+      };
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+          else reject(new Error(data.message || "Upload failed"));
+        } catch (e) { reject(new Error("Upload failed")); }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed — network error"));
+      xhr.send(formData);
+    });
+
+    $("upload-status-text").textContent = "Processing audio (this can take a moment)…";
+    await pollUploadStatus(uploadRes.data.id);
+  } catch (err) {
+    showToast(err.message || "Upload failed");
+    $("upload-status-text").textContent = "Upload failed — try again";
+  } finally {
+    btn.disabled = false; btn.textContent = "Upload Song";
+  }
+}
+
+async function pollUploadStatus(songId) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const res = await api.request(`/radio/music-library/songs/${songId}`);
+      const song = res.data;
+      if (song.status === "ready") {
+        $("upload-status-text").textContent = "✓ Ready! You can now add it to the queue from Search.";
+        $("upload-progress-fill").style.width = "100%";
+        showToast("Song processed and ready 🎉");
+        selectedUploadFile = null;
+        $("upload-drop").classList.remove("has-file");
+        $("upload-drop-text").textContent = "Tap to choose an audio file (mp3, m4a, wav, flac — up to 100MB)";
+        $("upload-title").value = ""; $("upload-artist").value = "";
+        return;
+      }
+      if (song.status === "failed") {
+        $("upload-status-text").textContent = "Processing failed — the file may be corrupt or an unsupported format.";
+        return;
+      }
+    } catch (err) {
+      // keep polling — a transient error shouldn't abort the wait
+    }
+  }
+  $("upload-status-text").textContent = "Still processing — check back in Search shortly.";
 }
 
 /* ══════════════════════════════════════════
@@ -910,6 +1608,7 @@ async function endBroadcast() {
 socket.on("connect", () => {
   if (window.CURRENT_USER?.id) socket.emit("registerUser", window.CURRENT_USER.id);
   joinBroadcast();
+  refreshQueueSnapshot();
 });
 socket.on("listenerCountUpdated", ({ listenerCount }) => updateListenerCount(listenerCount));
 socket.on("newRadioComment", (payload) => {
@@ -926,9 +1625,9 @@ socket.on("radioEnded", () => {
   showToast("This broadcast has ended");
   setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800);
 });
-socket.on("reconnect", () => { joinBroadcast(); });
+socket.on("reconnect", () => { joinBroadcast(); refreshQueueSnapshot(); });
 
-// ── Phase 2: co-host / caller roster events ──
+// ── co-host / caller roster events ──
 socket.on("radioCohostsUpdated", ({ broadcastId: bId, roster }) => {
   if (bId !== broadcastId) return;
   renderCohostStrip(roster);
@@ -944,7 +1643,7 @@ socket.on("radioCohostKicked", () => {
   showToast("You were removed as caller");
 });
 
-// ── Phase 2: live poll events ──
+// ── live poll events ──
 socket.on("radioPollUpdated", ({ broadcastId: bId, poll }) => {
   if (bId !== broadcastId) return;
   renderPoll(poll);
@@ -952,6 +1651,41 @@ socket.on("radioPollUpdated", ({ broadcastId: bId, poll }) => {
 socket.on("radioPollClosed", ({ broadcastId: bId, poll }) => {
   if (bId !== broadcastId) return;
   renderPoll({ ...poll, status: "closed" });
+});
+
+// ── music: incoming song requests (songRequestController REST emits) ──
+socket.on("radioSongRequested", ({ broadcastId: bId }) => {
+  if (bId !== broadcastId) return;
+  if (isHost) showToast("New song request 🎵");
+  if (musicActiveTab === "requests" || $("music-sheet").classList.contains("open")) loadRequests();
+  else loadRequests(); // keep badge counts fresh even when the sheet is closed
+});
+socket.on("radioRequestVoted", ({ requestId, voteCount }) => {
+  const row = document.querySelector(`.request-row[data-id="${requestId}"] .vcount`);
+  if (row) row.textContent = voteCount;
+  const idx = pendingRequests.findIndex(r => String(r.id) === String(requestId));
+  if (idx !== -1) pendingRequests[idx].vote_count = voteCount;
+});
+socket.on("radioRequestApproved", ({ broadcastId: bId }) => {
+  if (bId !== broadcastId) return;
+  loadRequests();
+});
+socket.on("radioRequestRejected", ({ broadcastId: bId }) => {
+  if (bId !== broadcastId) return;
+  loadRequests();
+});
+
+// ── music: queue + now-playing (radioQueue.socket.js + songRequestController) ──
+socket.on("radioQueueUpdated", ({ broadcastId: bId, queue }) => {
+  if (bId !== broadcastId) return;
+  queueState.queue = queue || [];
+  renderQueueTab();
+});
+socket.on("radioNowPlaying", ({ broadcastId: bId, nowPlaying }) => {
+  if (bId !== broadcastId) return;
+  queueState.nowPlaying = nowPlaying || null;
+  renderQueueTab();
+  renderNowPlayingBar();
 });
 
 /* ══════════════════════════════════════════
@@ -969,9 +1703,6 @@ $("chat-input").addEventListener("keydown", e => { if (e.key === "Enter") sendCh
 $("open-gift-sheet-btn").addEventListener("click", openGiftSheet);
 $("gift-backdrop").addEventListener("click", closeGiftSheet);
 $("gift-send-btn").addEventListener("click", sendSelectedGift);
-$("open-request-sheet-btn").addEventListener("click", openRequestSheet);
-$("request-backdrop").addEventListener("click", closeRequestSheet);
-$("request-send-btn").addEventListener("click", sendSongRequest);
 $("end-live-room-btn").addEventListener("click", endBroadcast);
 $("leave-room-btn").addEventListener("click", async () => {
   await leaveBroadcast();
@@ -982,7 +1713,15 @@ $("share-btn").addEventListener("click", () => {
   navigator.clipboard?.writeText(url).then(() => showToast("Link copied!")).catch(() => showToast("Couldn't copy link"));
 });
 
-// ── Phase 2: co-host / poll UI wiring ──
+// ── music sheet wiring ──
+$("open-music-sheet-btn").addEventListener("click", () => openMusicSheet("search"));
+$("music-backdrop").addEventListener("click", closeMusicSheet);
+$("music-search-btn").addEventListener("click", searchMusic);
+$("music-search-input").addEventListener("keydown", e => { if (e.key === "Enter") searchMusic(); });
+$("request-send-btn").addEventListener("click", sendSongRequest);
+$("upload-submit-btn").addEventListener("click", submitUpload);
+
+// ── co-host / poll UI wiring ──
 $("request-cohost-btn").addEventListener("click", requestCohost);
 $("open-cohost-requests-btn")?.addEventListener("click", openCohostRequestsSheet);
 $("cohost-requests-backdrop").addEventListener("click", closeCohostRequestsSheet);
@@ -1000,6 +1739,7 @@ window.addEventListener("beforeunload", () => { leaveBroadcast(); });
   if (!b) { setTimeout(() => window.location.href = "radio-discover.html", 1500); return; }
   await loadGiftCatalog();
   await loadTopGifters();
+  loadRequests();
   appendChat({ type: "system", text: isHost ? "You're live! Say hi to your listeners 🎙️" : "Welcome to the room 🎧" });
 })();
 </script>

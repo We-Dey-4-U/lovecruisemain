@@ -96,7 +96,11 @@ const walletRoutes = require("./src/routes/wallet.routes");
 const withdrawalsRoutes = require("./src/routes/withdrawals.routes");
 const presenceRoutes = require("./src/routes/presence.routes");
 const radioRoutes = require("./src/routes/radio.routes");
-const adminRadioRoutes = require("./src/routes/admin.radio.routes"); // ← NEW
+const adminRadioRoutes = require("./src/routes/admin.radio.routes");
+
+// ── NEW: Internet Radio Music Request System ──
+const musicLibraryRoutes = require("./src/routes/musicLibrary.routes");
+const songRequestRoutes = require("./src/routes/songRequest.routes");
 
 safeUse("/api/auth", authRoutes);
 safeUse("/api/users", userRoutes);
@@ -120,7 +124,15 @@ safeUse("/api/withdrawals", withdrawalsRoutes);
 safeUse("/api/presence", presenceRoutes);
 
 safeUse("/api/radio", radioRoutes);
-safeUse("/api/admin/radio", adminRadioRoutes); // ← NEW: radio moderation panel
+safeUse("/api/admin/radio", adminRadioRoutes);
+
+// ── NEW: mounted under /api/radio/music-library and
+// /api/radio/broadcasts so they read naturally alongside the
+// existing radio.routes.js endpoints (e.g.
+// /api/radio/music-library/songs/upload,
+// /api/radio/broadcasts/:broadcastId/requests). ──
+safeUse("/api/radio/music-library", musicLibraryRoutes);
+safeUse("/api/radio/broadcasts", songRequestRoutes);
 
 /* =========================================================
    RADIO SHOW-START NOTIFIER (Phase 2)
@@ -136,6 +148,12 @@ const radioNotifier = require("./src/services/radioNotifier");
 setImmediate(() => {
   // app.get('io') will be undefined until your server bootstrap
   // calls app.set('io', io) — radioNotifier.start() tolerates that.
+  // NOTE: songRequestController.js and the new music-request flow
+  // ALSO read req.app.get("io") to push realtime queue/request
+  // events — so app.set('io', io) is now load-bearing for two
+  // modules, not just the notifier. Make sure it runs before any
+  // request comes in (i.e. right after `const io = new Server(...)`
+  // in your server bootstrap, before `server.listen(...)`).
   radioNotifier.start(app.get("io"));
 });
 
