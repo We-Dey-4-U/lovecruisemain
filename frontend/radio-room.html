@@ -3,66 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lovecruise — Radio Room</title>
+<title>Lovecruise FM — Studio</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
+/* ══════════════════════════════════════════════════════════
+   LOVECRUISE FM STUDIO — professional broadcast studio UI
+   Layers on top of the existing radio-room CSS variables
+   (--bg, --surface, --border, --text, --text-dim, --magenta).
+══════════════════════════════════════════════════════════ */
+:root {
+  --studio-navy: #0c0a14;
+  --studio-panel: #16121f;
+  --studio-panel2: #1c1728;
+  --onair-red: #ff2d55;
+  --gold: #ffc857;
+  --teal: #00d9b5;
+  --violet: #a05aff;
+}
 
-  /* ── CO-HOST / CALLER UI ── */
-.cohost-strip {
-  display: flex; align-items: center; gap: 8px; margin: 10px 16px 0;
-  overflow-x: auto;
-}
-.cohost-chip {
-  flex: none; display: flex; align-items: center; gap: 6px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 20px; padding: 5px 10px 5px 5px; font-size: 11.5px; font-weight: 700;
-}
-.cohost-chip img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
-.cohost-chip .rm { background: none; border: none; color: #ff3d7f; cursor: pointer; font-size: 13px; padding: 0 2px; }
-.cohost-request-btn {
-  background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.3); color: #a05aff;
-}
-.cohost-request-btn.pending { opacity: .6; pointer-events: none; }
-
-.cohost-requests-sheet .req-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border);
-}
-.cohost-requests-sheet .req-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
-.cohost-requests-sheet .req-row .rn { flex: 1; font-size: 13px; font-weight: 700; }
-.cohost-approve-btn, .cohost-reject-btn {
-  border: none; border-radius: 10px; padding: 6px 12px; font-size: 11.5px; font-weight: 800; cursor: pointer;
-}
-.cohost-approve-btn { background: #00d9b5; color: #00231d; }
-.cohost-reject-btn { background: rgba(255,61,127,.15); color: #ff3d7f; margin-left: 6px; }
-
-/* ── LIVE POLL WIDGET ── */
-.poll-widget {
-  display: none; margin: 12px 16px 0; padding: 14px; background: var(--surface);
-  border: 1px solid rgba(160,90,255,.3); border-radius: 18px;
-}
-.poll-widget.show { display: block; }
-.poll-question { font-size: 13.5px; font-weight: 800; margin-bottom: 10px; }
-.poll-option { position: relative; margin-bottom: 8px; cursor: pointer; }
-.poll-option-bar {
-  position: absolute; inset: 0; background: rgba(160,90,255,.15); border-radius: 12px;
-  width: 0%; transition: width .4s;
-}
-.poll-option-label {
-  position: relative; z-index: 1; display: flex; justify-content: space-between;
-  padding: 9px 12px; font-size: 12.5px; font-weight: 700; border: 1px solid var(--border); border-radius: 12px;
-}
-.poll-option.voted .poll-option-label { border-color: #a05aff; }
-.poll-total { font-size: 10.5px; color: var(--text-dim); margin-top: 4px; }
-.poll-close-btn {
-  margin-top: 8px; width: 100%; background: rgba(255,61,127,.12); color: #ff3d7f;
-  border: 1px solid rgba(255,61,127,.3); border-radius: 10px; padding: 8px; font-size: 11.5px; font-weight: 800; cursor: pointer;
-}
-/* ══════════════════════════════════════════
-   TOPBAR
-══════════════════════════════════════════ */
+/* ── TOPBAR ── */
 .room-topbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 20;
+  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 30;
   background: var(--bg); border-bottom: 1px solid var(--border);
   backdrop-filter: blur(16px);
 }
@@ -74,184 +36,296 @@
 }
 .room-topbar-info { flex: 1; min-width: 0; }
 .room-topbar-info strong { font-size: 14.5px; font-weight: 800; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.room-topbar-info small { font-size: 11.5px; color: var(--text-dim); display: flex; align-items: center; gap: 5px; }
+.room-topbar-info small { font-size: 11.5px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .live-pill-sm {
   display: inline-flex; align-items: center; gap: 4px;
-  background: rgba(255,61,127,.92); color: #fff; font-size: 9px; font-weight: 900;
+  background: rgba(255,45,85,.92); color: #fff; font-size: 9px; font-weight: 900;
   padding: 2px 7px; border-radius: 7px; letter-spacing: .04em;
 }
 .live-pill-sm .dot { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse-anim 1.4s infinite; }
 @keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.7)} }
+.timer-pill { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--text-dim); }
+.net-pill { display:inline-flex; align-items:center; gap:3px; }
+.net-pill .bar { width:2.5px; background:var(--text-dim); border-radius:1px; display:inline-block; }
+.net-pill .bar.b1{height:4px} .net-pill .bar.b2{height:6px} .net-pill .bar.b3{height:8px}
+.net-pill.good .bar { background: var(--teal); }
+.net-pill.fair .bar.b1, .net-pill.fair .bar.b2 { background: var(--gold); }
+.net-pill.poor .bar.b1 { background: var(--onair-red); }
 
-/* ══════════════════════════════════════════
-   HERO / PLAYER
-══════════════════════════════════════════ */
-.radio-hero {
-  position: relative; margin: 14px 16px 0; border-radius: 24px; overflow: hidden;
-  background: linear-gradient(155deg, #1a1420 0%, #241428 60%, #1a1420 100%);
-  border: 1px solid rgba(255,61,127,.25);
-  padding: 26px 20px 22px; text-align: center;
+/* ══════════════════════════════════════════════════════════
+   STUDIO STAGE — the main broadcast room visualization
+══════════════════════════════════════════════════════════ */
+.studio-stage {
+  position: relative; margin: 14px 16px 0; border-radius: 28px; overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255,45,85,.10), transparent 55%),
+    radial-gradient(circle at 85% 100%, rgba(160,90,255,.14), transparent 55%),
+    linear-gradient(155deg, var(--studio-navy) 0%, var(--studio-panel) 55%, var(--studio-navy) 100%);
+  border: 1px solid rgba(255,255,255,.06);
+  padding: 20px 14px 18px;
 }
-.radio-hero-glow {
-  position: absolute; inset: -30% -10% auto -10%; height: 160%;
-  background: radial-gradient(circle at 30% 20%, rgba(255,61,127,.22), transparent 60%),
-              radial-gradient(circle at 80% 70%, rgba(160,90,255,.18), transparent 55%);
-  pointer-events: none;
+/* acoustic wall panel texture */
+.studio-stage::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.025) 0 26px, transparent 26px 30px);
 }
-.station-cover-wrap { position: relative; width: 148px; height: 148px; margin: 0 auto; }
-.station-cover-ring {
-  width: 100%; height: 100%; border-radius: 28px; padding: 4px;
-  background: conic-gradient(from 220deg, #ff3d7f, #ffc857, #00d9b5, #a05aff, #ff3d7f);
-  box-shadow: 0 10px 34px rgba(255,61,127,.35);
+.onair-sign-row { display: flex; align-items: center; justify-content: space-between; position: relative; margin-bottom: 14px; }
+.onair-sign {
+  font-size: 11px; font-weight: 900; letter-spacing: .12em; padding: 5px 12px; border-radius: 8px;
+  background: rgba(255,45,85,.12); border: 1px solid rgba(255,45,85,.4); color: #ff5577;
+  box-shadow: 0 0 0 rgba(255,45,85,0); transition: box-shadow .3s, background .3s, color .3s;
 }
-.station-cover-ring.spinning { animation: cover-spin 8s linear infinite; }
-@keyframes cover-spin { from { filter: hue-rotate(0deg);} to { filter: hue-rotate(360deg);} }
-.station-cover-ring img { width: 100%; height: 100%; border-radius: 24px; object-fit: cover; display: block; border: 3px solid #1a1420; }
-.station-title-lg { font-size: 19px; font-weight: 900; margin-top: 16px; position: relative; }
-.station-host-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; position: relative; }
-.station-host-row img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
-.station-host-row span { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
-.listener-count-lg { font-size: 12px; color: var(--text-dim); margin-top: 8px; position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.onair-sign.live {
+  background: var(--onair-red); color: #fff; border-color: var(--onair-red);
+  box-shadow: 0 0 18px rgba(255,45,85,.65), 0 0 36px rgba(255,45,85,.3);
+  animation: onair-flicker 2.6s infinite;
+}
+@keyframes onair-flicker {
+  0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:.55} 94%{opacity:1} 96%{opacity:.8} 97%{opacity:1}
+}
+.bitrate-pill { font-size: 9.5px; font-weight: 800; color: var(--text-dim); background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; }
 
-.player-controls-row { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; position: relative; }
-.play-toggle-btn {
-  width: 62px; height: 62px; border-radius: 50%; border: none; cursor: pointer;
-  background: linear-gradient(135deg, #ff3d7f, #a05aff); color: #fff;
+/* ── HOST MIC RIG (center) ── */
+.host-mic-rig { position: relative; display: flex; flex-direction: column; align-items: center; padding: 6px 0 10px; }
+.boom-shadow-arm {
+  position: absolute; top: -8px; left: 50%; width: 3px; height: 46px;
+  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.03));
+  transform: translateX(-50%) rotate(18deg); transform-origin: top center; border-radius: 2px;
+}
+.mic-pulse-ring {
+  position: absolute; top: 30px; left: 50%; width: 96px; height: 96px; transform: translate(-50%, 0);
+  border-radius: 50%; border: 2px solid rgba(255,45,85,.35); opacity: 0;
+}
+.mic-pulse-ring.active { animation: mic-pulse 1.6s ease-out infinite; }
+@keyframes mic-pulse {
+  0% { opacity: .7; transform: translate(-50%,0) scale(.75); }
+  100% { opacity: 0; transform: translate(-50%,0) scale(1.55); }
+}
+.host-mic-body {
+  position: relative; width: 92px; height: 92px; border-radius: 26px;
+  background: linear-gradient(155deg, #2a2433, #14101c);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+  display: flex; align-items: center; justify-content: center; margin-top: 30px;
+  transition: box-shadow .25s, border-color .25s;
+}
+.host-mic-body.speaking {
+  border-color: rgba(255,45,85,.6);
+  box-shadow: 0 0 26px rgba(255,45,85,.55), 0 10px 30px rgba(0,0,0,.5);
+}
+.host-mic-grille {
+  width: 66px; height: 66px; border-radius: 18px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,255,255,.14), transparent 50%),
+    repeating-linear-gradient(0deg, #33303e 0 2px, #221f2b 2px 4px);
+  border: 1px solid rgba(0,0,0,.4);
+}
+.host-onair-dot {
+  position: absolute; top: 8px; right: 8px; width: 12px; height: 12px; border-radius: 50%;
+  background: #4a1622; box-shadow: inset 0 0 3px rgba(0,0,0,.6);
+}
+.host-onair-dot.on { background: var(--onair-red); box-shadow: 0 0 10px rgba(255,45,85,.9); }
+.host-mic-label { margin-top: 12px; font-size: 15px; font-weight: 900; }
+.host-mic-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+.host-mic-sub img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+
+/* ── VU METER ── */
+.vu-meter { display: flex; gap: 3px; align-items: flex-end; height: 22px; margin-top: 10px; }
+.vu-seg { width: 4px; border-radius: 2px; background: rgba(255,255,255,.08); transition: background .06s, height .06s; }
+.vu-seg.lit-green { background: var(--teal); }
+.vu-seg.lit-gold { background: var(--gold); }
+.vu-seg.lit-red { background: var(--onair-red); }
+
+/* ── WAVEFORM ── */
+.waveform-wrap { margin-top: 12px; width: 100%; height: 44px; }
+.waveform-wrap canvas { width: 100%; height: 100%; display: block; }
+
+/* ── GUEST BOOM-MIC BOOTH ── */
+.guest-booth { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+.guest-slot {
+  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 16px;
+  padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-height: 108px; position: relative; cursor: default;
+}
+.guest-slot.empty { border-style: dashed; opacity: .55; cursor: pointer; }
+.guest-slot.empty:active { opacity: .85; }
+.guest-mic-avatar-wrap { position: relative; width: 44px; height: 44px; }
+.guest-mic-avatar-wrap img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.1); }
+.guest-mic-badge {
+  position: absolute; bottom: -3px; right: -3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #2a2433; border: 2px solid var(--studio-panel); display: flex; align-items: center; justify-content: center; font-size: 9px;
+}
+.guest-mic-badge.live { background: var(--onair-red); }
+.guest-mic-badge.muted { background: #3a3a44; }
+.guest-mic-badge.pending { background: var(--gold); }
+.guest-slot-name { font-size: 10.5px; font-weight: 800; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.guest-slot-status { font-size: 9px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; }
+.guest-slot-status.live { color: var(--onair-red); }
+.guest-slot-status.invited { color: var(--gold); }
+.guest-empty-icon { font-size: 20px; opacity: .5; margin-top: 6px; }
+.guest-empty-label { font-size: 9.5px; color: var(--text-dim); font-weight: 700; text-align: center; }
+.guest-mini-controls { display: flex; gap: 4px; margin-top: 2px; }
+.guest-mini-controls button {
+  width: 22px; height: 22px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05); color: var(--text); font-size: 10px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 26px rgba(255,61,127,.4); transition: transform .15s;
-  font-size: 24px;
 }
-.play-toggle-btn:active { transform: scale(.92); }
-.vol-btn, .follow-mini-btn {
-  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); cursor: pointer;
-  display: flex; align-items: center; justify-content: center; font-size: 17px;
-}
-.follow-mini-btn.following { color: #ff3d7f; border-color: rgba(255,61,127,.4); background: rgba(255,61,127,.08); }
-.buffering-hint { font-size: 11px; color: var(--text-dim); margin-top: 10px; position: relative; display: none; }
-.buffering-hint.show { display: block; }
+.guest-mini-controls button.danger { color: var(--onair-red); }
+.guest-mini-controls button.active { background: rgba(0,217,181,.2); border-color: var(--teal); color: var(--teal); }
 
-/* ══════════════════════════════════════════
+@media (max-width: 380px) {
+  .guest-booth { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   LISTENER "NOW PLAYING" ROW (compact, always visible)
+══════════════════════════════════════════════════════════ */
+.listener-strip {
+  display: flex; align-items: center; gap: 12px; margin: 14px 16px 0;
+  padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+}
+.listener-strip-cover { width: 46px; height: 46px; border-radius: 12px; object-fit: cover; flex: none; }
+.listener-strip-info { flex: 1; min-width: 0; }
+.listener-strip-title { font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listener-strip-sub { font-size: 11px; color: var(--text-dim); }
+.play-toggle-btn {
+  width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--onair-red), var(--violet)); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 18px; flex: none;
+  box-shadow: 0 6px 18px rgba(255,45,85,.35);
+}
+.vol-btn, .follow-mini-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); cursor: pointer; flex: none;
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.follow-mini-btn.following { color: var(--onair-red); border-color: rgba(255,45,85,.4); background: rgba(255,45,85,.08); }
+
+/* ══════════════════════════════════════════════════════════
    NOW PLAYING (music library queue) — persistent strip
-══════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 .now-playing-bar {
-  display: none; align-items: center; gap: 12px; margin: 14px 16px 0;
-  padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 18px;
+  display: none; align-items: center; gap: 12px; margin: 10px 16px 0;
+  padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
 }
 .now-playing-bar.show { display: flex; }
-.np-cover {
-  width: 46px; height: 46px; border-radius: 12px; object-fit: cover; flex: none;
-  background: linear-gradient(135deg, rgba(255,61,127,.25), rgba(160,90,255,.2));
-}
+.np-cover { width: 46px; height: 46px; border-radius: 12px; object-fit: cover; flex: none; background: linear-gradient(135deg, rgba(255,45,85,.25), rgba(160,90,255,.2)); }
 .np-info { flex: 1; min-width: 0; }
 .np-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-progress-track { height: 3px; background: var(--border); border-radius: 3px; margin-top: 6px; overflow: hidden; }
-.np-progress-fill { height: 100%; background: linear-gradient(90deg, #ff3d7f, #a05aff); width: 0%; transition: width 1s linear; }
-.np-badge {
-  flex: none; font-size: 9.5px; font-weight: 900; color: #a05aff; background: rgba(160,90,255,.12);
-  border: 1px solid rgba(160,90,255,.3); border-radius: 8px; padding: 3px 8px; letter-spacing: .04em;
-}
+.np-progress-fill { height: 100%; background: linear-gradient(90deg, var(--onair-red), var(--violet)); width: 0%; transition: width 1s linear; }
+.np-badge { flex: none; font-size: 9.5px; font-weight: 900; color: var(--violet); background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.3); border-radius: 8px; padding: 3px 8px; letter-spacing: .04em; }
 .np-transport { display: flex; gap: 4px; flex: none; }
-.np-transport button {
-  width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--bg); color: var(--text); cursor: pointer; font-size: 13px;
-  display: flex; align-items: center; justify-content: center;
-}
-.np-empty-hint { font-size: 11.5px; color: var(--text-dim); }
+.np-transport button { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; }
 
-/* ══════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    TOP GIFTERS STRIP
-══════════════════════════════════════════ */
-.top-gifters-strip {
-  display: flex; align-items: center; gap: 6px; margin: 14px 16px 0;
-  padding: 10px 14px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 16px; overflow-x: auto;
-}
+══════════════════════════════════════════════════════════ */
+.top-gifters-strip { display: flex; align-items: center; gap: 6px; margin: 10px 16px 0; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow-x: auto; }
 .top-gifters-strip img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid var(--bg); margin-left: -8px; flex: none; }
 .top-gifters-strip img:first-child { margin-left: 0; }
 .top-gifters-strip .label { font-size: 11px; color: var(--text-dim); margin-left: 8px; font-weight: 700; white-space: nowrap; }
 
-/* ══════════════════════════════════════════
-   ACTION ROW (gift / music / share)
-══════════════════════════════════════════ */
-.room-actions-row { display: flex; gap: 10px; margin: 14px 16px 0; }
-.room-action-btn {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 12px 6px; border-radius: 16px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700;
-  position: relative;
-}
-.room-action-btn .ic { font-size: 19px; }
-.room-action-btn.gift { color: #ffc857; border-color: rgba(255,200,87,.3); background: rgba(255,200,87,.06); }
-.room-action-btn.music { color: #00d9b5; border-color: rgba(0,217,181,.3); background: rgba(0,217,181,.06); }
-.room-action-badge {
-  position: absolute; top: 4px; right: 10px; background: #ff3d7f; color: #fff;
-  font-size: 9px; font-weight: 900; border-radius: 8px; min-width: 16px; height: 16px;
-  display: flex; align-items: center; justify-content: center; padding: 0 4px;
-}
+.poll-widget { display: none; margin: 12px 16px 0; padding: 14px; background: var(--surface); border: 1px solid rgba(160,90,255,.3); border-radius: 18px; }
+.poll-widget.show { display: block; }
+.poll-question { font-size: 13.5px; font-weight: 800; margin-bottom: 10px; }
+.poll-option { position: relative; margin-bottom: 8px; cursor: pointer; }
+.poll-option-bar { position: absolute; inset: 0; background: rgba(160,90,255,.15); border-radius: 12px; width: 0%; transition: width .4s; }
+.poll-option-label { position: relative; z-index: 1; display: flex; justify-content: space-between; padding: 9px 12px; font-size: 12.5px; font-weight: 700; border: 1px solid var(--border); border-radius: 12px; }
+.poll-option.voted .poll-option-label { border-color: var(--violet); }
+.poll-total { font-size: 10.5px; color: var(--text-dim); margin-top: 4px; }
+.poll-close-btn { margin-top: 8px; width: 100%; background: rgba(255,45,85,.12); color: #ff5577; border: 1px solid rgba(255,45,85,.3); border-radius: 10px; padding: 8px; font-size: 11.5px; font-weight: 800; cursor: pointer; }
 
-/* ══════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
+   REACTIONS + FLOATING FX
+══════════════════════════════════════════════════════════ */
+.fx-layer { position: fixed; bottom: 110px; right: 10px; width: 60px; height: 200px; pointer-events: none; z-index: 15; }
+.fx-particle { position: absolute; bottom: 0; right: 10px; font-size: 22px; animation: float-up 2.6s ease-out forwards; }
+@keyframes float-up { 0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-180px) translateX(var(--drift, 0)) rotate(var(--rot, 0deg)); opacity: 0; } }
+.reaction-row { display: flex; gap: 10px; justify-content: center; margin: 12px 16px 0; }
+.reaction-btn { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); font-size: 19px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+.room-actions-row { display: flex; gap: 10px; margin: 14px 16px 0; }
+.room-action-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700; position: relative; }
+.room-action-btn .ic { font-size: 19px; }
+.room-action-btn.gift { color: var(--gold); border-color: rgba(255,200,87,.3); background: rgba(255,200,87,.06); }
+.room-action-btn.music { color: var(--teal); border-color: rgba(0,217,181,.3); background: rgba(0,217,181,.06); }
+.room-action-badge { position: absolute; top: 4px; right: 10px; background: var(--onair-red); color: #fff; font-size: 9px; font-weight: 900; border-radius: 8px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+
+.cohost-request-btn.pending { opacity: .6; pointer-events: none; }
+
+/* ══════════════════════════════════════════════════════════
+   PRESENTER CONTROL DECK (host only)
+══════════════════════════════════════════════════════════ */
+.control-deck { margin: 16px 16px 0; }
+.deck-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.deck-header h3 { font-size: 13px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+.deck-header .rec-indicator { display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: var(--text-dim); cursor: pointer; }
+.deck-header .rec-indicator .dot { width: 8px; height: 8px; border-radius: 50%; background: #4a1622; }
+.deck-header .rec-indicator.on .dot { background: var(--onair-red); animation: pulse-anim 1.2s infinite; }
+.deck-header .rec-indicator.on { color: var(--onair-red); }
+
+.deck-panel { background: var(--studio-panel2); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; padding: 14px; }
+.deck-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.deck-row:last-child { margin-bottom: 0; }
+.deck-label { font-size: 10.5px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; width: 78px; flex: none; }
+.deck-slider { flex: 1; -webkit-appearance: none; height: 5px; border-radius: 3px; background: rgba(255,255,255,.1); outline: none; }
+.deck-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, var(--onair-red), var(--violet)); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.deck-val { width: 34px; text-align: right; font-size: 11px; font-weight: 800; color: var(--text-dim); flex: none; }
+.deck-toggle-btn { flex: none; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; font-weight: 800; cursor: pointer; }
+.deck-toggle-btn.on { background: rgba(255,45,85,.15); border-color: var(--onair-red); color: #ff5577; }
+.deck-toggle-btn.muted-state { background: rgba(255,45,85,.15); border-color: var(--onair-red); color: #ff5577; }
+
+.deck-divider { height: 1px; background: rgba(255,255,255,.07); margin: 14px 0; }
+
+.sfx-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sfx-btn { padding: 12px 4px; border-radius: 14px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--text); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.sfx-btn .ic { font-size: 18px; }
+.sfx-btn:active { transform: scale(.94); background: rgba(255,45,85,.12); border-color: rgba(255,45,85,.35); }
+
+.jingle-row { display: flex; gap: 8px; }
+.jingle-row button { flex: 1; padding: 10px 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--text); font-size: 11px; font-weight: 800; cursor: pointer; }
+
+.deck-stats-row { display: flex; gap: 8px; }
+.deck-stat-chip { flex: 1; text-align: center; padding: 9px 4px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); }
+.deck-stat-chip .v { font-size: 14px; font-weight: 900; }
+.deck-stat-chip .l { font-size: 9px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; margin-top: 1px; }
+
+.commercial-btn { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid rgba(255,200,87,.35); background: rgba(255,200,87,.1); color: var(--gold); font-size: 12.5px; font-weight: 800; cursor: pointer; }
+
+.end-live-room-btn { width: 100%; margin-top: 4px; background: var(--onair-red); color: #fff; border: none; border-radius: 14px; padding: 12px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+
+/* ── Commercial break overlay ── */
+.commercial-overlay {
+  position: fixed; inset: 0; z-index: 400; background: rgba(6,4,10,.92); backdrop-filter: blur(6px);
+  display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px; text-align: center; padding: 20px;
+}
+.commercial-overlay.show { display: flex; }
+.commercial-overlay .co-title { font-size: 20px; font-weight: 900; color: var(--gold); }
+.commercial-overlay .co-sub { font-size: 13px; color: var(--text-dim); }
+.commercial-overlay .co-timer { font-size: 40px; font-weight: 900; font-variant-numeric: tabular-nums; margin-top: 4px; }
+
+/* ══════════════════════════════════════════════════════════
    CHAT
-══════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 .chat-section { margin: 16px 16px 0; padding: 0 0 100px; }
 .chat-title { font-size: 12.5px; font-weight: 800; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
-.chat-scroll {
-  height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
-}
+.chat-scroll { height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .chat-row { display: flex; gap: 8px; align-items: flex-start; }
 .chat-row img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; margin-top: 2px; }
 .chat-bubble { background: var(--bg); border-radius: 14px; padding: 7px 12px; font-size: 12.5px; line-height: 1.45; max-width: 100%; }
-.chat-bubble .uname { font-weight: 800; color: #ff3d7f; margin-right: 5px; }
+.chat-bubble .uname { font-weight: 800; color: #ff5577; margin-right: 5px; }
 .chat-row.system { justify-content: center; }
 .chat-row.system .chat-bubble { background: transparent; color: var(--text-dim); font-size: 11px; text-align: center; }
 .chat-row.gift .chat-bubble { background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); }
 .chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
-.chat-input-row input {
-  flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
-  padding: 11px 16px; color: var(--text); font-size: 13.5px; outline: none;
-}
-.chat-send-btn {
-  width: 44px; height: 44px; border-radius: 50%; border: none; background: #ff3d7f;
-  color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none;
-}
+.chat-input-row input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 11px 16px; color: var(--text); font-size: 13.5px; outline: none; }
+.chat-send-btn { width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--onair-red); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
 
-/* ══════════════════════════════════════════
-   FLOATING REACTIONS
-══════════════════════════════════════════ */
-.fx-layer { position: fixed; bottom: 110px; right: 10px; width: 60px; height: 200px; pointer-events: none; z-index: 15; }
-.fx-particle { position: absolute; bottom: 0; right: 10px; font-size: 22px; animation: float-up 2.6s ease-out forwards; }
-@keyframes float-up {
-  0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 1; }
-  100% { transform: translateY(-180px) translateX(var(--drift, 0)) rotate(var(--rot, 0deg)); opacity: 0; }
-}
-.reaction-row { display: flex; gap: 10px; justify-content: center; margin: 12px 16px 0; }
-.reaction-btn {
-  width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border);
-  background: var(--surface); font-size: 19px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-
-/* ══════════════════════════════════════════
-   HOST-ONLY BAR
-══════════════════════════════════════════ */
-.host-bar {
-  display: none; align-items: center; gap: 10px; margin: 14px 16px 0;
-  padding: 12px 14px; background: rgba(255,61,127,.08); border: 1px solid rgba(255,61,127,.25);
-  border-radius: 16px; flex-wrap: wrap;
-}
-.host-bar.show { display: flex; }
-.host-bar .htxt { flex: 1; font-size: 12px; color: var(--text-dim); min-width: 100%; margin-bottom: 4px; }
-.end-live-room-btn {
-  background: #ff3d7f; color: #fff; border: none; border-radius: 14px;
-  padding: 9px 16px; font-size: 12.5px; font-weight: 800; cursor: pointer; flex: none;
-}
-
-/* ══════════════════════════════════════════
-   SHEETS (gift / music) — same pattern as live.js
-══════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   SHEETS (shared pattern)
+══════════════════════════════════════════════════════════ */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s; }
 .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
 .bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 85vh; overflow-y: auto; }
@@ -259,162 +333,115 @@
 .sheet-handle { width: 38px; height: 4px; background: var(--border); border-radius: 2px; margin: 14px auto 20px; }
 .sheet-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .sheet-title-row span { font-size: 16px; font-weight: 900; }
-.gift-balance-pill { display: flex; align-items: center; gap: 5px; background: rgba(255,200,87,.12); border: 1px solid rgba(255,200,87,.25); border-radius: 20px; padding: 5px 12px; font-size: 13px; font-weight: 700; color: #ffc857; }
+.gift-balance-pill { display: flex; align-items: center; gap: 5px; background: rgba(255,200,87,.12); border: 1px solid rgba(255,200,87,.25); border-radius: 20px; padding: 5px 12px; font-size: 13px; font-weight: 700; color: var(--gold); }
 .gift-modal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-bottom: 16px; max-height: 260px; overflow-y: auto; }
 .gift-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px; padding: 12px 4px; cursor: pointer; }
-.gift-tile.selected { border-color: #ff3d7f; background: rgba(255,61,127,.08); }
+.gift-tile.selected { border-color: var(--onair-red); background: rgba(255,45,85,.08); }
 .gift-tile .g-emoji { font-size: 22px; }
 .gift-tile .g-name { font-size: 9.5px; font-weight: 700; color: var(--text-dim); text-align: center; }
-.gift-tile .g-price { font-size: 9.5px; font-weight: 800; color: #ffc857; }
-.gift-send-btn { width: 100%; height: 50px; border-radius: 16px; font-size: 14px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg, #ff3d7f, #c2185b); color: #fff; }
+.gift-tile .g-price { font-size: 9.5px; font-weight: 800; color: var(--gold); }
+.gift-send-btn { width: 100%; height: 50px; border-radius: 16px; font-size: 14px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg, var(--onair-red), #c2185b); color: #fff; }
 .gift-send-btn:disabled { opacity: .4; cursor: not-allowed; }
 .form-group { margin-bottom: 14px; }
 .form-group label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
 .form-group input, .form-group select { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; }
-.save-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
+.save-btn { width: 100%; background: linear-gradient(135deg, var(--onair-red), var(--violet)); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
 .save-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
 .toast.show { opacity: 1; }
 
-/* ══════════════════════════════════════════
-   MUSIC SHEET — search / request / queue / upload
-══════════════════════════════════════════ */
-.music-tabs {
-  display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 14px; padding: 4px; margin-bottom: 16px;
-}
-.music-tab-btn {
-  flex: 1; border: none; background: none; color: var(--text-dim); font-size: 11.5px; font-weight: 800;
-  padding: 9px 4px; border-radius: 10px; cursor: pointer; position: relative;
-  display: flex; align-items: center; justify-content: center; gap: 4px;
-}
-.music-tab-btn.active { background: var(--surface); color: #ff3d7f; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-.music-tab-badge {
-  background: #ff3d7f; color: #fff; font-size: 9px; font-weight: 900; border-radius: 8px;
-  min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; padding: 0 4px;
-}
+/* ── invite guest sheet extras ── */
+.invite-hint { font-size: 11.5px; color: var(--text-dim); margin: -6px 0 14px; line-height: 1.5; }
+
+/* ── invite modal (invited user sees this) ── */
+.invite-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 450; display: none; align-items: center; justify-content: center; padding: 20px; }
+.invite-modal-backdrop.show { display: flex; }
+.invite-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 26px 22px; max-width: 340px; width: 100%; text-align: center; }
+.invite-modal .im-icon { font-size: 34px; margin-bottom: 10px; }
+.invite-modal .im-title { font-size: 16px; font-weight: 900; margin-bottom: 6px; }
+.invite-modal .im-body { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 18px; }
+.invite-modal .im-row { display: flex; gap: 10px; }
+.invite-modal .im-row button { flex: 1; padding: 12px; border-radius: 14px; border: none; font-size: 13px; font-weight: 800; cursor: pointer; }
+.invite-modal .im-accept { background: linear-gradient(135deg, var(--onair-red), var(--violet)); color: #fff; }
+.invite-modal .im-decline { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border) !important; }
+
+/* ── guest queue rows inside the guest-booth sheet ── */
+.gb-tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 4px; margin-bottom: 16px; }
+.gb-tab-btn { flex: 1; border: none; background: none; color: var(--text-dim); font-size: 11.5px; font-weight: 800; padding: 9px 4px; border-radius: 10px; cursor: pointer; }
+.gb-tab-btn.active { background: var(--surface); color: #ff5577; }
+.gb-panel { display: none; }
+.gb-panel.active { display: block; }
+.gb-row { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.gb-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.gb-row .gn { flex: 1; font-size: 13px; font-weight: 700; }
+.gb-row .gs { font-size: 10.5px; color: var(--text-dim); }
+.gb-approve-btn, .gb-reject-btn { border: none; border-radius: 10px; padding: 6px 12px; font-size: 11.5px; font-weight: 800; cursor: pointer; }
+.gb-approve-btn { background: var(--teal); color: #00231d; }
+.gb-reject-btn { background: rgba(255,45,85,.15); color: #ff5577; margin-left: 6px; }
+.gb-empty-hint { text-align: center; padding: 20px; color: var(--text-dim); font-size: 12.5px; }
+
+/* ══════════════════════════════════════════════════════════
+   MUSIC SHEET — unchanged from prior pass
+══════════════════════════════════════════════════════════ */
+.music-tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 4px; margin-bottom: 16px; }
+.music-tab-btn { flex: 1; border: none; background: none; color: var(--text-dim); font-size: 11.5px; font-weight: 800; padding: 9px 4px; border-radius: 10px; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.music-tab-btn.active { background: var(--surface); color: #ff5577; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.music-tab-badge { background: var(--onair-red); color: #fff; font-size: 9px; font-weight: 900; border-radius: 8px; min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
 .music-panel { display: none; }
 .music-panel.active { display: block; }
-
 .search-row { display: flex; gap: 8px; margin-bottom: 12px; }
-.search-row input {
-  flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px;
-  color: var(--text); font-size: 13.5px; padding: 11px 14px; outline: none;
-}
-.search-row select {
-  flex: none; width: 96px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px;
-  color: var(--text); font-size: 12px; padding: 0 8px; outline: none;
-}
-.search-row button {
-  flex: none; width: 44px; height: 44px; border-radius: 14px; border: none; cursor: pointer;
-  background: linear-gradient(135deg, #ff3d7f, #a05aff); color: #fff; font-size: 16px;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.song-result-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
-}
-.song-result-cover {
-  width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex: none;
-  background: linear-gradient(135deg, rgba(255,61,127,.25), rgba(160,90,255,.2));
-}
+.search-row input { flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 13.5px; padding: 11px 14px; outline: none; }
+.search-row select { flex: none; width: 96px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 12px; padding: 0 8px; outline: none; }
+.search-row button { flex: none; width: 44px; height: 44px; border-radius: 14px; border: none; cursor: pointer; background: linear-gradient(135deg, var(--onair-red), var(--violet)); color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.song-result-row { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.song-result-cover { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex: none; background: linear-gradient(135deg, rgba(255,45,85,.25), rgba(160,90,255,.2)); }
 .song-result-info { flex: 1; min-width: 0; }
 .song-result-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .song-result-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.song-result-tag {
-  font-size: 8.5px; font-weight: 800; color: #a05aff; background: rgba(160,90,255,.12);
-  border-radius: 6px; padding: 1px 5px; margin-left: 5px; letter-spacing: .03em;
-}
+.song-result-tag { font-size: 8.5px; font-weight: 800; color: var(--violet); background: rgba(160,90,255,.12); border-radius: 6px; padding: 1px 5px; margin-left: 5px; letter-spacing: .03em; }
 .song-result-actions { display: flex; gap: 6px; flex: none; }
-.song-result-actions button {
-  border: none; border-radius: 10px; padding: 7px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer;
-  white-space: nowrap;
-}
-.btn-request { background: rgba(255,61,127,.12); color: #ff3d7f; }
-.btn-queue { background: rgba(0,217,181,.14); color: #00d9b5; }
-
-.divider-label {
-  display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; font-size: 10.5px;
-  font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em;
-}
+.song-result-actions button { border: none; border-radius: 10px; padding: 7px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.btn-request { background: rgba(255,45,85,.12); color: #ff5577; }
+.btn-queue { background: rgba(0,217,181,.14); color: var(--teal); }
+.divider-label { display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; font-size: 10.5px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
 .divider-label::before, .divider-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
-
-.freeform-request-btn {
-  width: 100%; background: var(--bg); border: 1.5px dashed var(--border); border-radius: 14px;
-  color: var(--text-dim); font-size: 12.5px; font-weight: 700; padding: 12px; cursor: pointer;
-}
-
-.request-row {
-  display: flex; align-items: center; gap: 10px; padding: 11px; margin-bottom: 8px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
-}
-.request-vote-btn {
-  flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); cursor: pointer; font-size: 15px;
-}
-.request-vote-btn.voted { border-color: #ff3d7f; color: #ff3d7f; background: rgba(255,61,127,.08); }
+.freeform-request-btn { width: 100%; background: var(--bg); border: 1.5px dashed var(--border); border-radius: 14px; color: var(--text-dim); font-size: 12.5px; font-weight: 700; padding: 12px; cursor: pointer; }
+.request-row { display: flex; align-items: center; gap: 10px; padding: 11px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.request-vote-btn { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 15px; }
+.request-vote-btn.voted { border-color: var(--onair-red); color: #ff5577; background: rgba(255,45,85,.08); }
 .request-vote-btn .vcount { font-size: 9.5px; font-weight: 800; margin-top: 1px; }
 .request-info { flex: 1; min-width: 0; }
 .request-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .request-meta { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .request-host-actions { display: flex; gap: 6px; flex: none; }
-.request-host-actions button {
-  border: none; border-radius: 10px; padding: 7px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer;
-}
-.btn-approve { background: #00d9b5; color: #00231d; }
-.btn-reject { background: rgba(255,61,127,.15); color: #ff3d7f; }
-
-.queue-now-card {
-  display: flex; align-items: center; gap: 12px; padding: 14px; margin-bottom: 14px;
-  background: linear-gradient(135deg, rgba(255,61,127,.1), rgba(160,90,255,.08));
-  border: 1px solid rgba(255,61,127,.25); border-radius: 16px;
-}
+.request-host-actions button { border: none; border-radius: 10px; padding: 7px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer; }
+.btn-approve { background: var(--teal); color: #00231d; }
+.btn-reject { background: rgba(255,45,85,.15); color: #ff5577; }
+.queue-now-card { display: flex; align-items: center; gap: 12px; padding: 14px; margin-bottom: 14px; background: linear-gradient(135deg, rgba(255,45,85,.1), rgba(160,90,255,.08)); border: 1px solid rgba(255,45,85,.25); border-radius: 16px; }
 .queue-now-cover { width: 54px; height: 54px; border-radius: 12px; object-fit: cover; flex: none; }
 .queue-now-info { flex: 1; min-width: 0; }
 .queue-now-title { font-size: 13.5px; font-weight: 800; }
 .queue-now-artist { font-size: 11px; color: var(--text-dim); }
 .queue-transport-row { display: flex; gap: 8px; flex: none; }
-.queue-transport-row button {
-  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--bg); color: var(--text); cursor: pointer; font-size: 14px;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.queue-item-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
-}
-.queue-item-pos {
-  flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--surface);
-  display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: var(--text-dim);
-}
+.queue-transport-row button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+.queue-item-row { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.queue-item-pos { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: var(--text-dim); }
 .queue-item-info { flex: 1; min-width: 0; }
 .queue-item-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .queue-item-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .queue-item-actions { display: flex; gap: 4px; flex: none; }
-.queue-item-actions button {
-  width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px;
-  display: flex; align-items: center; justify-content: center;
-}
-.queue-item-actions button.danger { color: #ff3d7f; }
-
-.upload-drop {
-  border: 1.5px dashed var(--border); border-radius: 16px; padding: 22px 14px; text-align: center;
-  cursor: pointer; margin-bottom: 16px; background: var(--bg);
-}
-.upload-drop.has-file { border-color: #00d9b5; background: rgba(0,217,181,.06); }
+.queue-item-actions button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.queue-item-actions button.danger { color: #ff5577; }
+.upload-drop { border: 1.5px dashed var(--border); border-radius: 16px; padding: 22px 14px; text-align: center; cursor: pointer; margin-bottom: 16px; background: var(--bg); }
+.upload-drop.has-file { border-color: var(--teal); background: rgba(0,217,181,.06); }
 .upload-drop .up-icon { font-size: 26px; margin-bottom: 6px; }
 .upload-drop .up-txt { font-size: 12px; color: var(--text-dim); font-weight: 600; }
 .upload-progress-track { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 10px; display: none; }
 .upload-progress-track.show { display: block; }
-.upload-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #00d9b5, #a05aff); transition: width .3s; }
+.upload-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--teal), var(--violet)); transition: width .3s; }
 .upload-status-text { font-size: 11px; color: var(--text-dim); margin-top: 8px; text-align: center; display: none; }
 .upload-status-text.show { display: block; }
-
 .music-empty-hint { text-align: center; padding: 24px 16px; color: var(--text-dim); font-size: 12.5px; }
 </style>
 </head>
@@ -429,43 +456,54 @@
       </a>
       <div class="room-topbar-info">
         <strong id="topbar-station-title">Loading…</strong>
-        <small><span class="live-pill-sm"><span class="dot"></span>LIVE</span> <span id="topbar-listener-count">0</span> listening</small>
+        <small>
+          <span class="live-pill-sm"><span class="dot"></span>LIVE</span>
+          <span id="topbar-listener-count">0</span> listening
+          <span class="timer-pill" id="show-timer">00:00</span>
+          <span class="net-pill good" id="net-pill"><span class="bar b1"></span><span class="bar b2"></span><span class="bar b3"></span></span>
+        </small>
       </div>
       <button class="topbar-icon-btn" id="share-btn" aria-label="Share">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
       </button>
     </div>
 
-    <div class="radio-hero">
-      <div class="radio-hero-glow"></div>
-      <div class="station-cover-wrap">
-        <div class="station-cover-ring" id="cover-ring">
-          <img id="station-cover" src="" alt="">
+    <!-- ══ STUDIO STAGE ══ -->
+    <div class="studio-stage">
+      <div class="onair-sign-row">
+        <span class="onair-sign" id="onair-sign">ON AIR</span>
+        <span class="bitrate-pill" id="bitrate-pill">— kbps · 48kHz Opus</span>
+      </div>
+
+      <div class="host-mic-rig">
+        <div class="boom-shadow-arm"></div>
+        <div class="mic-pulse-ring" id="mic-pulse-ring"></div>
+        <div class="host-mic-body" id="host-mic-body">
+          <div class="host-mic-grille"></div>
+          <div class="host-onair-dot" id="host-onair-dot"></div>
         </div>
+        <div class="host-mic-label" id="station-title">Loading…</div>
+        <div class="host-mic-sub"><img id="host-avatar" src="https://i.pravatar.cc/100?img=3" alt=""><span id="host-name">Host</span></div>
+        <div class="vu-meter" id="vu-meter"></div>
+        <div class="waveform-wrap"><canvas id="waveform-canvas"></canvas></div>
       </div>
-      <div class="station-title-lg" id="station-title">Loading…</div>
-      <div class="station-host-row">
-        <img id="host-avatar" src="https://i.pravatar.cc/100?img=3" alt="">
-        <span id="host-name">Host</span>
-      </div>
-      <div class="listener-count-lg">🎧 <span id="listener-count">0</span> listening now</div>
 
-      <div class="player-controls-row">
-        <button class="vol-btn" id="vol-btn" aria-label="Mute">🔊</button>
-        <button class="play-toggle-btn" id="play-toggle-btn" aria-label="Play">▶</button>
-        <button class="follow-mini-btn" id="follow-mini-btn" aria-label="Follow">➕</button>
-      </div>
-      <div class="buffering-hint" id="buffering-hint">Buffering…</div>
+      <div class="guest-booth" id="guest-booth"></div>
     </div>
 
-    <div class="host-bar" id="host-bar">
-      <span class="htxt">You're broadcasting live to this station</span>
-      <button class="end-live-room-btn" id="open-cohost-requests-btn" style="background:#a05aff;margin-right:8px;">🙋 Requests</button>
-      <button class="end-live-room-btn" id="open-create-poll-btn" style="background:#00d9b5;color:#00231d;margin-right:8px;">📊 Poll</button>
-      <button class="end-live-room-btn" id="end-live-room-btn">End broadcast</button>
+    <!-- ══ LISTENER TUNE-IN STRIP ══ -->
+    <div class="listener-strip">
+      <img class="listener-strip-cover" id="listener-cover" src="" alt="">
+      <div class="listener-strip-info">
+        <div class="listener-strip-title" id="listener-program-title">Live Program</div>
+        <div class="listener-strip-sub">🎧 <span id="listener-count">0</span> listening now</div>
+      </div>
+      <button class="vol-btn" id="vol-btn" aria-label="Mute">🔊</button>
+      <button class="play-toggle-btn" id="play-toggle-btn" aria-label="Play">▶</button>
+      <button class="follow-mini-btn" id="follow-mini-btn" aria-label="Follow">➕</button>
     </div>
 
-    <!-- ── NOW PLAYING (music library queue) ── -->
+    <!-- ══ NOW PLAYING (music queue) ══ -->
     <div class="now-playing-bar" id="now-playing-bar">
       <img class="np-cover" id="np-cover" src="" alt="">
       <div class="np-info">
@@ -480,11 +518,7 @@
       </div>
     </div>
 
-    <div class="top-gifters-strip" id="top-gifters-strip">
-      <span class="label">Loading top gifters…</span>
-    </div>
-
-    <div class="cohost-strip" id="cohost-strip" style="display:none;"></div>
+    <div class="top-gifters-strip" id="top-gifters-strip"><span class="label">Loading top gifters…</span></div>
     <div class="poll-widget" id="poll-widget"></div>
 
     <div class="reaction-row">
@@ -500,8 +534,73 @@
         <span class="ic">🎵</span>Music
         <span class="room-action-badge" id="music-action-badge" style="display:none;">0</span>
       </button>
-      <button class="room-action-btn cohost-request-btn" id="request-cohost-btn"><span class="ic">🙋</span>Join as caller</button>
+      <button class="room-action-btn cohost-request-btn" id="request-cohost-btn"><span class="ic">🎙️</span>Request Mic</button>
       <button class="room-action-btn" id="leave-room-btn"><span class="ic">🚪</span>Leave</button>
+    </div>
+
+    <!-- ══ PRESENTER CONTROL DECK (host only) ══ -->
+    <div class="control-deck" id="control-deck" style="display:none;">
+      <div class="deck-header">
+        <h3>🎛️ Control Deck</h3>
+        <div class="rec-indicator" id="rec-indicator"><span class="dot"></span><span id="rec-label">Not recording</span></div>
+      </div>
+
+      <div class="deck-panel">
+        <div class="deck-row">
+          <span class="deck-label">Master Mic</span>
+          <button class="deck-toggle-btn" id="master-mute-btn">🎙️ Live</button>
+          <button class="deck-toggle-btn" id="open-guest-booth-btn" style="margin-left:auto;">🙋 Guest Booth <span id="guest-req-badge" style="display:none;color:#ffc857">●</span></button>
+        </div>
+        <div class="deck-row">
+          <span class="deck-label">Music Vol</span>
+          <input type="range" class="deck-slider" id="music-vol-slider" min="0" max="100" value="70">
+          <span class="deck-val" id="music-vol-val">70%</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-label">Guest Mix</span>
+          <input type="range" class="deck-slider" id="guest-vol-slider" min="0" max="100" value="85">
+          <span class="deck-val" id="guest-vol-val">85%</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-label">Bg. Music</span>
+          <button class="deck-toggle-btn" id="bg-music-toggle-btn">Off</button>
+          <span class="deck-label" style="width:auto;margin-left:10px;">Poll</span>
+          <button class="deck-toggle-btn" id="open-create-poll-btn">+ Start</button>
+        </div>
+
+        <div class="deck-divider"></div>
+
+        <div class="deck-row" style="margin-bottom:10px;">
+          <span class="deck-label" style="width:auto;">Jingles</span>
+        </div>
+        <div class="jingle-row" style="margin-bottom:14px;">
+          <button id="intro-jingle-btn">▶ Intro</button>
+          <button id="outro-jingle-btn">⏹ Outro</button>
+        </div>
+
+        <div class="deck-row" style="margin-bottom:10px;">
+          <span class="deck-label" style="width:auto;">Sound FX</span>
+        </div>
+        <div class="sfx-pad" id="sfx-pad">
+          <button class="sfx-btn" data-effect="applause"><span class="ic">👏</span>Applause</button>
+          <button class="sfx-btn" data-effect="airhorn"><span class="ic">📯</span>Air Horn</button>
+          <button class="sfx-btn" data-effect="drumroll"><span class="ic">🥁</span>Drum Roll</button>
+          <button class="sfx-btn" data-effect="cheer"><span class="ic">🎉</span>Cheer</button>
+          <button class="sfx-btn" data-effect="laugh"><span class="ic">😂</span>Laugh</button>
+          <button class="sfx-btn" data-effect="boo"><span class="ic">😱</span>Boo</button>
+        </div>
+
+        <div class="deck-divider"></div>
+
+        <div class="deck-stats-row" style="margin-bottom:14px;">
+          <div class="deck-stat-chip"><div class="v" id="deck-listener-count">0</div><div class="l">Listeners</div></div>
+          <div class="deck-stat-chip"><div class="v" id="deck-show-timer">00:00</div><div class="l">On Air</div></div>
+          <div class="deck-stat-chip"><div class="v" id="deck-bitrate">—</div><div class="l">Bitrate</div></div>
+        </div>
+
+        <button class="commercial-btn" id="commercial-break-btn" style="margin-bottom:10px;">📻 Trigger Commercial Break</button>
+        <button class="end-live-room-btn" id="end-live-room-btn">End broadcast</button>
+      </div>
     </div>
 
     <div class="chat-section">
@@ -520,49 +619,82 @@
 
 <div class="fx-layer" id="fx-layer"></div>
 
+<!-- ── COMMERCIAL BREAK OVERLAY ── -->
+<div class="commercial-overlay" id="commercial-overlay">
+  <div class="co-title">📻 WE'LL BE RIGHT BACK</div>
+  <div class="co-sub">Commercial break in progress</div>
+  <div class="co-timer" id="commercial-timer">0:30</div>
+</div>
+
+<!-- ── GUEST INVITE MODAL (shown to the invited user) ── -->
+<div class="invite-modal-backdrop" id="invite-modal-backdrop">
+  <div class="invite-modal">
+    <div class="im-icon">🎙️</div>
+    <div class="im-title">Love FM Invitation</div>
+    <div class="im-body" id="invite-modal-body">You've been invited to join the live radio show as a guest speaker.</div>
+    <div class="im-row">
+      <button class="im-decline" id="invite-decline-btn">Decline</button>
+      <button class="im-accept" id="invite-accept-btn">Accept</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── GIFT SHEET ── -->
 <div class="sheet-backdrop" id="gift-backdrop"></div>
 <div class="bottom-sheet" id="gift-sheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title-row">
-    <span>Send a Gift</span>
-    <span class="gift-balance-pill">🪙 <span id="gift-balance">0</span></span>
-  </div>
-  <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Gifting <b style="color:#ff3d7f" id="gift-target-name">Host</b></div>
+  <div class="sheet-title-row"><span>Send a Gift</span><span class="gift-balance-pill">🪙 <span id="gift-balance">0</span></span></div>
+  <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Gifting <b style="color:#ff5577" id="gift-target-name">Host</b></div>
   <div class="gift-modal-grid" id="gift-modal-grid"></div>
   <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
 </div>
 
-<!-- ── MUSIC SHEET — search / request / queue / upload ── -->
+<!-- ── GUEST BOOTH SHEET (host: requests + invited + invite-by-username) ── -->
+<div class="sheet-backdrop" id="guest-booth-backdrop"></div>
+<div class="bottom-sheet" id="guest-booth-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>🙋 Guest Booth</span></div>
+
+  <div class="form-group" style="margin-bottom:10px;">
+    <label>Invite a guest by username</label>
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="invite-username-input" placeholder="@username" maxlength="40" style="flex:1;">
+      <button class="save-btn" id="invite-send-btn" style="width:auto;padding:0 18px;">Invite</button>
+    </div>
+  </div>
+  <div class="invite-hint">The guest gets a notification and can accept or decline. Once accepted, tap their mic in the booth to bring them live.</div>
+
+  <div class="gb-tabs">
+    <button class="gb-tab-btn active" data-gbtab="requests">Requests</button>
+    <button class="gb-tab-btn" data-gbtab="invited">Invited</button>
+    <button class="gb-tab-btn" data-gbtab="live">Live Now</button>
+  </div>
+  <div class="gb-panel active" id="gb-panel-requests"><div class="gb-empty-hint">No requests yet</div></div>
+  <div class="gb-panel" id="gb-panel-invited"><div class="gb-empty-hint">No pending invites</div></div>
+  <div class="gb-panel" id="gb-panel-live"><div class="gb-empty-hint">No guests live yet</div></div>
+</div>
+
+<!-- ── MUSIC SHEET ── -->
 <div class="sheet-backdrop" id="music-backdrop"></div>
 <div class="bottom-sheet" id="music-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title-row"><span>🎵 Music</span></div>
-
   <div class="music-tabs">
     <button class="music-tab-btn active" data-tab="search">Search</button>
-    <button class="music-tab-btn" data-tab="requests">
-      Requests <span class="music-tab-badge" id="requests-tab-badge" style="display:none;">0</span>
-    </button>
+    <button class="music-tab-btn" data-tab="requests">Requests <span class="music-tab-badge" id="requests-tab-badge" style="display:none;">0</span></button>
     <button class="music-tab-btn" data-tab="queue">Queue</button>
     <button class="music-tab-btn" data-tab="upload" id="upload-tab-btn" style="display:none;">Upload</button>
   </div>
 
-  <!-- SEARCH & REQUEST -->
   <div class="music-panel active" id="panel-search">
     <div class="search-row">
       <input type="text" id="music-search-input" placeholder="Search songs or artists…" maxlength="150">
-      <select id="music-search-provider">
-        <option value="local">Library</option>
-        <option value="jamendo">Jamendo</option>
-      </select>
+      <select id="music-search-provider"><option value="local">Library</option><option value="jamendo">Jamendo</option></select>
       <button id="music-search-btn" aria-label="Search">🔍</button>
     </div>
     <div id="search-results-list"></div>
-
     <div class="divider-label">or</div>
     <button class="freeform-request-btn" id="open-freeform-btn">✏️ Can't find it? Type a song name instead</button>
-
     <div id="freeform-form" style="display:none;margin-top:14px;">
       <div class="form-group"><label>Song name</label><input type="text" id="request-song" placeholder="e.g. Love Nwantiti" maxlength="150"></div>
       <div class="form-group"><label>Artist (optional)</label><input type="text" id="request-artist" placeholder="e.g. CKay" maxlength="100"></div>
@@ -570,18 +702,8 @@
     </div>
   </div>
 
-  <!-- PENDING REQUESTS + VOTING -->
-  <div class="music-panel" id="panel-requests">
-    <div id="requests-list"><div class="music-empty-hint">No pending requests yet</div></div>
-  </div>
-
-  <!-- QUEUE + NOW PLAYING + TRANSPORT -->
-  <div class="music-panel" id="panel-queue">
-    <div id="queue-now-wrap"></div>
-    <div id="queue-list"><div class="music-empty-hint">Queue is empty</div></div>
-  </div>
-
-  <!-- HOST UPLOAD -->
+  <div class="music-panel" id="panel-requests"><div id="requests-list"><div class="music-empty-hint">No pending requests yet</div></div></div>
+  <div class="music-panel" id="panel-queue"><div id="queue-now-wrap"></div><div id="queue-list"><div class="music-empty-hint">Queue is empty</div></div></div>
   <div class="music-panel" id="panel-upload">
     <div class="upload-drop" id="upload-drop">
       <div class="up-icon">🎧</div>
@@ -594,14 +716,6 @@
     <div class="upload-progress-track" id="upload-progress-track"><div class="upload-progress-fill" id="upload-progress-fill"></div></div>
     <div class="upload-status-text" id="upload-status-text"></div>
   </div>
-</div>
-
-<!-- ── CO-HOST REQUESTS SHEET (host only) ── -->
-<div class="sheet-backdrop" id="cohost-requests-backdrop"></div>
-<div class="bottom-sheet cohost-requests-sheet" id="cohost-requests-sheet">
-  <div class="sheet-handle"></div>
-  <div class="sheet-title-row"><span>Caller Requests</span></div>
-  <div id="cohost-requests-list" style="max-height:50vh;overflow-y:auto;"></div>
 </div>
 
 <!-- ── CREATE POLL SHEET (host only) ── -->
@@ -643,22 +757,20 @@ let hlsInstance   = null;
 let GIFT_LIST     = [];
 let selectedGift  = null;
 let coinBalance   = Number(window.CURRENT_USER?.coinBalance ?? window.CURRENT_USER?.coin_balance ?? 0);
+let cohostRoster  = [];
+let masterMuted   = false;
+let recording     = false;
+let bgMusicOn     = false;
+let commercialTimerHandle = null;
 
 const audioEl = new Audio();
 audioEl.preload = "none";
+audioEl.crossOrigin = "anonymous";
+
+function $(id) { return document.getElementById(id); }
 
 /* ══════════════════════════════════════════
-   SOCKET (shared connection pattern from live.js /
-   stream.socket.js — radio.socket.js on the backend
-   handles: joinRadio, leaveRadio, radioComment ->
-   newRadioComment, radioReaction -> newRadioReaction,
-   listenerCountUpdated, radioEnded, radioGiftReceived,
-   topRadioGiftersUpdated, co-host/poll events; and
-   radioQueue.socket.js handles the music queue snapshot +
-   vote alias, while songRequestController's REST endpoints
-   broadcast radioSongRequested / radioRequestApproved /
-   radioRequestRejected / radioRequestVoted / radioQueueUpdated /
-   radioNowPlaying over the same `radio:{broadcastId}` room.)
+   SOCKET
 ══════════════════════════════════════════ */
 const socket = io(window.API_BASE_URL.replace("/api", ""), {
   transports: ["websocket"],
@@ -666,7 +778,96 @@ const socket = io(window.API_BASE_URL.replace("/api", ""), {
   reconnectionDelay: 1000
 });
 
-function $(id) { return document.getElementById(id); }
+/* ══════════════════════════════════════════
+   VU METER + WAVEFORM (real Web Audio analysis
+   of the live HLS <audio> element — reacts to
+   whatever is actually being broadcast, for
+   both the host's own preview and listeners)
+══════════════════════════════════════════ */
+const VU_SEGMENTS = 24;
+const vuMeterEl = $("vu-meter");
+for (let i = 0; i < VU_SEGMENTS; i++) {
+  const seg = document.createElement("div");
+  seg.className = "vu-seg";
+  seg.style.height = "3px";
+  vuMeterEl.appendChild(seg);
+}
+const vuSegs = [...vuMeterEl.children];
+
+const waveCanvas = $("waveform-canvas");
+const waveCtx = waveCanvas.getContext("2d");
+function sizeCanvas() {
+  const rect = waveCanvas.getBoundingClientRect();
+  waveCanvas.width = rect.width * 2;
+  waveCanvas.height = rect.height * 2;
+}
+window.addEventListener("resize", sizeCanvas);
+
+let audioCtx = null, analyser = null, sourceNode = null, dataArray = null;
+let speakingLevel = 0;
+let rafHandle = null;
+
+function ensureAudioGraph() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    sourceNode = audioCtx.createMediaElementSource(audioEl);
+    sourceNode.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    sizeCanvas();
+    tickAudioViz();
+  } catch (err) {
+    console.warn("[audioGraph] Web Audio analysis unavailable:", err.message);
+  }
+}
+
+function tickAudioViz() {
+  rafHandle = requestAnimationFrame(tickAudioViz);
+  if (!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+
+  // Overall level -> VU meter + pulsing ring + ON AIR glow
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+  const avg = sum / dataArray.length; // 0-255
+  speakingLevel = speakingLevel * 0.7 + avg * 0.3; // smoothing
+
+  const litCount = Math.round((speakingLevel / 255) * VU_SEGMENTS);
+  vuSegs.forEach((seg, i) => {
+    const h = 3 + Math.min(1, (i + 1) / VU_SEGMENTS) * 19 * (i < litCount ? 1 : 0.15);
+    seg.style.height = `${h}px`;
+    seg.classList.remove("lit-green", "lit-gold", "lit-red");
+    if (i < litCount) {
+      if (i > VU_SEGMENTS * 0.85) seg.classList.add("lit-red");
+      else if (i > VU_SEGMENTS * 0.6) seg.classList.add("lit-gold");
+      else seg.classList.add("lit-green");
+    }
+  });
+
+  const speaking = speakingLevel > 14;
+  $("host-mic-body").classList.toggle("speaking", speaking);
+  $("mic-pulse-ring").classList.toggle("active", speaking);
+
+  // Waveform
+  waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
+  const w = waveCanvas.width, h = waveCanvas.height, mid = h / 2;
+  const barCount = 48;
+  const step = Math.floor(dataArray.length / barCount);
+  const barW = w / barCount;
+  const grad = waveCtx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, "#ff2d55");
+  grad.addColorStop(0.5, "#a05aff");
+  grad.addColorStop(1, "#00d9b5");
+  waveCtx.fillStyle = grad;
+  for (let i = 0; i < barCount; i++) {
+    const v = dataArray[i * step] / 255;
+    const barH = Math.max(4, v * h * 0.9);
+    waveCtx.fillRect(i * barW + barW * 0.15, mid - barH / 2, barW * 0.7, barH);
+  }
+}
 
 /* ══════════════════════════════════════════
    LOAD BROADCAST
@@ -685,41 +886,55 @@ async function loadBroadcast() {
 }
 
 function renderBroadcast(b) {
-  const cover = b.station_cover ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(b.station_title||"Radio")}&background=ff3d7f&color=fff&size=300`;
-  const hostAv = b.avatar_url ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(b.username||"Host")}&size=80`;
+  const cover = b.station_cover || `https://ui-avatars.com/api/?name=${encodeURIComponent(b.station_title||"Radio")}&background=ff2d55&color=fff&size=300`;
+  const hostAv = b.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(b.username||"Host")}&size=80`;
 
-  $("station-cover").src = cover;
   $("station-title").textContent = b.title || b.station_title || "Live Radio";
   $("topbar-station-title").textContent = b.title || b.station_title || "Live Radio";
+  $("listener-program-title").textContent = b.title || b.station_title || "Live Radio";
   $("host-avatar").src = hostAv;
   $("host-name").textContent = b.display_name || b.username || "Host";
   $("gift-target-name").textContent = b.display_name || b.username || "Host";
+  $("listener-cover").src = cover;
+  $("onair-sign").classList.add("live");
 
   isHost = String(b.host_id) === String(window.CURRENT_USER?.id);
-  $("host-bar").classList.toggle("show", isHost);
+  $("control-deck").style.display = isHost ? "block" : "none";
   if (isHost) $("open-gift-sheet-btn").style.display = "none";
 
-  // ── hide host-only controls from listeners, and hide
-  // the "Join as caller" button for the host themself.
   if (isHost) {
     $("request-cohost-btn").style.display = "none";
     $("upload-tab-btn").style.display = "flex";
     $("np-host-transport").style.display = "flex";
-  } else {
-    $("open-cohost-requests-btn")?.remove();
-    $("open-create-poll-btn")?.remove();
   }
 
   if (b.listener_count != null) updateListenerCount(b.listener_count);
-
   if (b.hls_playlist_url) initPlayer(b.hls_playlist_url);
+
+  if (b.started_at) startShowTimer(new Date(b.started_at).getTime());
 }
 
 function updateListenerCount(n) {
-  $("listener-count").textContent = formatCoins(n || 0);
-  $("topbar-listener-count").textContent = formatCoins(n || 0);
+  const val = formatCoins(n || 0);
+  $("listener-count").textContent = val;
+  $("topbar-listener-count").textContent = val;
+  $("deck-listener-count").textContent = val;
+}
+
+let timerHandle = null;
+function startShowTimer(startedAtMs) {
+  if (timerHandle) clearInterval(timerHandle);
+  function tick() {
+    const secs = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+    const label = h > 0
+      ? `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
+      : `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+    $("show-timer").textContent = label;
+    $("deck-show-timer").textContent = label;
+  }
+  tick();
+  timerHandle = setInterval(tick, 1000);
 }
 
 /* ══════════════════════════════════════════
@@ -732,9 +947,18 @@ function initPlayer(url) {
     hlsInstance.attachMedia(audioEl);
     hlsInstance.on(Hls.Events.ERROR, (evt, data) => {
       if (data.fatal) {
+        setNetQuality("poor");
         console.error("[hls] fatal error:", data);
         showToast("Stream connection lost — retrying…");
         setTimeout(() => hlsInstance?.startLoad(), 2000);
+      }
+    });
+    hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (evt, data) => {
+      const level = hlsInstance.levels?.[data.level];
+      if (level?.bitrate) {
+        const kbps = Math.round(level.bitrate / 1000);
+        $("bitrate-pill").textContent = `${kbps} kbps · 48kHz Opus`;
+        $("deck-bitrate").textContent = `${kbps}k`;
       }
     });
   } else if (audioEl.canPlayType("application/vnd.apple.mpegurl")) {
@@ -744,14 +968,21 @@ function initPlayer(url) {
   }
 }
 
-audioEl.addEventListener("waiting", () => $("buffering-hint").classList.add("show"));
-audioEl.addEventListener("playing", () => $("buffering-hint").classList.remove("show"));
+audioEl.addEventListener("waiting", () => setNetQuality("fair"));
+audioEl.addEventListener("playing", () => setNetQuality("good"));
+
+function setNetQuality(level) {
+  const el = $("net-pill");
+  el.classList.remove("good", "fair", "poor");
+  el.classList.add(level);
+}
 
 function togglePlay() {
   if (!isPlaying) {
+    ensureAudioGraph();
+    if (audioCtx?.state === "suspended") audioCtx.resume();
     audioEl.play().then(() => {
       isPlaying = true;
-      $("cover-ring").classList.add("spinning");
       $("play-toggle-btn").innerHTML = "⏸";
     }).catch(err => {
       console.error("[togglePlay] ❌", err);
@@ -760,7 +991,6 @@ function togglePlay() {
   } else {
     audioEl.pause();
     isPlaying = false;
-    $("cover-ring").classList.remove("spinning");
     $("play-toggle-btn").innerHTML = "▶";
   }
 }
@@ -772,7 +1002,7 @@ function toggleMute() {
 }
 
 /* ══════════════════════════════════════════
-   JOIN / LEAVE (REST + socket)
+   JOIN / LEAVE
 ══════════════════════════════════════════ */
 async function joinBroadcast() {
   try {
@@ -780,21 +1010,15 @@ async function joinBroadcast() {
     if (res.data?.listenerCount != null) updateListenerCount(res.data.listenerCount);
   } catch (err) {
     console.error("[joinBroadcast] ❌", err);
-    if (err.message?.includes("members-only") || err.message?.includes("subscribe")) {
-      showToast(err.message);
-    }
+    if (err.message?.includes("members-only") || err.message?.includes("subscribe")) showToast(err.message);
   }
   socket.emit("joinRadio", { broadcastId, userId: window.CURRENT_USER.id });
 }
-
 async function leaveBroadcast() {
   try { await api.request(`/radio/broadcasts/${broadcastId}/leave`, { method: "POST" }); } catch (e) {}
   socket.emit("leaveRadio", { broadcastId, userId: window.CURRENT_USER.id });
 }
 
-/* ══════════════════════════════════════════
-   FOLLOW (station-level follow — reuses /radio/stations/:id/follow)
-══════════════════════════════════════════ */
 async function toggleFollow() {
   if (!broadcast?.station_id) return;
   const btn = $("follow-mini-btn");
@@ -824,14 +1048,12 @@ function appendChat({ avatar, name, text, type = "chat" }) {
   while (wrap.children.length > 80) wrap.removeChild(wrap.firstChild);
   wrap.scrollTop = wrap.scrollHeight;
 }
-
 function sendChat() {
   const input = $("chat-input");
   const text = input.value.trim();
   if (!text || text.length > 200) return;
   socket.emit("radioComment", {
-    broadcastId,
-    userId: window.CURRENT_USER.id,
+    broadcastId, userId: window.CURRENT_USER.id,
     avatar: window.CURRENT_USER.avatar_url || window.CURRENT_USER.avatarUrl,
     name: window.CURRENT_USER.username || window.CURRENT_USER.display_name,
     text
@@ -858,15 +1080,13 @@ function spawnParticle(emoji) {
 }
 
 /* ══════════════════════════════════════════
-   TOP GIFTERS
+   TOP GIFTERS / GIFTS
 ══════════════════════════════════════════ */
 async function loadTopGifters() {
   try {
     const res = await api.request(`/radio/broadcasts/${broadcastId}/top-gifters`);
     renderTopGifters(res.data || []);
-  } catch (err) {
-    $("top-gifters-strip").innerHTML = `<span class="label">No gifters yet</span>`;
-  }
+  } catch (err) { $("top-gifters-strip").innerHTML = `<span class="label">No gifters yet</span>`; }
 }
 function renderTopGifters(list) {
   const el = $("top-gifters-strip");
@@ -875,21 +1095,9 @@ function renderTopGifters(list) {
     `<img src="${escapeHtml(u.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.username)}&size=60`)}" alt="${escapeHtml(u.username)}" title="${escapeHtml(u.username)} · ${formatCoins(u.total)} coins" onerror="this.src='https://i.pravatar.cc/60'">`
   ).join("") + `<span class="label">Top Gifters</span>`;
 }
-
-/* ══════════════════════════════════════════
-   GIFTS
-══════════════════════════════════════════ */
 async function loadGiftCatalog() {
-  try {
-    const r = await api.request("/gifts");
-    GIFT_LIST = r.data || [];
-  } catch (err) {
-    GIFT_LIST = [
-      {id:"g1",name:"Rose",emoji:"🌹",price_coins:5},
-      {id:"g2",name:"Heart",emoji:"❤️",price_coins:10},
-      {id:"g3",name:"Crown",emoji:"👑",price_coins:500}
-    ];
-  }
+  try { const r = await api.request("/gifts"); GIFT_LIST = r.data || []; }
+  catch (err) { GIFT_LIST = [{id:"g1",name:"Rose",emoji:"🌹",price_coins:5},{id:"g2",name:"Heart",emoji:"❤️",price_coins:10},{id:"g3",name:"Crown",emoji:"👑",price_coins:500}]; }
   renderGiftGrid();
 }
 function renderGiftGrid() {
@@ -904,51 +1112,191 @@ function renderGiftGrid() {
     btn.textContent = `Send ${selectedGift.emoji||"🎁"} ${selectedGift.name} (${selectedGift.price_coins} coins)`;
   }));
 }
-function openGiftSheet() {
-  $("gift-balance").textContent = formatCoins(coinBalance);
-  $("gift-backdrop").classList.add("open");
-  $("gift-sheet").classList.add("open");
-}
-function closeGiftSheet() {
-  $("gift-backdrop").classList.remove("open");
-  $("gift-sheet").classList.remove("open");
-}
+function openGiftSheet() { $("gift-balance").textContent = formatCoins(coinBalance); $("gift-backdrop").classList.add("open"); $("gift-sheet").classList.add("open"); }
+function closeGiftSheet() { $("gift-backdrop").classList.remove("open"); $("gift-sheet").classList.remove("open"); }
 async function sendSelectedGift() {
   if (!selectedGift || !broadcast) return;
   if (coinBalance < selectedGift.price_coins) { showToast("Not enough coins"); setTimeout(() => window.location.href = "coins.html", 700); return; }
   try {
-    await api.request("/gifts/send", {
-      method: "POST",
-      body: JSON.stringify({
-        receiverId: broadcast.host_id,
-        giftId: selectedGift.id,
-        quantity: 1,
-        contextType: "radio_broadcast",
-        contextId: broadcastId
-      })
-    });
+    await api.request("/gifts/send", { method: "POST", body: JSON.stringify({ receiverId: broadcast.host_id, giftId: selectedGift.id, quantity: 1, contextType: "radio_broadcast", contextId: broadcastId }) });
     coinBalance -= selectedGift.price_coins;
     persistCurrentUser({ coinBalance, coin_balance: coinBalance });
     showToast(`🎁 Sent ${selectedGift.name}!`);
     closeGiftSheet();
-  } catch (err) {
-    showToast(err.message || "Gift failed");
-  }
+  } catch (err) { showToast(err.message || "Gift failed"); }
 }
 
 /* ══════════════════════════════════════════════════════════
-   MUSIC SYSTEM — search (local + Jamendo), freeform request,
-   voting, host approve/reject, live queue, transport controls,
-   host upload. Every REST path below matches songRequestController
-   (mounted at /api/radio/broadcasts) and musicLibraryController
-   (mounted at /api/radio/music-library).
-══════════════════════════════════════════════════════════════ */
+   GUEST BOOTH — boom-mic grid + host booth sheet + invite flow
+══════════════════════════════════════════════════════════ */
+const GUEST_SLOT_COUNT = 8;
 
-let musicActiveTab   = "search";
-let pendingRequests   = [];
-let queueState        = { queue: [], nowPlaying: null };
-let npTicker          = null;
-let myVotedRequestIds  = new Set();
+function renderGuestBooth() {
+  const grid = $("guest-booth");
+  const live = cohostRoster.filter(r => r.status === "approved");
+  const slots = [];
+  for (let i = 0; i < GUEST_SLOT_COUNT; i++) slots.push(live[i] || null);
+
+  grid.innerHTML = slots.map((g, i) => {
+    if (!g) {
+      return `<div class="guest-slot empty" data-empty="1">
+        <div class="guest-empty-icon">🎙️</div>
+        <div class="guest-empty-label">${isHost ? "Empty seat" : "Empty"}</div>
+      </div>`;
+    }
+    const av = g.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(g.username||"G")}&size=80`;
+    const live_ = !g.mic_muted;
+    const badgeClass = live_ ? "live" : "muted";
+    const badgeIcon = live_ ? "🔴" : "🔇";
+    const statusLabel = live_ ? "LIVE" : "Muted";
+    return `<div class="guest-slot" data-uid="${g.user_id}">
+      <div class="guest-mic-avatar-wrap">
+        <img src="${escapeHtml(av)}" alt="" onerror="this.src='https://i.pravatar.cc/80'">
+        <div class="guest-mic-badge ${badgeClass}">${badgeIcon}</div>
+      </div>
+      <div class="guest-slot-name">${escapeHtml(g.display_name || g.username || "Guest")}</div>
+      <div class="guest-slot-status ${live_ ? "live" : ""}">${statusLabel}</div>
+      ${isHost ? `
+        <div class="guest-mini-controls">
+          <button class="gm-mic ${live_ ? "active" : ""}" data-uid="${g.user_id}" data-muted="${g.mic_muted}" title="${live_ ? "Mute" : "Go live"}">${live_ ? "🔊" : "🎙️"}</button>
+          <button class="gm-lock ${g.mic_locked ? "active" : ""}" data-uid="${g.user_id}" data-locked="${g.mic_locked}" title="Lock mic">${g.mic_locked ? "🔒" : "🔓"}</button>
+          <button class="gm-remove danger" data-uid="${g.user_id}" title="Remove">✕</button>
+        </div>` : ""}
+    </div>`;
+  }).join("");
+
+  if (isHost) {
+    grid.querySelectorAll(".guest-slot.empty").forEach(el => el.addEventListener("click", () => openGuestBoothSheet()));
+    grid.querySelectorAll(".gm-mic").forEach(btn => btn.addEventListener("click", () => {
+      const wasMuted = btn.dataset.muted === "true";
+      socket.emit("radioSetGuestMic", { broadcastId, targetUserId: btn.dataset.uid, muted: !wasMuted }, (res) => {
+        if (res?.error) showToast(res.error);
+      });
+    }));
+    grid.querySelectorAll(".gm-lock").forEach(btn => btn.addEventListener("click", () => {
+      const wasLocked = btn.dataset.locked === "true";
+      socket.emit("radioSetGuestLock", { broadcastId, targetUserId: btn.dataset.uid, locked: !wasLocked }, (res) => {
+        if (res?.error) showToast(res.error);
+      });
+    }));
+    grid.querySelectorAll(".gm-remove").forEach(btn => btn.addEventListener("click", () => {
+      if (!confirm("Remove this guest from the booth?")) return;
+      socket.emit("radioKickCohost", { broadcastId, targetUserId: btn.dataset.uid });
+    }));
+  }
+
+  // Guest request badge on the control deck
+  const pendingCount = cohostRoster.filter(r => r.status === "pending").length;
+  const badge = $("guest-req-badge");
+  if (isHost && pendingCount > 0) { badge.style.display = "inline"; } else { badge.style.display = "none"; }
+
+  // Non-host "Request Mic" button state
+  if (!isHost) {
+    const mine = cohostRoster.find(r => String(r.user_id) === String(window.CURRENT_USER?.id));
+    const reqBtn = $("request-cohost-btn");
+    reqBtn.classList.remove("pending");
+    const icEl = reqBtn.querySelector(".ic");
+    const textNode = reqBtn.childNodes[reqBtn.childNodes.length - 1];
+    if (mine?.status === "approved") { icEl.textContent = "✅"; textNode.textContent = "On air"; }
+    else if (mine?.status === "pending") { reqBtn.classList.add("pending"); icEl.textContent = "⏳"; textNode.textContent = "Requested"; }
+    else if (mine?.status === "invited") { icEl.textContent = "🎙️"; textNode.textContent = "Invited!"; }
+    else { icEl.textContent = "🎙️"; textNode.textContent = "Request Mic"; }
+  }
+}
+
+function requestCohost() {
+  if (isHost) return;
+  const mine = cohostRoster.find(r => String(r.user_id) === String(window.CURRENT_USER?.id));
+  if (mine?.status === "invited") { openInviteModal({ broadcastId, hostName: broadcast?.display_name || broadcast?.username }); return; }
+  if (mine?.status === "pending") return;
+  socket.emit("radioRequestCohost", { broadcastId, userId: window.CURRENT_USER.id }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("Request sent — waiting for host");
+  });
+}
+
+/* ── Guest booth sheet (host) ── */
+let gbActiveTab = "requests";
+function openGuestBoothSheet() {
+  $("guest-booth-backdrop").classList.add("open");
+  $("guest-booth-sheet").classList.add("open");
+  switchGbTab(gbActiveTab);
+  renderGuestBoothSheet();
+}
+function closeGuestBoothSheet() { $("guest-booth-backdrop").classList.remove("open"); $("guest-booth-sheet").classList.remove("open"); }
+function switchGbTab(tab) {
+  gbActiveTab = tab;
+  document.querySelectorAll(".gb-tab-btn").forEach(b => b.classList.toggle("active", b.dataset.gbtab === tab));
+  document.querySelectorAll(".gb-panel").forEach(p => p.classList.remove("active"));
+  $(`gb-panel-${tab}`).classList.add("active");
+}
+document.querySelectorAll(".gb-tab-btn").forEach(btn => btn.addEventListener("click", () => switchGbTab(btn.dataset.gbtab)));
+
+function renderGuestBoothSheet() {
+  const requests = cohostRoster.filter(r => r.status === "pending");
+  const invited = cohostRoster.filter(r => r.status === "invited");
+  const live = cohostRoster.filter(r => r.status === "approved");
+
+  $("gb-panel-requests").innerHTML = requests.length ? requests.map(r => guestRowHtml(r, "request")).join("") : `<div class="gb-empty-hint">No requests yet</div>`;
+  $("gb-panel-invited").innerHTML = invited.length ? invited.map(r => guestRowHtml(r, "invited")).join("") : `<div class="gb-empty-hint">No pending invites</div>`;
+  $("gb-panel-live").innerHTML = live.length ? live.map(r => guestRowHtml(r, "live")).join("") : `<div class="gb-empty-hint">No guests live yet</div>`;
+
+  $("gb-panel-requests").querySelectorAll("[data-approve]").forEach(btn => btn.addEventListener("click", () => {
+    socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.approve, action: "approve" });
+  }));
+  $("gb-panel-requests").querySelectorAll("[data-reject]").forEach(btn => btn.addEventListener("click", () => {
+    socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.reject, action: "reject" });
+  }));
+  $("gb-panel-live").querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => {
+    socket.emit("radioKickCohost", { broadcastId, targetUserId: btn.dataset.remove });
+  }));
+}
+function guestRowHtml(r, kind) {
+  const av = r.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(r.username||"G")}&size=60`;
+  const name = escapeHtml(r.display_name || r.username || "User");
+  let actions = "";
+  if (kind === "request") actions = `<button class="gb-approve-btn" data-approve="${r.user_id}">Approve</button><button class="gb-reject-btn" data-reject="${r.user_id}">Reject</button>`;
+  if (kind === "invited") actions = `<span class="gs">Awaiting response…</span>`;
+  if (kind === "live") actions = `<button class="gb-reject-btn" data-remove="${r.user_id}">Remove</button>`;
+  return `<div class="gb-row"><img src="${escapeHtml(av)}" onerror="this.src='https://i.pravatar.cc/60'"><span class="gn">${name}</span>${actions}</div>`;
+}
+
+$("invite-send-btn").addEventListener("click", () => {
+  const username = $("invite-username-input").value.trim();
+  if (!username) { showToast("Enter a username"); return; }
+  socket.emit("radioInviteGuest", { broadcastId, username }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast(`Invite sent to @${res.invited?.username || username}`);
+    $("invite-username-input").value = "";
+    switchGbTab("invited");
+  });
+});
+
+/* ── Invite modal (invited user side) ── */
+function openInviteModal({ hostName }) {
+  $("invite-modal-body").textContent = `${hostName || "The host"} invites you to join the live radio show as a guest speaker.`;
+  $("invite-modal-backdrop").classList.add("show");
+}
+function closeInviteModal() { $("invite-modal-backdrop").classList.remove("show"); }
+$("invite-accept-btn").addEventListener("click", () => {
+  socket.emit("radioRespondInvite", { broadcastId, action: "accept" }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("You're in the guest booth! The host will bring your mic live.");
+    closeInviteModal();
+  });
+});
+$("invite-decline-btn").addEventListener("click", () => {
+  socket.emit("radioRespondInvite", { broadcastId, action: "decline" }, () => closeInviteModal());
+});
+
+/* ══════════════════════════════════════════════════════════
+   MUSIC SYSTEM — search / requests / queue / upload
+══════════════════════════════════════════════════════════ */
+let musicActiveTab = "search";
+let pendingRequests = [];
+let queueState = { queue: [], nowPlaying: null };
+let npTicker = null;
+let myVotedRequestIds = new Set();
 
 function openMusicSheet(tab = "search") {
   $("music-backdrop").classList.add("open");
@@ -957,22 +1305,15 @@ function openMusicSheet(tab = "search") {
   loadRequests();
   refreshQueueSnapshot();
 }
-function closeMusicSheet() {
-  $("music-backdrop").classList.remove("open");
-  $("music-sheet").classList.remove("open");
-}
-
+function closeMusicSheet() { $("music-backdrop").classList.remove("open"); $("music-sheet").classList.remove("open"); }
 function switchMusicTab(tab) {
   musicActiveTab = tab;
   document.querySelectorAll(".music-tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".music-panel").forEach(p => p.classList.remove("active"));
   $(`panel-${tab}`)?.classList.add("active");
 }
-document.querySelectorAll(".music-tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => switchMusicTab(btn.dataset.tab));
-});
+document.querySelectorAll(".music-tab-btn").forEach(btn => btn.addEventListener("click", () => switchMusicTab(btn.dataset.tab)));
 
-/* ── SEARCH ── */
 async function searchMusic() {
   const q = $("music-search-input").value.trim();
   const provider = $("music-search-provider").value;
@@ -983,344 +1324,179 @@ async function searchMusic() {
     if (q) qs.set("q", q);
     const res = await api.request(`/radio/music-library/search?${qs.toString()}`);
     renderSearchResults(res.data || []);
-  } catch (err) {
-    list.innerHTML = `<div class="music-empty-hint">Search failed — try again</div>`;
-  }
+  } catch (err) { list.innerHTML = `<div class="music-empty-hint">Search failed — try again</div>`; }
 }
-
 function renderSearchResults(results) {
   const list = $("search-results-list");
-  if (!results.length) {
-    list.innerHTML = `<div class="music-empty-hint">No matches — try a different search or request a song by name below</div>`;
-    return;
-  }
+  if (!results.length) { list.innerHTML = `<div class="music-empty-hint">No matches — try a different search or request a song by name below</div>`; return; }
   list.innerHTML = results.map((r, i) => {
     const cover = r.coverUrl || "";
     const tag = r.provider === "jamendo" ? `<span class="song-result-tag">JAMENDO</span>` : "";
-    return `
-      <div class="song-result-row" data-idx="${i}">
-        ${cover ? `<img class="song-result-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="song-result-cover"></div>`}
-        <div class="song-result-info">
-          <div class="song-result-title">${escapeHtml(r.title || "Untitled")}${tag}</div>
-          <div class="song-result-artist">${escapeHtml(r.artist || "Unknown artist")}</div>
-        </div>
-        <div class="song-result-actions">
-          <button class="btn-request" data-action="request" data-idx="${i}">Request</button>
-          ${isHost ? `<button class="btn-queue" data-action="queue" data-idx="${i}">+ Queue</button>` : ""}
-        </div>
-      </div>`;
+    return `<div class="song-result-row" data-idx="${i}">
+      ${cover ? `<img class="song-result-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="song-result-cover"></div>`}
+      <div class="song-result-info"><div class="song-result-title">${escapeHtml(r.title || "Untitled")}${tag}</div><div class="song-result-artist">${escapeHtml(r.artist || "Unknown artist")}</div></div>
+      <div class="song-result-actions"><button class="btn-request" data-action="request" data-idx="${i}">Request</button>${isHost ? `<button class="btn-queue" data-action="queue" data-idx="${i}">+ Queue</button>` : ""}</div>
+    </div>`;
   }).join("");
-
-  list.querySelectorAll("[data-action]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const r = results[Number(btn.dataset.idx)];
-      if (btn.dataset.action === "request") requestSongFromResult(r);
-      else addResultToQueue(r);
-    });
-  });
+  list.querySelectorAll("[data-action]").forEach(btn => btn.addEventListener("click", () => {
+    const r = results[Number(btn.dataset.idx)];
+    if (btn.dataset.action === "request") requestSongFromResult(r); else addResultToQueue(r);
+  }));
 }
-
 async function requestSongFromResult(result) {
   try {
-    const body = result.provider === "local"
-      ? { songId: result.id }
-      : { externalProvider: result.provider, externalTrackId: result.id };
-    await api.request(`/radio/broadcasts/${broadcastId}/requests`, {
-      method: "POST",
-      body: JSON.stringify(body)
-    });
+    const body = result.provider === "local" ? { songId: result.id } : { externalProvider: result.provider, externalTrackId: result.id };
+    await api.request(`/radio/broadcasts/${broadcastId}/requests`, { method: "POST", body: JSON.stringify(body) });
     showToast(`Requested "${result.title}" 🎵`);
-    switchMusicTab("requests");
-    loadRequests();
-  } catch (err) {
-    showToast(err.message || "Couldn't send request");
-  }
+    switchMusicTab("requests"); loadRequests();
+  } catch (err) { showToast(err.message || "Couldn't send request"); }
 }
-
 async function addResultToQueue(result) {
   if (!isHost) return;
   try {
-    const body = result.provider === "local"
-      ? { songId: result.id }
-      : { externalProvider: result.provider, externalTrackId: result.id };
-    await api.request(`/radio/broadcasts/${broadcastId}/queue`, {
-      method: "POST",
-      body: JSON.stringify(body)
-    });
-    showToast(`Added "${result.title}" to queue`);
-    switchMusicTab("queue");
-  } catch (err) {
-    showToast(err.message || "Couldn't add to queue");
-  }
+    const body = result.provider === "local" ? { songId: result.id } : { externalProvider: result.provider, externalTrackId: result.id };
+    await api.request(`/radio/broadcasts/${broadcastId}/queue`, { method: "POST", body: JSON.stringify(body) });
+    showToast(`Added "${result.title}" to queue`); switchMusicTab("queue");
+  } catch (err) { showToast(err.message || "Couldn't add to queue"); }
 }
-
-/* ── FREEFORM REQUEST ── */
-$("open-freeform-btn").addEventListener("click", () => {
-  const form = $("freeform-form");
-  form.style.display = form.style.display === "none" ? "block" : "none";
-});
-
+$("open-freeform-btn").addEventListener("click", () => { const form = $("freeform-form"); form.style.display = form.style.display === "none" ? "block" : "none"; });
 async function sendSongRequest() {
   const songName = $("request-song").value.trim();
   const artistName = $("request-artist").value.trim();
   if (!songName) { showToast("Enter a song name"); return; }
-  const btn = $("request-send-btn");
-  btn.disabled = true; btn.textContent = "Sending…";
+  const btn = $("request-send-btn"); btn.disabled = true; btn.textContent = "Sending…";
   try {
-    await api.request(`/radio/broadcasts/${broadcastId}/requests`, {
-      method: "POST",
-      body: JSON.stringify({ songName, artistName })
-    });
+    await api.request(`/radio/broadcasts/${broadcastId}/requests`, { method: "POST", body: JSON.stringify({ songName, artistName }) });
     showToast("Request sent 🎵");
-    $("request-song").value = ""; $("request-artist").value = "";
-    $("freeform-form").style.display = "none";
-    switchMusicTab("requests");
-    loadRequests();
-  } catch (err) {
-    showToast(err.message || "Request failed");
-  } finally {
-    btn.disabled = false; btn.textContent = "Send Request";
-  }
+    $("request-song").value = ""; $("request-artist").value = ""; $("freeform-form").style.display = "none";
+    switchMusicTab("requests"); loadRequests();
+  } catch (err) { showToast(err.message || "Request failed"); }
+  finally { btn.disabled = false; btn.textContent = "Send Request"; }
 }
-
-/* ── PENDING REQUESTS + VOTING + HOST MODERATION ── */
 async function loadRequests() {
   try {
     const res = await api.request(`/radio/broadcasts/${broadcastId}/requests?status=pending`);
     pendingRequests = res.data || [];
-    renderRequestsList();
-    updateRequestBadges();
-  } catch (err) {
-    $("requests-list").innerHTML = `<div class="music-empty-hint">Couldn't load requests</div>`;
-  }
+    renderRequestsList(); updateRequestBadges();
+  } catch (err) { $("requests-list").innerHTML = `<div class="music-empty-hint">Couldn't load requests</div>`; }
 }
-
 function updateRequestBadges() {
   const count = pendingRequests.length;
-  const badge1 = $("requests-tab-badge");
-  const badge2 = $("music-action-badge");
-  if (isHost && count > 0) {
-    badge1.style.display = "flex"; badge1.textContent = count;
-    badge2.style.display = "flex"; badge2.textContent = count;
-  } else {
-    badge1.style.display = "none";
-    badge2.style.display = "none";
-  }
+  const badge1 = $("requests-tab-badge"), badge2 = $("music-action-badge");
+  if (isHost && count > 0) { badge1.style.display = "flex"; badge1.textContent = count; badge2.style.display = "flex"; badge2.textContent = count; }
+  else { badge1.style.display = "none"; badge2.style.display = "none"; }
 }
-
 function renderRequestsList() {
   const wrap = $("requests-list");
-  if (!pendingRequests.length) {
-    wrap.innerHTML = `<div class="music-empty-hint">No pending requests yet</div>`;
-    return;
-  }
+  if (!pendingRequests.length) { wrap.innerHTML = `<div class="music-empty-hint">No pending requests yet</div>`; return; }
   wrap.innerHTML = pendingRequests.map(r => {
     const voted = myVotedRequestIds.has(String(r.id));
-    return `
-      <div class="request-row" data-id="${r.id}">
-        <button class="request-vote-btn ${voted ? "voted" : ""}" data-vote="${r.id}">
-          ▲<span class="vcount">${r.vote_count || 0}</span>
-        </button>
-        <div class="request-info">
-          <div class="request-title">${escapeHtml(r.song_name || r.title || "Untitled")}</div>
-          <div class="request-meta">${escapeHtml(r.artist_name || r.artist || "")} · requested by ${escapeHtml(r.username || "someone")}</div>
-        </div>
-        ${isHost ? `
-          <div class="request-host-actions">
-            <button class="btn-approve" data-approve="${r.id}">✓</button>
-            <button class="btn-reject" data-reject="${r.id}">✕</button>
-          </div>` : ""}
-      </div>`;
+    return `<div class="request-row" data-id="${r.id}">
+      <button class="request-vote-btn ${voted ? "voted" : ""}" data-vote="${r.id}">▲<span class="vcount">${r.vote_count || 0}</span></button>
+      <div class="request-info"><div class="request-title">${escapeHtml(r.song_name || r.title || "Untitled")}</div><div class="request-meta">${escapeHtml(r.artist_name || r.artist || "")} · requested by ${escapeHtml(r.username || "someone")}</div></div>
+      ${isHost ? `<div class="request-host-actions"><button class="btn-approve" data-approve="${r.id}">✓</button><button class="btn-reject" data-reject="${r.id}">✕</button></div>` : ""}
+    </div>`;
   }).join("");
-
-  wrap.querySelectorAll("[data-vote]").forEach(btn => {
-    btn.addEventListener("click", () => voteOnRequest(btn.dataset.vote));
-  });
-  wrap.querySelectorAll("[data-approve]").forEach(btn => {
-    btn.addEventListener("click", () => approveRequest(btn.dataset.approve));
-  });
-  wrap.querySelectorAll("[data-reject]").forEach(btn => {
-    btn.addEventListener("click", () => rejectRequest(btn.dataset.reject));
-  });
+  wrap.querySelectorAll("[data-vote]").forEach(btn => btn.addEventListener("click", () => voteOnRequest(btn.dataset.vote)));
+  wrap.querySelectorAll("[data-approve]").forEach(btn => btn.addEventListener("click", () => approveRequest(btn.dataset.approve)));
+  wrap.querySelectorAll("[data-reject]").forEach(btn => btn.addEventListener("click", () => rejectRequest(btn.dataset.reject)));
 }
-
 async function voteOnRequest(requestId) {
   if (myVotedRequestIds.has(String(requestId))) return;
-  try {
-    await api.request(`/radio/broadcasts/requests/${requestId}/vote`, { method: "POST" });
-    myVotedRequestIds.add(String(requestId));
-  } catch (err) {
-    showToast(err.message || "Couldn't vote");
-  }
+  try { await api.request(`/radio/broadcasts/requests/${requestId}/vote`, { method: "POST" }); myVotedRequestIds.add(String(requestId)); }
+  catch (err) { showToast(err.message || "Couldn't vote"); }
 }
-
 async function approveRequest(requestId) {
-  try {
-    await api.request(`/radio/broadcasts/requests/${requestId}/approve`, { method: "POST" });
-    showToast("Approved — added to queue ✓");
-    loadRequests();
-    switchMusicTab("queue");
-    refreshQueueSnapshot();
-  } catch (err) {
-    showToast(err.message || "Couldn't approve — attach a library match first");
-  }
+  try { await api.request(`/radio/broadcasts/requests/${requestId}/approve`, { method: "POST" }); showToast("Approved — added to queue ✓"); loadRequests(); switchMusicTab("queue"); refreshQueueSnapshot(); }
+  catch (err) { showToast(err.message || "Couldn't approve — attach a library match first"); }
 }
-
 async function rejectRequest(requestId) {
-  try {
-    await api.request(`/radio/broadcasts/requests/${requestId}/reject`, { method: "POST" });
-    showToast("Request declined");
-    loadRequests();
-  } catch (err) {
-    showToast(err.message || "Couldn't decline request");
-  }
+  try { await api.request(`/radio/broadcasts/requests/${requestId}/reject`, { method: "POST" }); showToast("Request declined"); loadRequests(); }
+  catch (err) { showToast(err.message || "Couldn't decline request"); }
 }
 
-/* ── QUEUE + NOW PLAYING + TRANSPORT ── */
 function refreshQueueSnapshot() {
   socket.emit("radioGetQueueSnapshot", { broadcastId }, (res) => {
     if (res?.error) return;
-    if (res?.ok) {
-      queueState = { queue: res.queue || [], nowPlaying: res.nowPlaying || null };
-      renderQueueTab();
-      renderNowPlayingBar();
-    }
+    if (res?.ok) { queueState = { queue: res.queue || [], nowPlaying: res.nowPlaying || null }; renderQueueTab(); renderNowPlayingBar(); }
   });
 }
-
 function renderQueueTab() {
   const nowWrap = $("queue-now-wrap");
   const np = queueState.nowPlaying;
   if (np) {
     const cover = np.cover_url || "";
-    nowWrap.innerHTML = `
-      <div class="queue-now-card">
-        ${cover ? `<img class="queue-now-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="queue-now-cover" style="background:linear-gradient(135deg, rgba(255,61,127,.3), rgba(160,90,255,.25));"></div>`}
-        <div class="queue-now-info">
-          <div class="queue-now-title">▶ ${escapeHtml(np.title || "Now playing")}</div>
-          <div class="queue-now-artist">${escapeHtml(np.artist || "")}</div>
-        </div>
-        ${isHost ? `
-          <div class="queue-transport-row">
-            <button id="qt-pause-btn" title="Pause/Resume">${np.is_paused ? "▶" : "⏸"}</button>
-            <button id="qt-next-btn" title="Skip to next">⏭</button>
-          </div>` : ""}
-      </div>`;
+    nowWrap.innerHTML = `<div class="queue-now-card">
+      ${cover ? `<img class="queue-now-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="queue-now-cover" style="background:linear-gradient(135deg, rgba(255,45,85,.3), rgba(160,90,255,.25));"></div>`}
+      <div class="queue-now-info"><div class="queue-now-title">▶ ${escapeHtml(np.title || "Now playing")}</div><div class="queue-now-artist">${escapeHtml(np.artist || "")}</div></div>
+      ${isHost ? `<div class="queue-transport-row"><button id="qt-pause-btn" title="Pause/Resume">${np.is_paused ? "▶" : "⏸"}</button><button id="qt-next-btn" title="Skip to next">⏭</button></div>` : ""}
+    </div>`;
     $("qt-pause-btn")?.addEventListener("click", () => togglePausePlayback(np.is_paused));
     $("qt-next-btn")?.addEventListener("click", playNextInQueue);
   } else {
-    nowWrap.innerHTML = isHost
-      ? `<div class="music-empty-hint">Nothing playing — approve a request or add from Search, then tap Next ⏭</div>`
-      : `<div class="music-empty-hint">Nothing queued right now</div>`;
+    nowWrap.innerHTML = isHost ? `<div class="music-empty-hint">Nothing playing — approve a request or add from Search, then tap Next ⏭</div>` : `<div class="music-empty-hint">Nothing queued right now</div>`;
   }
-
   const list = $("queue-list");
-  if (!queueState.queue.length) {
-    list.innerHTML = `<div class="music-empty-hint">Queue is empty</div>`;
-    return;
-  }
+  if (!queueState.queue.length) { list.innerHTML = `<div class="music-empty-hint">Queue is empty</div>`; return; }
   list.innerHTML = queueState.queue.map((item, i) => `
     <div class="queue-item-row" data-item-id="${item.id}">
       <div class="queue-item-pos">${i + 1}</div>
-      <div class="queue-item-info">
-        <div class="queue-item-title">${escapeHtml(item.title || "Untitled")}</div>
-        <div class="queue-item-artist">${escapeHtml(item.artist || "")}</div>
-      </div>
-      ${isHost ? `
-        <div class="queue-item-actions">
-          <button data-up="${item.id}" ${i === 0 ? "disabled" : ""} title="Move up">▲</button>
-          <button data-down="${item.id}" ${i === queueState.queue.length - 1 ? "disabled" : ""} title="Move down">▼</button>
-          <button class="danger" data-remove="${item.id}" title="Remove">✕</button>
-        </div>` : ""}
+      <div class="queue-item-info"><div class="queue-item-title">${escapeHtml(item.title || "Untitled")}</div><div class="queue-item-artist">${escapeHtml(item.artist || "")}</div></div>
+      ${isHost ? `<div class="queue-item-actions"><button data-up="${item.id}" ${i === 0 ? "disabled" : ""} title="Move up">▲</button><button data-down="${item.id}" ${i === queueState.queue.length - 1 ? "disabled" : ""} title="Move down">▼</button><button class="danger" data-remove="${item.id}" title="Remove">✕</button></div>` : ""}
     </div>`).join("");
-
   if (isHost) {
     list.querySelectorAll("[data-up]").forEach(btn => btn.addEventListener("click", () => moveQueueItem(btn.dataset.up, -1)));
     list.querySelectorAll("[data-down]").forEach(btn => btn.addEventListener("click", () => moveQueueItem(btn.dataset.down, 1)));
     list.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => removeQueueItem(btn.dataset.remove)));
   }
 }
-
 function renderNowPlayingBar() {
   const bar = $("now-playing-bar");
   const np = queueState.nowPlaying;
   if (npTicker) { clearInterval(npTicker); npTicker = null; }
-
   if (!np) { bar.classList.remove("show"); return; }
   bar.classList.add("show");
   $("np-cover").src = np.cover_url || "";
   $("np-title").textContent = np.title || "Now playing";
   $("np-artist").textContent = np.artist || "";
-
   const duration = Number(np.duration_seconds) || 0;
   const startedAt = np.started_at ? new Date(np.started_at).getTime() : Date.now();
-
   function tick() {
     if (!duration) { $("np-progress-fill").style.width = "0%"; return; }
     const elapsed = np.is_paused ? (np.position_seconds || 0) : (Date.now() - startedAt) / 1000;
     const pct = Math.max(0, Math.min(100, (elapsed / duration) * 100));
     $("np-progress-fill").style.width = pct + "%";
   }
-  tick();
-  npTicker = setInterval(tick, 1000);
-
-  if (isHost) {
-    $("np-host-transport").style.display = "flex";
-    $("np-pause-btn").textContent = np.is_paused ? "▶" : "⏸";
-  }
+  tick(); npTicker = setInterval(tick, 1000);
+  if (isHost) { $("np-host-transport").style.display = "flex"; $("np-pause-btn").textContent = np.is_paused ? "▶" : "⏸"; }
 }
-
 async function moveQueueItem(itemId, direction) {
   const idx = queueState.queue.findIndex(q => String(q.id) === String(itemId));
   if (idx === -1) return;
   const newIdx = idx + direction;
   if (newIdx < 0 || newIdx >= queueState.queue.length) return;
-
   const reordered = [...queueState.queue];
   [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
   const orderedItemIds = reordered.map(q => q.id);
-
-  try {
-    await api.request(`/radio/broadcasts/${broadcastId}/queue/reorder`, {
-      method: "PATCH",
-      body: JSON.stringify({ orderedItemIds })
-    });
-  } catch (err) {
-    showToast(err.message || "Couldn't reorder queue");
-  }
+  try { await api.request(`/radio/broadcasts/${broadcastId}/queue/reorder`, { method: "PATCH", body: JSON.stringify({ orderedItemIds }) }); }
+  catch (err) { showToast(err.message || "Couldn't reorder queue"); }
 }
-
 async function removeQueueItem(itemId) {
-  try {
-    await api.request(`/radio/broadcasts/${broadcastId}/queue/${itemId}`, { method: "DELETE" });
-    showToast("Removed from queue");
-  } catch (err) {
-    showToast(err.message || "Couldn't remove from queue");
-  }
+  try { await api.request(`/radio/broadcasts/${broadcastId}/queue/${itemId}`, { method: "DELETE" }); showToast("Removed from queue"); }
+  catch (err) { showToast(err.message || "Couldn't remove from queue"); }
 }
-
 async function playNextInQueue() {
-  try {
-    await api.request(`/radio/broadcasts/${broadcastId}/next`, { method: "POST" });
-  } catch (err) {
-    showToast(err.message || "Couldn't skip to next track");
-  }
+  try { await api.request(`/radio/broadcasts/${broadcastId}/next`, { method: "POST" }); }
+  catch (err) { showToast(err.message || "Couldn't skip to next track"); }
 }
-
 async function togglePausePlayback(currentlyPaused) {
-  try {
-    await api.request(`/radio/broadcasts/${broadcastId}/${currentlyPaused ? "resume" : "pause"}`, { method: "POST" });
-  } catch (err) {
-    showToast(err.message || "Couldn't update playback");
-  }
+  try { await api.request(`/radio/broadcasts/${broadcastId}/${currentlyPaused ? "resume" : "pause"}`, { method: "POST" }); }
+  catch (err) { showToast(err.message || "Couldn't update playback"); }
 }
-
 $("np-pause-btn")?.addEventListener("click", () => togglePausePlayback(queueState.nowPlaying?.is_paused));
 $("np-next-btn")?.addEventListener("click", playNextInQueue);
 
-/* ── HOST UPLOAD ── */
 let selectedUploadFile = null;
-
 $("upload-drop").addEventListener("click", () => $("upload-file-input").click());
 $("upload-file-input").addEventListener("change", (e) => {
   const file = e.target.files?.[0];
@@ -1328,62 +1504,36 @@ $("upload-file-input").addEventListener("change", (e) => {
   selectedUploadFile = file;
   $("upload-drop").classList.add("has-file");
   $("upload-drop-text").textContent = `✓ ${file.name} (${(file.size / (1024*1024)).toFixed(1)}MB)`;
-  if (!$("upload-title").value.trim()) {
-    $("upload-title").value = file.name.replace(/\.[^/.]+$/, "");
-  }
+  if (!$("upload-title").value.trim()) $("upload-title").value = file.name.replace(/\.[^/.]+$/, "");
 });
-
 async function submitUpload() {
   const title = $("upload-title").value.trim();
   const artist = $("upload-artist").value.trim();
   if (!selectedUploadFile) { showToast("Choose an audio file first"); return; }
   if (!title) { showToast("Give the song a title"); return; }
-
-  const btn = $("upload-submit-btn");
-  btn.disabled = true; btn.textContent = "Uploading…";
-  $("upload-progress-track").classList.add("show");
-  $("upload-status-text").classList.add("show");
-  $("upload-status-text").textContent = "Uploading file…";
-
+  const btn = $("upload-submit-btn"); btn.disabled = true; btn.textContent = "Uploading…";
+  $("upload-progress-track").classList.add("show"); $("upload-status-text").classList.add("show"); $("upload-status-text").textContent = "Uploading file…";
   try {
     const formData = new FormData();
     formData.append("audio", selectedUploadFile);
     formData.append("title", title);
     if (artist) formData.append("artist", artist);
     if (broadcast?.station_id) formData.append("stationId", broadcast.station_id);
-
     const accessToken = localStorage.getItem("accessToken");
     const uploadRes = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `${window.API_BASE_URL}/radio/music-library/songs/upload`);
       xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
-      xhr.upload.onprogress = (evt) => {
-        if (evt.lengthComputable) {
-          const pct = Math.round((evt.loaded / evt.total) * 100);
-          $("upload-progress-fill").style.width = pct + "%";
-        }
-      };
-      xhr.onload = () => {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-          else reject(new Error(data.message || "Upload failed"));
-        } catch (e) { reject(new Error("Upload failed")); }
-      };
+      xhr.upload.onprogress = (evt) => { if (evt.lengthComputable) $("upload-progress-fill").style.width = Math.round((evt.loaded / evt.total) * 100) + "%"; };
+      xhr.onload = () => { try { const data = JSON.parse(xhr.responseText); if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(new Error(data.message || "Upload failed")); } catch (e) { reject(new Error("Upload failed")); } };
       xhr.onerror = () => reject(new Error("Upload failed — network error"));
       xhr.send(formData);
     });
-
     $("upload-status-text").textContent = "Processing audio (this can take a moment)…";
     await pollUploadStatus(uploadRes.data.id);
-  } catch (err) {
-    showToast(err.message || "Upload failed");
-    $("upload-status-text").textContent = "Upload failed — try again";
-  } finally {
-    btn.disabled = false; btn.textContent = "Upload Song";
-  }
+  } catch (err) { showToast(err.message || "Upload failed"); $("upload-status-text").textContent = "Upload failed — try again"; }
+  finally { btn.disabled = false; btn.textContent = "Upload Song"; }
 }
-
 async function pollUploadStatus(songId) {
   for (let i = 0; i < 40; i++) {
     await new Promise(r => setTimeout(r, 3000));
@@ -1400,186 +1550,51 @@ async function pollUploadStatus(songId) {
         $("upload-title").value = ""; $("upload-artist").value = "";
         return;
       }
-      if (song.status === "failed") {
-        $("upload-status-text").textContent = "Processing failed — the file may be corrupt or an unsupported format.";
-        return;
-      }
-    } catch (err) {
-      // keep polling — a transient error shouldn't abort the wait
-    }
+      if (song.status === "failed") { $("upload-status-text").textContent = "Processing failed — the file may be corrupt or an unsupported format."; return; }
+    } catch (err) {}
   }
   $("upload-status-text").textContent = "Still processing — check back in Search shortly.";
 }
 
-/* ══════════════════════════════════════════
-   CO-HOSTS / CALLERS (Phase 2)
-══════════════════════════════════════════ */
-let cohostPending = false;
-
-function renderCohostStrip(roster) {
-  const wrap = $("cohost-strip");
-  const approved = (roster || []).filter(r => r.status === "approved");
-  if (!approved.length) { wrap.style.display = "none"; }
-  else {
-    wrap.style.display = "flex";
-    wrap.innerHTML = approved.map(r => {
-      const av = r.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(r.username||"U")}&size=44`;
-      const canRemove = isHost || String(r.user_id) === String(window.CURRENT_USER?.id);
-      return `<div class="cohost-chip" data-uid="${r.user_id}">
-        <img src="${escapeHtml(av)}" alt="">
-        <span>${escapeHtml(r.display_name || r.username || "Caller")}</span>
-        ${canRemove ? `<button class="rm" data-uid="${r.user_id}">✕</button>` : ""}
-      </div>`;
-    }).join("");
-
-    wrap.querySelectorAll(".rm").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const uid = btn.dataset.uid;
-        if (isHost && String(uid) !== String(window.CURRENT_USER?.id)) {
-          socket.emit("radioKickCohost", { broadcastId, targetUserId: uid });
-        } else {
-          socket.emit("radioLeaveCohost", { broadcastId, userId: window.CURRENT_USER.id });
-        }
-      });
-    });
-  }
-
-  const mine = (roster || []).find(r => String(r.user_id) === String(window.CURRENT_USER?.id));
-  cohostPending = mine?.status === "pending";
-  const reqBtn = $("request-cohost-btn");
-  if (reqBtn && !isHost) {
-    reqBtn.classList.remove("pending");
-    const icEl = reqBtn.querySelector(".ic");
-    if (mine?.status === "approved") {
-      if (icEl) icEl.textContent = "✅";
-      reqBtn.childNodes[reqBtn.childNodes.length - 1].textContent = "On air";
-    } else if (cohostPending) {
-      reqBtn.classList.add("pending");
-      if (icEl) icEl.textContent = "⏳";
-      reqBtn.childNodes[reqBtn.childNodes.length - 1].textContent = "Requested";
-    } else {
-      if (icEl) icEl.textContent = "🙋";
-      reqBtn.childNodes[reqBtn.childNodes.length - 1].textContent = "Join as caller";
-    }
-  }
-}
-
-function requestCohost() {
-  if (isHost || cohostPending) return;
-  socket.emit("radioRequestCohost", { broadcastId, userId: window.CURRENT_USER.id }, (res) => {
-    if (res?.error) { showToast(res.error); return; }
-    showToast("Request sent — waiting for host");
-  });
-}
-
-function openCohostRequestsSheet() {
-  $("cohost-requests-backdrop").classList.add("open");
-  $("cohost-requests-sheet").classList.add("open");
-}
-function closeCohostRequestsSheet() {
-  $("cohost-requests-backdrop").classList.remove("open");
-  $("cohost-requests-sheet").classList.remove("open");
-}
-function renderCohostRequests(roster) {
-  const list = $("cohost-requests-list");
-  const pending = (roster || []).filter(r => r.status === "pending");
-  if (!pending.length) { list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">No pending requests</div>`; return; }
-  list.innerHTML = pending.map(r => {
-    const av = r.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(r.username||"U")}&size=60`;
-    return `<div class="req-row">
-      <img src="${escapeHtml(av)}" alt="">
-      <span class="rn">${escapeHtml(r.display_name || r.username || "User")}</span>
-      <button class="cohost-approve-btn" data-uid="${r.user_id}">Approve</button>
-      <button class="cohost-reject-btn" data-uid="${r.user_id}">Reject</button>
-    </div>`;
-  }).join("");
-
-  list.querySelectorAll(".cohost-approve-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.uid, action: "approve" });
-    });
-  });
-  list.querySelectorAll(".cohost-reject-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.uid, action: "reject" });
-    });
-  });
-}
-
-/* ══════════════════════════════════════════
-   LIVE POLLS (Phase 2)
-══════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   LIVE POLLS
+══════════════════════════════════════════════════════════ */
 let activePoll = null;
-
 function renderPoll(poll) {
   activePoll = poll;
   const widget = $("poll-widget");
   if (!poll) { widget.classList.remove("show"); return; }
-
-  if (poll.status === "closed") {
-    // Briefly show final results, then hide.
-    widget.classList.add("show");
-    renderPollHtml(poll, true);
-    setTimeout(() => { widget.classList.remove("show"); }, 4000);
-    return;
-  }
-
-  widget.classList.add("show");
-  renderPollHtml(poll, false);
+  if (poll.status === "closed") { widget.classList.add("show"); renderPollHtml(poll, true); setTimeout(() => { widget.classList.remove("show"); }, 4000); return; }
+  widget.classList.add("show"); renderPollHtml(poll, false);
 }
-
 function renderPollHtml(poll, closed) {
   const widget = $("poll-widget");
   const total = poll.totalVotes || 0;
   const myVote = poll.myVote;
-
-  widget.innerHTML = `
-    <div class="poll-question">📊 ${escapeHtml(poll.question)}${closed ? " (closed)" : ""}</div>
+  widget.innerHTML = `<div class="poll-question">📊 ${escapeHtml(poll.question)}${closed ? " (closed)" : ""}</div>
     ${poll.options.map((opt, i) => {
       const count = poll.votes?.[i] || 0;
       const pct = total ? Math.round((count / total) * 100) : 0;
       const voted = myVote === i;
-      return `<div class="poll-option ${voted ? "voted" : ""}" data-idx="${i}">
-        <div class="poll-option-bar" style="width:${pct}%"></div>
-        <div class="poll-option-label"><span>${escapeHtml(opt)}</span><span>${pct}%</span></div>
-      </div>`;
+      return `<div class="poll-option ${voted ? "voted" : ""}" data-idx="${i}"><div class="poll-option-bar" style="width:${pct}%"></div><div class="poll-option-label"><span>${escapeHtml(opt)}</span><span>${pct}%</span></div></div>`;
     }).join("")}
     <div class="poll-total">${formatCoins(total)} vote${total===1?"":"s"}</div>
-    ${isHost && !closed ? `<button class="poll-close-btn" id="poll-close-inline-btn">Close poll</button>` : ""}
-  `;
-
+    ${isHost && !closed ? `<button class="poll-close-btn" id="poll-close-inline-btn">Close poll</button>` : ""}`;
   if (!closed) {
-    widget.querySelectorAll(".poll-option").forEach(el => {
-      el.addEventListener("click", () => {
-        if (isHost) return; // host doesn't vote in its own poll UI here
-        socket.emit("radioVotePoll", {
-          broadcastId, pollId: poll.id, optionIndex: Number(el.dataset.idx), userId: window.CURRENT_USER.id
-        });
-      });
-    });
+    widget.querySelectorAll(".poll-option").forEach(el => el.addEventListener("click", () => {
+      if (isHost) return;
+      socket.emit("radioVotePoll", { broadcastId, pollId: poll.id, optionIndex: Number(el.dataset.idx), userId: window.CURRENT_USER.id });
+    }));
   }
-  $("poll-close-inline-btn")?.addEventListener("click", () => {
-    socket.emit("radioClosePoll", { broadcastId, pollId: poll.id });
-  });
+  $("poll-close-inline-btn")?.addEventListener("click", () => socket.emit("radioClosePoll", { broadcastId, pollId: poll.id }));
 }
-
-function openCreatePollSheet() {
-  $("create-poll-backdrop").classList.add("open");
-  $("create-poll-sheet").classList.add("open");
-}
-function closeCreatePollSheet() {
-  $("create-poll-backdrop").classList.remove("open");
-  $("create-poll-sheet").classList.remove("open");
-}
+function openCreatePollSheet() { $("create-poll-backdrop").classList.add("open"); $("create-poll-sheet").classList.add("open"); }
+function closeCreatePollSheet() { $("create-poll-backdrop").classList.remove("open"); $("create-poll-sheet").classList.remove("open"); }
 function submitCreatePoll() {
   const question = $("poll-question").value.trim();
-  const options = ["poll-opt-0", "poll-opt-1", "poll-opt-2", "poll-opt-3"]
-    .map(id => $(id).value.trim())
-    .filter(Boolean);
-
+  const options = ["poll-opt-0", "poll-opt-1", "poll-opt-2", "poll-opt-3"].map(id => $(id).value.trim()).filter(Boolean);
   if (!question) { showToast("Enter a question"); return; }
   if (options.length < 2) { showToast("Add at least 2 options"); return; }
-
   socket.emit("radioCreatePoll", { broadcastId, question, options }, (res) => {
     if (res?.error) { showToast(res.error); return; }
     showToast("Poll started 📊");
@@ -1588,23 +1603,99 @@ function submitCreatePoll() {
   });
 }
 
-/* ══════════════════════════════════════════
-   END BROADCAST (host only)
-══════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   CONTROL DECK — master mute, sliders, jingles, SFX pad,
+   commercial break, recording toggle
+══════════════════════════════════════════════════════════ */
+function synthTone(freq, duration, type = "sine", gainPeak = 0.25) {
+  try {
+    ensureAudioGraph();
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(gainPeak, audioCtx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  } catch (e) {}
+}
+const SFX_PLAYERS = {
+  applause: () => { [400,500,600,700].forEach((f,i) => setTimeout(() => synthTone(f, .4, "triangle", .12), i*40)); },
+  airhorn: () => { synthTone(220, .8, "sawtooth", .2); },
+  drumroll: () => { for (let i=0;i<14;i++) setTimeout(() => synthTone(140, .08, "square", .1), i*60); },
+  cheer: () => { [523,659,784].forEach((f,i) => setTimeout(() => synthTone(f, .5, "triangle", .15), i*60)); },
+  laugh: () => { [300,340,300,340].forEach((f,i) => setTimeout(() => synthTone(f, .18, "sine", .15), i*120)); },
+  boo: () => { synthTone(160, .9, "sawtooth", .12); }
+};
+const SFX_LABELS = { applause: "👏 Applause", airhorn: "📯 Air Horn", drumroll: "🥁 Drum Roll", cheer: "🎉 Cheer", laugh: "😂 Laugh", boo: "😱 Boo" };
+function playSfxLocally(effect) { SFX_PLAYERS[effect]?.(); spawnParticle(SFX_LABELS[effect]?.split(" ")[0] || "🎵"); }
+
+document.querySelectorAll(".sfx-btn").forEach(btn => btn.addEventListener("click", () => {
+  const effect = btn.dataset.effect;
+  playSfxLocally(effect);
+  socket.emit("radioSoundEffect", { broadcastId, effect }, (res) => { if (res?.error) showToast(res.error); });
+  appendChat({ type: "system", text: `🔊 ${SFX_LABELS[effect]} played` });
+}));
+
+$("intro-jingle-btn").addEventListener("click", () => {
+  [523,659,784,1046].forEach((f,i) => setTimeout(() => synthTone(f, .3, "triangle", .18), i*90));
+  appendChat({ type: "system", text: "🎶 Intro jingle played" });
+});
+$("outro-jingle-btn").addEventListener("click", () => {
+  [784,659,523].forEach((f,i) => setTimeout(() => synthTone(f, .35, "triangle", .18), i*110));
+  appendChat({ type: "system", text: "🎶 Outro jingle played" });
+});
+
+$("master-mute-btn").addEventListener("click", () => {
+  masterMuted = !masterMuted;
+  const btn = $("master-mute-btn");
+  btn.textContent = masterMuted ? "🔇 Muted" : "🎙️ Live";
+  btn.classList.toggle("muted-state", masterMuted);
+  $("host-onair-dot").classList.toggle("on", !masterMuted);
+});
+
+$("music-vol-slider").addEventListener("input", (e) => { $("music-vol-val").textContent = `${e.target.value}%`; audioEl.volume = Number(e.target.value) / 100; });
+$("guest-vol-slider").addEventListener("input", (e) => { $("guest-vol-val").textContent = `${e.target.value}%`; });
+$("bg-music-toggle-btn").addEventListener("click", (e) => { bgMusicOn = !bgMusicOn; e.target.textContent = bgMusicOn ? "On" : "Off"; e.target.classList.toggle("on", bgMusicOn); });
+
+$("rec-indicator").addEventListener("click", () => {
+  recording = !recording;
+  $("rec-indicator").classList.toggle("on", recording);
+  $("rec-label").textContent = recording ? "Recording" : "Not recording";
+  appendChat({ type: "system", text: recording ? "⏺️ Host started recording this show" : "⏹️ Recording stopped" });
+});
+
+$("commercial-break-btn").addEventListener("click", () => { socket.emit("radioCommercialBreak", { broadcastId, seconds: 30 }); });
+
+function runCommercialBreak(seconds) {
+  clearInterval(commercialTimerHandle);
+  let remaining = seconds;
+  $("commercial-overlay").classList.add("show");
+  $("commercial-timer").textContent = `0:${String(remaining).padStart(2,"0")}`;
+  commercialTimerHandle = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) { clearInterval(commercialTimerHandle); $("commercial-overlay").classList.remove("show"); return; }
+    $("commercial-timer").textContent = remaining >= 60 ? `${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,"0")}` : `0:${String(remaining).padStart(2,"0")}`;
+  }, 1000);
+}
+
+/* ══════════════════════════════════════════════════════════
+   END BROADCAST
+══════════════════════════════════════════════════════════ */
 async function endBroadcast() {
   if (!confirm("End this broadcast for all listeners?")) return;
   try {
     await api.request(`/radio/broadcasts/${broadcastId}/end`, { method: "POST" });
     socket.emit("radioEnded", { broadcastId });
     window.location.href = "radio-discover.html";
-  } catch (err) {
-    showToast(err.message || "Couldn't end broadcast");
-  }
+  } catch (err) { showToast(err.message || "Couldn't end broadcast"); }
 }
 
-/* ══════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    SOCKET EVENTS
-══════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 socket.on("connect", () => {
   if (window.CURRENT_USER?.id) socket.emit("registerUser", window.CURRENT_USER.id);
   joinBroadcast();
@@ -1621,76 +1712,45 @@ socket.on("radioGiftReceived", (payload) => {
   loadTopGifters();
 });
 socket.on("topRadioGiftersUpdated", (list) => renderTopGifters(list));
-socket.on("radioEnded", () => {
-  showToast("This broadcast has ended");
-  setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800);
-});
+socket.on("radioEnded", () => { showToast("This broadcast has ended"); setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800); });
 socket.on("reconnect", () => { joinBroadcast(); refreshQueueSnapshot(); });
 
-// ── co-host / caller roster events ──
 socket.on("radioCohostsUpdated", ({ broadcastId: bId, roster }) => {
   if (bId !== broadcastId) return;
-  renderCohostStrip(roster);
-  if (isHost) renderCohostRequests(roster);
+  cohostRoster = roster || [];
+  renderGuestBooth();
+  if (isHost && ($("guest-booth-sheet").classList.contains("open"))) renderGuestBoothSheet();
 });
-socket.on("radioCohostRequested", () => {
-  if (isHost) showToast("New caller request 🙋");
+socket.on("radioCohostRequested", () => { if (isHost) showToast("New guest request 🙋"); });
+socket.on("radioCohostResponse", ({ action, invite }) => {
+  if (invite) showToast(action === "accept" ? "Guest accepted your invite 🎙️" : "Guest declined your invite");
+  else showToast(action === "approve" ? "You're live as a guest! 🎙️" : "Request declined");
 });
-socket.on("radioCohostResponse", ({ action }) => {
-  showToast(action === "approve" ? "You're live as a caller! 🎙️" : "Caller request declined");
-});
-socket.on("radioCohostKicked", () => {
-  showToast("You were removed as caller");
-});
+socket.on("radioCohostKicked", () => showToast("You were removed from the guest booth"));
+socket.on("radioCohostInvite", (payload) => { if (payload.broadcastId === broadcastId) openInviteModal(payload); });
+socket.on("radioGuestMicSet", ({ muted }) => showToast(muted ? "The host muted your mic" : "You're live! 🎙️"));
 
-// ── live poll events ──
-socket.on("radioPollUpdated", ({ broadcastId: bId, poll }) => {
-  if (bId !== broadcastId) return;
-  renderPoll(poll);
-});
-socket.on("radioPollClosed", ({ broadcastId: bId, poll }) => {
-  if (bId !== broadcastId) return;
-  renderPoll({ ...poll, status: "closed" });
-});
+socket.on("radioPollUpdated", ({ broadcastId: bId, poll }) => { if (bId === broadcastId) renderPoll(poll); });
+socket.on("radioPollClosed", ({ broadcastId: bId, poll }) => { if (bId === broadcastId) renderPoll({ ...poll, status: "closed" }); });
 
-// ── music: incoming song requests (songRequestController REST emits) ──
-socket.on("radioSongRequested", ({ broadcastId: bId }) => {
-  if (bId !== broadcastId) return;
-  if (isHost) showToast("New song request 🎵");
-  if (musicActiveTab === "requests" || $("music-sheet").classList.contains("open")) loadRequests();
-  else loadRequests(); // keep badge counts fresh even when the sheet is closed
-});
+socket.on("radioSongRequested", ({ broadcastId: bId }) => { if (bId !== broadcastId) return; if (isHost) showToast("New song request 🎵"); loadRequests(); });
 socket.on("radioRequestVoted", ({ requestId, voteCount }) => {
   const row = document.querySelector(`.request-row[data-id="${requestId}"] .vcount`);
   if (row) row.textContent = voteCount;
   const idx = pendingRequests.findIndex(r => String(r.id) === String(requestId));
   if (idx !== -1) pendingRequests[idx].vote_count = voteCount;
 });
-socket.on("radioRequestApproved", ({ broadcastId: bId }) => {
-  if (bId !== broadcastId) return;
-  loadRequests();
-});
-socket.on("radioRequestRejected", ({ broadcastId: bId }) => {
-  if (bId !== broadcastId) return;
-  loadRequests();
-});
+socket.on("radioRequestApproved", ({ broadcastId: bId }) => { if (bId === broadcastId) loadRequests(); });
+socket.on("radioRequestRejected", ({ broadcastId: bId }) => { if (bId === broadcastId) loadRequests(); });
+socket.on("radioQueueUpdated", ({ broadcastId: bId, queue }) => { if (bId !== broadcastId) return; queueState.queue = queue || []; renderQueueTab(); });
+socket.on("radioNowPlaying", ({ broadcastId: bId, nowPlaying }) => { if (bId !== broadcastId) return; queueState.nowPlaying = nowPlaying || null; renderQueueTab(); renderNowPlayingBar(); });
 
-// ── music: queue + now-playing (radioQueue.socket.js + songRequestController) ──
-socket.on("radioQueueUpdated", ({ broadcastId: bId, queue }) => {
-  if (bId !== broadcastId) return;
-  queueState.queue = queue || [];
-  renderQueueTab();
-});
-socket.on("radioNowPlaying", ({ broadcastId: bId, nowPlaying }) => {
-  if (bId !== broadcastId) return;
-  queueState.nowPlaying = nowPlaying || null;
-  renderQueueTab();
-  renderNowPlayingBar();
-});
+socket.on("radioSoundEffectPlayed", ({ broadcastId: bId, effect }) => { if (bId === broadcastId) playSfxLocally(effect); });
+socket.on("radioCommercialBreak", ({ broadcastId: bId, seconds }) => { if (bId === broadcastId) runCommercialBreak(seconds); });
 
-/* ══════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    UI WIRING
-══════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 $("play-toggle-btn").addEventListener("click", togglePlay);
 $("vol-btn").addEventListener("click", toggleMute);
 $("follow-mini-btn").addEventListener("click", toggleFollow);
@@ -1703,17 +1763,13 @@ $("chat-input").addEventListener("keydown", e => { if (e.key === "Enter") sendCh
 $("open-gift-sheet-btn").addEventListener("click", openGiftSheet);
 $("gift-backdrop").addEventListener("click", closeGiftSheet);
 $("gift-send-btn").addEventListener("click", sendSelectedGift);
-$("end-live-room-btn").addEventListener("click", endBroadcast);
-$("leave-room-btn").addEventListener("click", async () => {
-  await leaveBroadcast();
-  window.location.href = "radio-discover.html";
-});
+$("end-live-room-btn")?.addEventListener("click", endBroadcast);
+$("leave-room-btn").addEventListener("click", async () => { await leaveBroadcast(); window.location.href = "radio-discover.html"; });
 $("share-btn").addEventListener("click", () => {
   const url = `${window.location.origin}/radio-room.html?id=${broadcastId}`;
   navigator.clipboard?.writeText(url).then(() => showToast("Link copied!")).catch(() => showToast("Couldn't copy link"));
 });
 
-// ── music sheet wiring ──
 $("open-music-sheet-btn").addEventListener("click", () => openMusicSheet("search"));
 $("music-backdrop").addEventListener("click", closeMusicSheet);
 $("music-search-btn").addEventListener("click", searchMusic);
@@ -1721,26 +1777,26 @@ $("music-search-input").addEventListener("keydown", e => { if (e.key === "Enter"
 $("request-send-btn").addEventListener("click", sendSongRequest);
 $("upload-submit-btn").addEventListener("click", submitUpload);
 
-// ── co-host / poll UI wiring ──
 $("request-cohost-btn").addEventListener("click", requestCohost);
-$("open-cohost-requests-btn")?.addEventListener("click", openCohostRequestsSheet);
-$("cohost-requests-backdrop").addEventListener("click", closeCohostRequestsSheet);
+$("open-guest-booth-btn")?.addEventListener("click", openGuestBoothSheet);
+$("guest-booth-backdrop").addEventListener("click", closeGuestBoothSheet);
 $("open-create-poll-btn")?.addEventListener("click", openCreatePollSheet);
 $("create-poll-backdrop").addEventListener("click", closeCreatePollSheet);
 $("poll-create-btn").addEventListener("click", submitCreatePoll);
 
 window.addEventListener("beforeunload", () => { leaveBroadcast(); });
 
-/* ══════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    BOOT
-══════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
+renderGuestBooth(); // draw empty booth immediately, before roster loads
 (async function boot() {
   const b = await loadBroadcast();
   if (!b) { setTimeout(() => window.location.href = "radio-discover.html", 1500); return; }
   await loadGiftCatalog();
   await loadTopGifters();
   loadRequests();
-  appendChat({ type: "system", text: isHost ? "You're live! Say hi to your listeners 🎙️" : "Welcome to the room 🎧" });
+  appendChat({ type: "system", text: isHost ? "You're on air! Welcome to your Studio 🎙️" : "Welcome to the studio 🎧" });
 })();
 </script>
 </body>

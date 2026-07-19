@@ -30,20 +30,24 @@
    which just emit socket events — no transport/producer/consumer
    logic lives here.
 
+   NOTE: this file is unchanged by the LoveCruise CSS/UI redesign
+   pass — the redesign only restyles podcast-live.html/live.html
+   (rectangular host/guest cards, small rectangular empty-seat
+   placeholders instead of circles). Every id/class this module
+   creates or reads for still exists under the same name in both
+   pages, so no JS changes were required and no seat, control, or
+   event was removed or renamed.
+
    ══════════════════════════════════════════════════════════
-   THIS PASS — 12 SEATS (4 LEFT WING / 4 RIGHT WING / 4 BOTTOM)
+   12 SEATS (4 LEFT WING / 4 RIGHT WING / 4 BOTTOM)
    ------------------------------------------------------------
    Backend (stream.socket.js) raised MIC_SEAT_COUNT from 8 → 12
-   and now distributes seats as 4 left wing, 4 right wing, 4
-   bottom row. This file must match that distribution exactly —
+   and distributes seats as 4 left wing, 4 right wing, 4 bottom
+   row. This file must match that distribution exactly —
    micSeatsUpdated now arrives as a 12-element array, and index
    math below (which four indices go in which wing/row) has to
    line up with what the server assigns, or seat N on one client
    won't visually match seat N on another.
-
-   Everything else — seats are voice-only profile-photo slots,
-   mute ≠ leave, host kick/mute overlay — is UNCHANGED from the
-   previous pass.
 
    SEATS ARE VOICE-ONLY, PROFILE-PHOTO SLOTS
    ------------------------------------------------------------
@@ -259,8 +263,7 @@
 
      Distribution MUST match the backend's seat-index assignment
      (stream.socket.js): indices 0-3 → left wing, 4-7 → right
-     wing, 8-11 → bottom row. Same rule as before, just widened
-     from 2/2/4 to 4/4/4.
+     wing, 8-11 → bottom row.
      ============================================================ */
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
