@@ -16,6 +16,22 @@
 //     and commercial-break trigger (no DB writes needed — these are
 //     ephemeral broadcast-room events, same pattern as radioReaction).
 //
+// PHASE 4.1 (this pass) — DIAGNOSTIC LOGGING:
+//   Every guest-booth / poll handler's catch block now logs the raw
+//   error via console.error before returning it to the client via the
+//   ack callback. Previously these handlers only did
+//   `callback?.({ error: err.message })`, which meant a schema-drift
+//   error (missing column, missing enum value, etc.) on the DB side
+//   left ZERO trace in Render logs — it silently failed on the client
+//   with whatever message Postgres produced, and there was no way to
+//   diagnose it server-side. Every catch block below now does:
+//     console.error("[handlerName] ❌", err);
+//   before the callback, so the actual Postgres error (e.g.
+//   `column "mic_volume" does not exist` or
+//   `invalid input value for enum ...: "invited"`) shows up in your
+//   Render log stream immediately when Invite Guest (or any other
+//   guest-booth action) is clicked.
+//
 // Everything else (join/leave/chat/reactions/end/presence/grace-
 // period disconnect) is unchanged from Phase 1/2.
 
@@ -351,6 +367,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioSoundEffectPlayed", { broadcastId, effect });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioSoundEffect] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -365,6 +382,7 @@ module.exports = (io, socket) => {
       });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioCommercialBreak] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -401,6 +419,7 @@ module.exports = (io, socket) => {
 
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioRequestCohost] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -446,6 +465,7 @@ module.exports = (io, socket) => {
 
       callback?.({ ok: true, invited: { id: target.id, username: target.username, displayName: target.display_name } });
     } catch (err) {
+      console.error("[radioInviteGuest] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -473,6 +493,7 @@ module.exports = (io, socket) => {
 
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioRespondInvite] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -506,6 +527,7 @@ module.exports = (io, socket) => {
 
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioRespondCohost] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -520,6 +542,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioCohostsUpdated", { broadcastId, roster });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioLeaveCohost] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -546,6 +569,7 @@ module.exports = (io, socket) => {
 
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioKickCohost] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -571,6 +595,7 @@ module.exports = (io, socket) => {
 
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioSetGuestMic] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -589,6 +614,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioCohostsUpdated", { broadcastId, roster });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioSetGuestVolume] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -606,6 +632,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioCohostsUpdated", { broadcastId, roster });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioSetGuestLock] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -628,6 +655,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioCohostsUpdated", { broadcastId, roster });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioToggleOwnMic] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -664,6 +692,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioPollUpdated", { broadcastId, poll });
       callback?.({ ok: true, poll });
     } catch (err) {
+      console.error("[radioCreatePoll] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -688,6 +717,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioPollUpdated", { broadcastId, poll });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioVotePoll] ❌", err);
       callback?.({ error: err.message });
     }
   });
@@ -708,6 +738,7 @@ module.exports = (io, socket) => {
       io.to(`radio:${broadcastId}`).emit("radioPollClosed", { broadcastId, poll });
       callback?.({ ok: true });
     } catch (err) {
+      console.error("[radioClosePoll] ❌", err);
       callback?.({ error: err.message });
     }
   });
