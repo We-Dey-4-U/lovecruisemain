@@ -25,10 +25,15 @@ function generateStreamKey() {
   return crypto.randomBytes(20).toString("hex");
 }
 
+
 function buildHlsUrl(streamKey) {
-  const base = process.env.RADIO_HLS_BASE_URL || "https://radio-ingest.example.com/hls";
-  return `${base}/${streamKey}/index.m3u8`;
+  return "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
 }
+
+//function buildHlsUrl(streamKey) {
+ // const base = process.env.RADIO_HLS_BASE_URL || "https://radio-ingest.example.com/hls";
+//  return `${base}/${streamKey}/index.m3u8`;
+//}
 
 // Write a notification row + push it live if the user is connected.
 // `req.app.get('io')` is used when available (routes are hit via
