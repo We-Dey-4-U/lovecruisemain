@@ -472,7 +472,7 @@
     <div class="studio-stage">
       <div class="onair-sign-row">
         <span class="onair-sign" id="onair-sign">ON AIR</span>
-        <span class="bitrate-pill" id="bitrate-pill">— kbps · 48kHz Opus</span>
+        <span class="bitrate-pill" id="bitrate-pill">🎙️ Live mic</span>
       </div>
 
       <div class="host-mic-rig">
@@ -595,7 +595,7 @@
         <div class="deck-stats-row" style="margin-bottom:14px;">
           <div class="deck-stat-chip"><div class="v" id="deck-listener-count">0</div><div class="l">Listeners</div></div>
           <div class="deck-stat-chip"><div class="v" id="deck-show-timer">00:00</div><div class="l">On Air</div></div>
-          <div class="deck-stat-chip"><div class="v" id="deck-bitrate">—</div><div class="l">Bitrate</div></div>
+          <div class="deck-stat-chip"><div class="v" id="deck-bitrate">Mic</div><div class="l">Source</div></div>
         </div>
 
         <button class="commercial-btn" id="commercial-break-btn" style="margin-bottom:10px;">📻 Trigger Commercial Break</button>
@@ -734,10 +734,10 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
 <script type="module">
 import "./js/api.js";
 import "./js/app.js";
+import * as mediasoupClient from "https://esm.sh/mediasoup-client@3.7.15";
 
 if (!requireAuthOrRedirect()) { throw new Error("auth required"); }
 
@@ -753,7 +753,6 @@ let isHost        = false;
 let following     = false;
 let isPlaying     = false;
 let isMuted       = false;
-let hlsInstance   = null;
 let GIFT_LIST     = [];
 let selectedGift  = null;
 let coinBalance   = Number(window.CURRENT_USER?.coinBalance ?? window.CURRENT_USER?.coin_balance ?? 0);
@@ -763,25 +762,35 @@ let recording     = false;
 let bgMusicOn     = false;
 let commercialTimerHandle = null;
 
+/* ══════════════════════════════════════════
+   REAL AUDIO (mediasoup) STATE — this replaces the old fake
+   HLS-based audio path entirely.
+══════════════════════════════════════════ */
+let device               = null;
+let deviceLoaded          = false;
+let mediaSendTransport    = null;
+let mediaRecvTransport    = null;
+let recvTransportPromise  = null;
+let micStream             = null;   // local mic MediaStream (host / approved guest)
+let micProducer           = null;   // our own outgoing audio producer
+let amProducing           = false;
+const consumers           = new Map(); // consumerId -> { consumer, track, socketId }
+
+// Every remote participant's audio (host + any live guests, minus
+// our own track) gets added to this single MediaStream, which the
+// <audio> element plays. This is the actual "everyone can hear the
+// host talk" pipeline.
+const remoteStream = new MediaStream();
+
 const audioEl = new Audio();
-audioEl.preload = "none";
-audioEl.crossOrigin = "anonymous";
+audioEl.autoplay = true;
+audioEl.playsInline = true;
+audioEl.srcObject = remoteStream;
 
 function $(id) { return document.getElementById(id); }
 
 /* ══════════════════════════════════════════
    SOCKET
-   ------------------------------------------------------------
-   NOTE: transports was ["websocket"] only — that skips the
-   normal HTTP polling handshake and jumps straight to a WS
-   upgrade attempt. On Render, this is the #1 cause of
-   "WebSocket is closed before the connection is established"
-   showing up on every single connection attempt. Changed to
-   ["polling", "websocket"] so the connection is established via
-   polling first (which always works through Render's proxy),
-   then upgrades to WS afterward if the proxy supports it.
-   Full diagnostic logging added below so future connection
-   issues are visible in the console instead of silent.
 ══════════════════════════════════════════ */
 const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
 console.log("[radio-room socket] Connecting to:", SOCKET_URL);
@@ -792,51 +801,17 @@ const socket = io(SOCKET_URL, {
   reconnectionDelay: 1000
 });
 
-/* ── DIAGNOSTIC LOGGING ── */
 socket.on("connect", () => {
-  console.log(
-    "[radio-room socket] ✅ connected. id=", socket.id,
-    "transport=", socket.io.engine.transport.name
-  );
+  console.log("[radio-room socket] ✅ connected. id=", socket.id, "transport=", socket.io.engine.transport.name);
 });
-
-socket.on("connect_error", (err) => {
-  console.error("[radio-room socket] ❌ connect_error:", err.message, err);
-});
-
-socket.on("disconnect", (reason) => {
-  console.warn("[radio-room socket] ⚠️ disconnected. reason=", reason);
-});
-
-socket.on("reconnect_attempt", (attempt) => {
-  console.log("[radio-room socket] 🔄 reconnect_attempt #", attempt);
-});
-
-socket.on("reconnect_error", (err) => {
-  console.error("[radio-room socket] ❌ reconnect_error:", err.message);
-});
-
-socket.on("reconnect_failed", () => {
-  console.error("[radio-room socket] ❌ reconnect_failed — giving up");
-});
-
-socket.io.on("error", (err) => {
-  console.error("[radio-room socket manager] ❌ error:", err);
-});
-
-socket.io.engine?.on("upgrade", (transport) => {
-  console.log("[radio-room socket] ⬆️ transport upgraded to:", transport.name);
-});
-
-socket.io.engine?.on("upgradeError", (err) => {
-  console.error("[radio-room socket] ❌ upgradeError:", err);
-});
+socket.on("connect_error", (err) => console.error("[radio-room socket] ❌ connect_error:", err.message));
+socket.on("disconnect", (reason) => console.warn("[radio-room socket] ⚠️ disconnected. reason=", reason));
 
 /* ══════════════════════════════════════════
-   VU METER + WAVEFORM (real Web Audio analysis
-   of the live HLS <audio> element — reacts to
-   whatever is actually being broadcast, for
-   both the host's own preview and listeners)
+   VU METER + WAVEFORM — now driven by REAL audio:
+   the host's own mic (local monitor, zero-latency) if we're the
+   host, or the combined remote stream (host + guests) for everyone
+   else, including guests listening to each other.
 ══════════════════════════════════════════ */
 const VU_SEGMENTS = 24;
 const vuMeterEl = $("vu-meter");
@@ -857,19 +832,35 @@ function sizeCanvas() {
 }
 window.addEventListener("resize", sizeCanvas);
 
-let audioCtx = null, analyser = null, sourceNode = null, dataArray = null;
+let audioCtx = null, analyser = null, playbackSource = null, playbackGain = null, micAnalyserSource = null, dataArray = null;
 let speakingLevel = 0;
-let rafHandle = null;
 
 function ensureAudioGraph() {
   if (audioCtx) return;
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Playback chain — this is what actually makes remote audio
+    // (host + guests) audible. createMediaElementSource takes over
+    // the element's native output, so we must reconnect it to
+    // destination ourselves.
+    playbackSource = audioCtx.createMediaElementSource(audioEl);
+    playbackGain = audioCtx.createGain();
+    playbackSource.connect(playbackGain).connect(audioCtx.destination);
+
+    // Visualization chain (VU meter / waveform)
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 256;
-    sourceNode = audioCtx.createMediaElementSource(audioEl);
-    sourceNode.connect(analyser);
-    analyser.connect(audioCtx.destination);
+
+    if (isHost && micStream) {
+      // Host sees their OWN mic level, zero-latency — not routed to
+      // destination (that would cause the host to hear themselves).
+      micAnalyserSource = audioCtx.createMediaStreamSource(micStream);
+      micAnalyserSource.connect(analyser);
+    } else {
+      playbackSource.connect(analyser);
+    }
+
     dataArray = new Uint8Array(analyser.frequencyBinCount);
     sizeCanvas();
     tickAudioViz();
@@ -878,16 +869,16 @@ function ensureAudioGraph() {
   }
 }
 
+let rafHandle = null;
 function tickAudioViz() {
   rafHandle = requestAnimationFrame(tickAudioViz);
   if (!analyser) return;
   analyser.getByteFrequencyData(dataArray);
 
-  // Overall level -> VU meter + pulsing ring + ON AIR glow
   let sum = 0;
   for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-  const avg = sum / dataArray.length; // 0-255
-  speakingLevel = speakingLevel * 0.7 + avg * 0.3; // smoothing
+  const avg = sum / dataArray.length;
+  speakingLevel = speakingLevel * 0.7 + avg * 0.3;
 
   const litCount = Math.round((speakingLevel / 255) * VU_SEGMENTS);
   vuSegs.forEach((seg, i) => {
@@ -904,8 +895,8 @@ function tickAudioViz() {
   const speaking = speakingLevel > 14;
   $("host-mic-body").classList.toggle("speaking", speaking);
   $("mic-pulse-ring").classList.toggle("active", speaking);
+  $("host-onair-dot").classList.toggle("on", speaking || (isHost && amProducing));
 
-  // Waveform
   waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
   const w = waveCanvas.width, h = waveCanvas.height, mid = h / 2;
   const barCount = 48;
@@ -922,6 +913,188 @@ function tickAudioViz() {
     waveCtx.fillRect(i * barW + barW * 0.15, mid - barH / 2, barW * 0.7, barH);
   }
 }
+
+/* ══════════════════════════════════════════
+   MEDIASOUP — real audio pipeline
+══════════════════════════════════════════ */
+function socketEmitAsync(event, payload) {
+  return new Promise((resolve, reject) => {
+    socket.emit(event, payload, (res) => {
+      if (res?.error) reject(new Error(res.error));
+      else resolve(res);
+    });
+  });
+}
+
+async function ensureRecvTransport() {
+  if (mediaRecvTransport) return mediaRecvTransport;
+  if (recvTransportPromise) return recvTransportPromise;
+
+  recvTransportPromise = (async () => {
+    const params = await socketEmitAsync("radioCreateRecvTransport", { broadcastId });
+    const transport = device.createRecvTransport({
+      ...params,
+      iceServers: window.__turnConfig || undefined
+    });
+    transport.on("connect", ({ dtlsParameters }, cb, errback) => {
+      socket.emit("radioConnectTransport", { broadcastId, transportId: transport.id, dtlsParameters }, (res) => {
+        if (res?.error) return errback(new Error(res.error));
+        cb();
+      });
+    });
+    mediaRecvTransport = transport;
+    return transport;
+  })();
+
+  return recvTransportPromise;
+}
+
+async function ensureSendTransport() {
+  if (mediaSendTransport) return mediaSendTransport;
+  const params = await socketEmitAsync("radioCreateSendTransport", { broadcastId });
+  const transport = device.createSendTransport({
+    ...params,
+    iceServers: window.__turnConfig || undefined
+  });
+  transport.on("connect", ({ dtlsParameters }, cb, errback) => {
+    socket.emit("radioConnectTransport", { broadcastId, transportId: transport.id, dtlsParameters }, (res) => {
+      if (res?.error) return errback(new Error(res.error));
+      cb();
+    });
+  });
+  transport.on("produce", ({ kind, rtpParameters }, cb, errback) => {
+    socket.emit("radioProduce", { broadcastId, transportId: transport.id, kind, rtpParameters }, (res) => {
+      if (res?.error) return errback(new Error(res.error));
+      cb({ id: res.producerId });
+    });
+  });
+  mediaSendTransport = transport;
+  return transport;
+}
+
+async function consumeProducer({ producerId, socketId }) {
+  if (socketId === socket.id) return; // never consume our own mic
+  try {
+    await deviceLoaded;
+    const transport = await ensureRecvTransport();
+    const params = await socketEmitAsync("radioConsume", {
+      broadcastId, transportId: transport.id, producerId, rtpCapabilities: device.rtpCapabilities
+    });
+
+    const consumer = await transport.consume({
+      id: params.id,
+      producerId: params.producerId,
+      kind: params.kind,
+      rtpParameters: params.rtpParameters
+    });
+
+    consumers.set(consumer.id, { consumer, track: consumer.track, socketId });
+    remoteStream.addTrack(consumer.track);
+
+    await socketEmitAsync("radioResumeConsumer", { broadcastId, consumerId: consumer.id });
+
+    // Autoplay may be blocked until a user gesture — surface that
+    // rather than silently failing.
+    audioEl.play().catch(() => {
+      showToast("Tap ▶ to enable sound");
+    });
+
+    consumer.on("transportclose", () => { consumers.delete(consumer.id); });
+  } catch (err) {
+    console.error("[consumeProducer] ❌", err);
+  }
+}
+
+function removeConsumerByProducer(producerId, socketId) {
+  for (const [id, entry] of consumers) {
+    if (entry.socketId === socketId) {
+      try { remoteStream.removeTrack(entry.track); } catch (e) {}
+      try { entry.consumer.close(); } catch (e) {}
+      consumers.delete(id);
+    }
+  }
+}
+
+async function startProducingMic() {
+  if (amProducing) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+  } catch (err) {
+    showToast("Microphone access denied — enable it in your browser settings");
+    return;
+  }
+
+  try {
+    const transport = await ensureSendTransport();
+    const track = micStream.getAudioTracks()[0];
+    micProducer = await transport.produce({
+      track,
+      codecOptions: { opusDtx: true, opusFec: true }
+    });
+    amProducing = true;
+    $("onair-sign").classList.add("live");
+    $("host-onair-dot").classList.add("on");
+
+    // Re-run the viz graph now that micStream exists (host case).
+    if (audioCtx) {
+      try { micAnalyserSource?.disconnect(); } catch (e) {}
+      micAnalyserSource = audioCtx.createMediaStreamSource(micStream);
+      micAnalyserSource.connect(analyser);
+    } else {
+      ensureAudioGraph();
+    }
+
+    micProducer.observer.once("close", () => { amProducing = false; });
+  } catch (err) {
+    console.error("[startProducingMic] ❌", err);
+    showToast(err.message || "Couldn't go live on mic");
+    micStream?.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+}
+
+function stopProducingMic() {
+  if (micProducer) { try { micProducer.close(); } catch (e) {} micProducer = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  amProducing = false;
+  socket.emit("radioStopProducing", { broadcastId });
+  $("host-onair-dot").classList.remove("on");
+}
+
+async function initRadioMedia() {
+  try {
+    const res = await socketEmitAsync("radioJoinMedia", { broadcastId });
+
+    device = new mediasoupClient.Device();
+    await device.load({ routerRtpCapabilities: res.rtpCapabilities });
+    deviceLoaded = Promise.resolve();
+
+    // Pull in anyone already live (host and/or guests) before we
+    // start our own mic, so a listener joining mid-show hears them
+    // immediately.
+    for (const p of res.existingProducers || []) {
+      consumeProducer(p);
+    }
+
+    if (isHost) {
+      await startProducingMic();
+    }
+  } catch (err) {
+    console.error("[initRadioMedia] ❌", err);
+    showToast("Couldn't connect the live audio — try refreshing");
+  }
+}
+
+socket.on("radioNewProducer", (info) => {
+  if (info.broadcastId !== broadcastId) return;
+  consumeProducer(info);
+});
+socket.on("radioProducerClosed", ({ broadcastId: bId, producerId, socketId }) => {
+  if (bId !== broadcastId) return;
+  removeConsumerByProducer(producerId, socketId);
+});
 
 /* ══════════════════════════════════════════
    LOAD BROADCAST
@@ -963,8 +1136,6 @@ function renderBroadcast(b) {
   }
 
   if (b.listener_count != null) updateListenerCount(b.listener_count);
-  if (b.hls_playlist_url) initPlayer(b.hls_playlist_url);
-
   if (b.started_at) startShowTimer(new Date(b.started_at).getTime());
 }
 
@@ -992,49 +1163,14 @@ function startShowTimer(startedAtMs) {
 }
 
 /* ══════════════════════════════════════════
-   HLS PLAYER
+   PLAY / MUTE — now controls the mediasoup-fed <audio> element
+   instead of an HLS source.
 ══════════════════════════════════════════ */
-function initPlayer(url) {
-  if (window.Hls && Hls.isSupported()) {
-    hlsInstance = new Hls({ liveDurationInfinity: true, lowLatencyMode: true });
-    hlsInstance.loadSource(url);
-    hlsInstance.attachMedia(audioEl);
-    hlsInstance.on(Hls.Events.ERROR, (evt, data) => {
-      if (data.fatal) {
-        setNetQuality("poor");
-        console.error("[hls] fatal error:", data);
-        showToast("Stream connection lost — retrying…");
-        setTimeout(() => hlsInstance?.startLoad(), 2000);
-      }
-    });
-    hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (evt, data) => {
-      const level = hlsInstance.levels?.[data.level];
-      if (level?.bitrate) {
-        const kbps = Math.round(level.bitrate / 1000);
-        $("bitrate-pill").textContent = `${kbps} kbps · 48kHz Opus`;
-        $("deck-bitrate").textContent = `${kbps}k`;
-      }
-    });
-  } else if (audioEl.canPlayType("application/vnd.apple.mpegurl")) {
-    audioEl.src = url;
-  } else {
-    showToast("Audio streaming isn't supported on this browser");
-  }
-}
-
-audioEl.addEventListener("waiting", () => setNetQuality("fair"));
-audioEl.addEventListener("playing", () => setNetQuality("good"));
-
-function setNetQuality(level) {
-  const el = $("net-pill");
-  el.classList.remove("good", "fair", "poor");
-  el.classList.add(level);
-}
-
 function togglePlay() {
+  ensureAudioGraph();
+  if (audioCtx?.state === "suspended") audioCtx.resume();
+
   if (!isPlaying) {
-    ensureAudioGraph();
-    if (audioCtx?.state === "suspended") audioCtx.resume();
     audioEl.play().then(() => {
       isPlaying = true;
       $("play-toggle-btn").innerHTML = "⏸";
@@ -1067,8 +1203,10 @@ async function joinBroadcast() {
     if (err.message?.includes("members-only") || err.message?.includes("subscribe")) showToast(err.message);
   }
   socket.emit("joinRadio", { broadcastId, userId: window.CURRENT_USER.id });
+  initRadioMedia();
 }
 async function leaveBroadcast() {
+  stopProducingMic();
   try { await api.request(`/radio/broadcasts/${broadcastId}/leave`, { method: "POST" }); } catch (e) {}
   socket.emit("leaveRadio", { broadcastId, userId: window.CURRENT_USER.id });
 }
@@ -1184,6 +1322,7 @@ async function sendSelectedGift() {
    GUEST BOOTH — boom-mic grid + host booth sheet + invite flow
 ══════════════════════════════════════════════════════════ */
 const GUEST_SLOT_COUNT = 8;
+let myLastCohostStatus = null;
 
 function renderGuestBooth() {
   const grid = $("guest-booth");
@@ -1223,9 +1362,12 @@ function renderGuestBooth() {
     grid.querySelectorAll(".guest-slot.empty").forEach(el => el.addEventListener("click", () => openGuestBoothSheet()));
     grid.querySelectorAll(".gm-mic").forEach(btn => btn.addEventListener("click", () => {
       const wasMuted = btn.dataset.muted === "true";
-      socket.emit("radioSetGuestMic", { broadcastId, targetUserId: btn.dataset.uid, muted: !wasMuted }, (res) => {
+      const targetUserId = btn.dataset.uid;
+      socket.emit("radioSetGuestMic", { broadcastId, targetUserId, muted: !wasMuted }, (res) => {
         if (res?.error) showToast(res.error);
       });
+      // Also pause/resume the real mediasoup producer for that guest.
+      socket.emit("radioSetProducerPaused", { broadcastId, targetUserId, paused: !wasMuted });
     }));
     grid.querySelectorAll(".gm-lock").forEach(btn => btn.addEventListener("click", () => {
       const wasLocked = btn.dataset.locked === "true";
@@ -1255,6 +1397,14 @@ function renderGuestBooth() {
     else if (mine?.status === "pending") { reqBtn.classList.add("pending"); icEl.textContent = "⏳"; textNode.textContent = "Requested"; }
     else if (mine?.status === "invited") { icEl.textContent = "🎙️"; textNode.textContent = "Invited!"; }
     else { icEl.textContent = "🎙️"; textNode.textContent = "Request Mic"; }
+
+    // ── This is what actually makes an approved guest transmit ──
+    if (mine?.status === "approved" && myLastCohostStatus !== "approved") {
+      startProducingMic();
+    } else if (mine?.status !== "approved" && myLastCohostStatus === "approved") {
+      stopProducingMic();
+    }
+    myLastCohostStatus = mine?.status || null;
   }
 }
 
@@ -1708,9 +1858,13 @@ $("master-mute-btn").addEventListener("click", () => {
   btn.textContent = masterMuted ? "🔇 Muted" : "🎙️ Live";
   btn.classList.toggle("muted-state", masterMuted);
   $("host-onair-dot").classList.toggle("on", !masterMuted);
+  // Master mute now actually pauses/resumes the host's real producer.
+  if (micProducer) {
+    try { masterMuted ? micProducer.pause() : micProducer.resume(); } catch (e) {}
+  }
 });
 
-$("music-vol-slider").addEventListener("input", (e) => { $("music-vol-val").textContent = `${e.target.value}%`; audioEl.volume = Number(e.target.value) / 100; });
+$("music-vol-slider").addEventListener("input", (e) => { $("music-vol-val").textContent = `${e.target.value}%`; if (playbackGain) playbackGain.gain.value = Number(e.target.value) / 100; });
 $("guest-vol-slider").addEventListener("input", (e) => { $("guest-vol-val").textContent = `${e.target.value}%`; });
 $("bg-music-toggle-btn").addEventListener("click", (e) => { bgMusicOn = !bgMusicOn; e.target.textContent = bgMusicOn ? "On" : "Off"; e.target.classList.toggle("on", bgMusicOn); });
 
@@ -1741,6 +1895,7 @@ function runCommercialBreak(seconds) {
 async function endBroadcast() {
   if (!confirm("End this broadcast for all listeners?")) return;
   try {
+    stopProducingMic();
     await api.request(`/radio/broadcasts/${broadcastId}/end`, { method: "POST" });
     socket.emit("radioEnded", { broadcastId });
     window.location.href = "radio-discover.html";
@@ -1780,7 +1935,7 @@ socket.on("radioCohostResponse", ({ action, invite }) => {
   if (invite) showToast(action === "accept" ? "Guest accepted your invite 🎙️" : "Guest declined your invite");
   else showToast(action === "approve" ? "You're live as a guest! 🎙️" : "Request declined");
 });
-socket.on("radioCohostKicked", () => showToast("You were removed from the guest booth"));
+socket.on("radioCohostKicked", () => { showToast("You were removed from the guest booth"); stopProducingMic(); });
 socket.on("radioCohostInvite", (payload) => { if (payload.broadcastId === broadcastId) openInviteModal(payload); });
 socket.on("radioGuestMicSet", ({ muted }) => showToast(muted ? "The host muted your mic" : "You're live! 🎙️"));
 

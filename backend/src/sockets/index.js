@@ -10,18 +10,16 @@ const registerPresenceSocket = require("./presence.socket");
 const registerNotificationSocket = require("./notification.socket");
 const registerRadioSocket = require("./radio.socket");
 const registerRadioQueueSocket = require("./radioQueue.socket");
+const registerRadioMediaSocket = require("./radioMedia.socket");
 
 console.log("================================");
 console.log("RadioQueue import:");
 console.log(typeof registerRadioQueueSocket);
 console.log(registerRadioQueueSocket);
+console.log("RadioMedia import:");
+console.log(typeof registerRadioMediaSocket);
+console.log(registerRadioMediaSocket);
 console.log("================================");
-
-console.log(
-  "registerRadioQueueSocket:",
-  typeof registerRadioQueueSocket,
-  registerRadioQueueSocket
-);
 
 module.exports = function socketSetup(httpServer) {
 
@@ -44,6 +42,7 @@ module.exports = function socketSetup(httpServer) {
         registerNotificationSocket(io, socket);
         registerRadioSocket(io, socket);
         registerRadioQueueSocket(io, socket);
+        registerRadioMediaSocket(io, socket);
 
     });
 
