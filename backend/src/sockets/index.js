@@ -11,6 +11,12 @@ const registerNotificationSocket = require("./notification.socket");
 const registerRadioSocket = require("./radio.socket");
 const registerRadioQueueSocket = require("./radioQueue.socket");
 
+console.log("================================");
+console.log("RadioQueue import:");
+console.log(typeof registerRadioQueueSocket);
+console.log(registerRadioQueueSocket);
+console.log("================================");
+
 console.log(
   "registerRadioQueueSocket:",
   typeof registerRadioQueueSocket,
