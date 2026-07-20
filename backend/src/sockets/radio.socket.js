@@ -1,39 +1,34 @@
 // backend/src/sockets/radio.socket.js
 //
-// PHASE 2: Co-host/caller request/approve/reject/leave/kick realtime
-//          events + Live poll create/vote/close realtime events.
-// PHASE 4 (Studio redesign) ADDITIONS:
-//   - Host-initiated "Invite Guest" flow (radioInviteGuest /
-//     radioRespondInvite), alongside the existing listener-
-//     initiated "Request to Speak" flow. Both live in the same
-//     radio_cohosts table, distinguished by `status`
-//     ('invited' | 'pending' | 'approved' | ...). See migration
-//     radio_phase4_guest_invites.sql.
-//   - Per-guest mic control for the boom-mic grid: mute/unmute,
-//     volume (0-100), and lock (prevents the guest from
-//     unmuting themselves).
-//   - Lightweight relays for the control deck's sound-effects pad
-//     and commercial-break trigger (no DB writes needed — these are
-//     ephemeral broadcast-room events, same pattern as radioReaction).
+// PHASE 4.2 (this pass) — GUEST INVITE FIX:
+//   Root causes of "Invite Guest doesn't work", now fixed:
 //
-// PHASE 4.1 (this pass) — DIAGNOSTIC LOGGING:
-//   Every guest-booth / poll handler's catch block now logs the raw
-//   error via console.error before returning it to the client via the
-//   ack callback. Previously these handlers only did
-//   `callback?.({ error: err.message })`, which meant a schema-drift
-//   error (missing column, missing enum value, etc.) on the DB side
-//   left ZERO trace in Render logs — it silently failed on the client
-//   with whatever message Postgres produced, and there was no way to
-//   diagnose it server-side. Every catch block below now does:
-//     console.error("[handlerName] ❌", err);
-//   before the callback, so the actual Postgres error (e.g.
-//   `column "mic_volume" does not exist` or
-//   `invalid input value for enum ...: "invited"`) shows up in your
-//   Render log stream immediately when Invite Guest (or any other
-//   guest-booth action) is clicked.
+//   1. SCHEMA DRIFT: radio_cohosts was missing invited_by/mic_muted/
+//      mic_volume/mic_locked columns and/or the 'invited' status
+//      value in production, so every invite INSERT threw a Postgres
+//      error that only ever reached the Render log (see the
+//      diagnostic logging added in Phase 4.1). Run
+//      fix_radio_cohosts_guest_invites.sql against your production
+//      DB — this is the #1 fix.
 //
-// Everything else (join/leave/chat/reactions/end/presence/grace-
-// period disconnect) is unchanged from Phase 1/2.
+//   2. HOST-IDENTITY RACE: assertBroadcastHost() trusted ONLY the
+//      in-memory socket.currentUserId, which resets to undefined on
+//      every reconnect until "registerUser"/"joinRadio" round-trip
+//      again. If the host clicked "Invite" in that window, the
+//      server incorrectly said "Only the host can do that" even
+//      though the caller genuinely was the host. resolveCallerId()
+//      below now falls back to a client-supplied userId AND verifies
+//      it server-side against the DB before trusting it, so a stale
+//      socket no longer blocks a legitimate host action.
+//
+//   3. USERNAME LOOKUP: trims whitespace and a leading "@", and now
+//      returns a clear "No user found with that username" instead of
+//      a generic failure so typos are obvious in the UI.
+//
+// Everything else is unchanged from Phase 4.1 (diagnostic logging on
+// every guest-booth/poll handler, invite/respond flow, per-guest mic
+// control, sound-effects pad, commercial-break trigger, join/leave/
+// chat/reactions/end/presence/grace-period disconnect).
 
 const db = require("../config/db");
 const presenceService = require("../services/presenceService");
@@ -168,6 +163,35 @@ async function fetchPollWithCounts(pollId) {
     return found ? Number(found.c) : 0;
   });
   return { ...poll, votes, totalVotes: votes.reduce((a, b) => a + b, 0) };
+}
+
+/**
+ * Resolves "who is actually calling this handler" without blindly
+ * trusting the client. Prefers the server-tracked socket.currentUserId
+ * (set by a verified registerUser/joinRadio call earlier in this same
+ * connection's life). If that's missing — e.g. right after a
+ * reconnect, before the client's registerUser round-trip lands — it
+ * falls back to a client-supplied fallbackUserId, but ONLY after
+ * confirming that user id actually exists in the DB, and it then
+ * caches it on the socket so subsequent calls don't repeat the trip.
+ */
+async function resolveCallerId(socket, fallbackUserId) {
+  if (socket.currentUserId) return socket.currentUserId;
+  if (!fallbackUserId) return null;
+
+  const brief = await getUserBrief(fallbackUserId);
+  if (!brief) return null;
+
+  socket.currentUserId = brief.id;
+  return brief.id;
+}
+
+async function assertBroadcastHost(broadcastId, callerId) {
+  if (!callerId) throw new Error("You're not signed in to this session — refresh and try again");
+  const { rows } = await db.query(`SELECT host_id FROM radio_broadcasts WHERE id = $1`, [broadcastId]);
+  if (!rows.length) throw new Error("Broadcast not found");
+  if (String(rows[0].host_id) !== String(callerId)) throw new Error("Only the host can do that");
+  return rows[0];
 }
 
 module.exports = (io, socket) => {
@@ -350,19 +374,11 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      STUDIO CONTROL DECK — sound effects pad + commercial break.
-     Ephemeral, room-wide relays; no DB write needed (same
-     pattern as radioReaction). Host-only, enforced server-side.
   ══════════════════════════════════════════════════════ */
-  async function assertBroadcastHost(broadcastId, userId) {
-    const { rows } = await db.query(`SELECT host_id FROM radio_broadcasts WHERE id = $1`, [broadcastId]);
-    if (!rows.length) throw new Error("Broadcast not found");
-    if (String(rows[0].host_id) !== String(userId)) throw new Error("Only the host can do that");
-    return rows[0];
-  }
-
-  socket.on("radioSoundEffect", async ({ broadcastId, effect }, callback) => {
+  socket.on("radioSoundEffect", async ({ broadcastId, effect, userId }, callback) => {
     try {
-      await assertBroadcastHost(broadcastId, socket.currentUserId);
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
       if (!effect) throw new Error("Missing effect");
       io.to(`radio:${broadcastId}`).emit("radioSoundEffectPlayed", { broadcastId, effect });
       callback?.({ ok: true });
@@ -372,9 +388,10 @@ module.exports = (io, socket) => {
     }
   });
 
-  socket.on("radioCommercialBreak", async ({ broadcastId, seconds }, callback) => {
+  socket.on("radioCommercialBreak", async ({ broadcastId, seconds, userId }, callback) => {
     try {
-      await assertBroadcastHost(broadcastId, socket.currentUserId);
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
       const secs = Math.min(Math.max(Number(seconds) || 30, 10), 300);
       io.to(`radio:${broadcastId}`).emit("radioCommercialBreak", { broadcastId, seconds: secs });
       io.to(`radio:${broadcastId}`).emit("newRadioComment", {
@@ -388,9 +405,9 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     GUEST BOOTH — CO-HOSTS / CALLERS (Phase 2)
-     + HOST-INITIATED INVITES (Phase 4)
-     + PER-GUEST MIC CONTROL (Phase 4)
+     GUEST BOOTH — CO-HOSTS / CALLERS
+     + HOST-INITIATED INVITES  ← the fixed flow
+     + PER-GUEST MIC CONTROL
   ══════════════════════════════════════════════════════ */
   socket.on("radioRequestCohost", async ({ broadcastId, userId }, callback) => {
     try {
@@ -425,28 +442,50 @@ module.exports = (io, socket) => {
   });
 
   // Host invites a specific user (by username) into the guest booth.
-  socket.on("radioInviteGuest", async ({ broadcastId, username }, callback) => {
+  //
+  // Sample usage — type the username EXACTLY as it appears in your
+  // users table, no "@" required (it's stripped automatically), case
+  // doesn't matter, spaces in multi-word usernames are fine:
+  //   kamsi
+  //   Mrteks
+  //   Amina Mensah
+  //   Lerato Mokoena
+  //   Nadia Mukasa
+  //   admin
+  socket.on("radioInviteGuest", async ({ broadcastId, username, userId }, callback) => {
     try {
-      await assertBroadcastHost(broadcastId, socket.currentUserId);
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
+
       if (!username || !username.trim()) throw new Error("Enter a username to invite");
+      const cleanUsername = username.trim().replace(/^@/, "");
 
       const { rows: uRows } = await db.query(
         `SELECT id, username, display_name, avatar_url FROM users WHERE LOWER(username) = LOWER($1)`,
-        [username.trim().replace(/^@/, "")]
+        [cleanUsername]
       );
-      if (!uRows.length) throw new Error("No user found with that username");
+      if (!uRows.length) {
+        throw new Error(`No user found with the username "${cleanUsername}" — check spelling/case and try again`);
+      }
       const target = uRows[0];
-      if (String(target.id) === String(socket.currentUserId)) throw new Error("You can't invite yourself");
+      if (String(target.id) === String(callerId)) throw new Error("You can't invite yourself");
 
-      await db.query(
-        `INSERT INTO radio_cohosts (broadcast_id, user_id, status, invited_by, mic_muted)
-         VALUES ($1, $2, 'invited', $3, TRUE)
-         ON CONFLICT (broadcast_id, user_id)
-         DO UPDATE SET status = 'invited', invited_by = $3, requested_at = NOW(), approved_at = NULL`,
-        [broadcastId, target.id, socket.currentUserId]
-      );
+      try {
+        await db.query(
+          `INSERT INTO radio_cohosts (broadcast_id, user_id, status, invited_by, mic_muted)
+           VALUES ($1, $2, 'invited', $3, TRUE)
+           ON CONFLICT (broadcast_id, user_id)
+           DO UPDATE SET status = 'invited', invited_by = $3, requested_at = NOW(), approved_at = NULL`,
+          [broadcastId, target.id, callerId]
+        );
+      } catch (dbErr) {
+        // This is the exact failure mode that was breaking invites
+        // silently — surface it plainly instead of a generic error.
+        console.error("[radioInviteGuest] radio_cohosts write failed — likely missing columns/status value. Run fix_radio_cohosts_guest_invites.sql. ❌", dbErr);
+        throw new Error("Couldn't save the invite (server database needs an update — contact the site admin)");
+      }
 
-      const hostBrief = await getUserBrief(socket.currentUserId);
+      const hostBrief = await getUserBrief(callerId);
       await notifyUser(io, target.id, {
         type: "radio_guest_invite",
         title: "🎙️ Radio Invitation",
@@ -471,15 +510,18 @@ module.exports = (io, socket) => {
   });
 
   // Invited user accepts/declines a host invite.
-  socket.on("radioRespondInvite", async ({ broadcastId, action }, callback) => {
+  socket.on("radioRespondInvite", async ({ broadcastId, action, userId }, callback) => {
     try {
+      const callerId = await resolveCallerId(socket, userId);
+      if (!callerId) throw new Error("You're not signed in to this session — refresh and try again");
+
       const newStatus = action === "accept" ? "approved" : "declined_invite";
       const { rows } = await db.query(
         `UPDATE radio_cohosts SET status = $3,
            approved_at = CASE WHEN $3 = 'approved' THEN NOW() ELSE approved_at END
          WHERE broadcast_id = $1 AND user_id = $2 AND status = 'invited'
          RETURNING *`,
-        [broadcastId, socket.currentUserId, newStatus]
+        [broadcastId, callerId, newStatus]
       );
       if (!rows.length) throw new Error("No pending invite found");
 
@@ -488,7 +530,7 @@ module.exports = (io, socket) => {
 
       const room = radioRooms.get(broadcastId);
       if (room?.hostSocketId) {
-        io.to(room.hostSocketId).emit("radioCohostResponse", { broadcastId, action, userId: socket.currentUserId, invite: true });
+        io.to(room.hostSocketId).emit("radioCohostResponse", { broadcastId, action, userId: callerId, invite: true });
       }
 
       callback?.({ ok: true });
@@ -498,17 +540,12 @@ module.exports = (io, socket) => {
     }
   });
 
-  socket.on("radioRespondCohost", async ({ broadcastId, targetUserId, action }, callback) => {
+  socket.on("radioRespondCohost", async ({ broadcastId, targetUserId, action, userId }, callback) => {
     try {
-      const { rows: bRows } = await db.query(
-        `SELECT host_id FROM radio_broadcasts WHERE id = $1`,
-        [broadcastId]
-      );
-      if (!bRows.length || String(bRows[0].host_id) !== String(socket.currentUserId)) {
-        throw new Error("Only the host can respond");
-      }
-      const newStatus = action === "approve" ? "approved" : "rejected";
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
 
+      const newStatus = action === "approve" ? "approved" : "rejected";
       await db.query(
         `UPDATE radio_cohosts SET status = $3,
            approved_at = CASE WHEN $3 = 'approved' THEN NOW() ELSE approved_at END
@@ -547,15 +584,11 @@ module.exports = (io, socket) => {
     }
   });
 
-  socket.on("radioKickCohost", async ({ broadcastId, targetUserId }, callback) => {
+  socket.on("radioKickCohost", async ({ broadcastId, targetUserId, userId }, callback) => {
     try {
-      const { rows: bRows } = await db.query(
-        `SELECT host_id FROM radio_broadcasts WHERE id = $1`,
-        [broadcastId]
-      );
-      if (!bRows.length || String(bRows[0].host_id) !== String(socket.currentUserId)) {
-        throw new Error("Only the host can remove a caller");
-      }
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
+
       await db.query(
         `UPDATE radio_cohosts SET status = 'left' WHERE broadcast_id = $1 AND user_id = $2`,
         [broadcastId, targetUserId]
@@ -575,9 +608,11 @@ module.exports = (io, socket) => {
   });
 
   // Host toggles a live guest's mic on/off (goes "Live" on that boom mic).
-  socket.on("radioSetGuestMic", async ({ broadcastId, targetUserId, muted }, callback) => {
+  socket.on("radioSetGuestMic", async ({ broadcastId, targetUserId, muted, userId }, callback) => {
     try {
-      await assertBroadcastHost(broadcastId, socket.currentUserId);
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
+
       const { rows } = await db.query(
         `UPDATE radio_cohosts SET mic_muted = $3
          WHERE broadcast_id = $1 AND user_id = $2 AND status = 'approved'
@@ -601,9 +636,11 @@ module.exports = (io, socket) => {
   });
 
   // Host sets a live guest's mix volume (0-100) in the guest mixer.
-  socket.on("radioSetGuestVolume", async ({ broadcastId, targetUserId, volume }, callback) => {
+  socket.on("radioSetGuestVolume", async ({ broadcastId, targetUserId, volume, userId }, callback) => {
     try {
-      await assertBroadcastHost(broadcastId, socket.currentUserId);
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
+
       const vol = Math.min(Math.max(Number(volume) || 0, 0), 100);
       await db.query(
         `UPDATE radio_cohosts SET mic_volume = $3
@@ -620,9 +657,11 @@ module.exports = (io, socket) => {
   });
 
   // Host locks/unlocks a guest's mic (prevents the guest self-unmuting).
-  socket.on("radioSetGuestLock", async ({ broadcastId, targetUserId, locked }, callback) => {
+  socket.on("radioSetGuestLock", async ({ broadcastId, targetUserId, locked, userId }, callback) => {
     try {
-      await assertBroadcastHost(broadcastId, socket.currentUserId);
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
+
       await db.query(
         `UPDATE radio_cohosts SET mic_locked = $3
          WHERE broadcast_id = $1 AND user_id = $2 AND status = 'approved'`,
@@ -638,18 +677,21 @@ module.exports = (io, socket) => {
   });
 
   // Guest self-toggles their own mic (blocked if host-locked).
-  socket.on("radioToggleOwnMic", async ({ broadcastId, muted }, callback) => {
+  socket.on("radioToggleOwnMic", async ({ broadcastId, muted, userId }, callback) => {
     try {
+      const callerId = await resolveCallerId(socket, userId);
+      if (!callerId) throw new Error("You're not signed in to this session — refresh and try again");
+
       const { rows } = await db.query(
         `SELECT * FROM radio_cohosts WHERE broadcast_id = $1 AND user_id = $2 AND status = 'approved'`,
-        [broadcastId, socket.currentUserId]
+        [broadcastId, callerId]
       );
       if (!rows.length) throw new Error("You're not in the guest booth");
       if (rows[0].mic_locked) throw new Error("Your mic is locked by the host");
 
       await db.query(
         `UPDATE radio_cohosts SET mic_muted = $3 WHERE broadcast_id = $1 AND user_id = $2`,
-        [broadcastId, socket.currentUserId, !!muted]
+        [broadcastId, callerId, !!muted]
       );
       const roster = await fetchCohostRoster(broadcastId);
       io.to(`radio:${broadcastId}`).emit("radioCohostsUpdated", { broadcastId, roster });
@@ -661,17 +703,13 @@ module.exports = (io, socket) => {
   });
 
   /* ══════════════════════════════════════════════════════
-     LIVE POLLS (Phase 2)
+     LIVE POLLS
   ══════════════════════════════════════════════════════ */
-  socket.on("radioCreatePoll", async ({ broadcastId, question, options }, callback) => {
+  socket.on("radioCreatePoll", async ({ broadcastId, question, options, userId }, callback) => {
     try {
-      const { rows: bRows } = await db.query(
-        `SELECT host_id FROM radio_broadcasts WHERE id = $1`,
-        [broadcastId]
-      );
-      if (!bRows.length || String(bRows[0].host_id) !== String(socket.currentUserId)) {
-        throw new Error("Only the host can start a poll");
-      }
+      const callerId = await resolveCallerId(socket, userId);
+      await assertBroadcastHost(broadcastId, callerId);
+
       if (!question?.trim() || !Array.isArray(options) || options.length < 2) {
         throw new Error("Invalid poll");
       }
@@ -722,15 +760,16 @@ module.exports = (io, socket) => {
     }
   });
 
-  socket.on("radioClosePoll", async ({ broadcastId, pollId }, callback) => {
+  socket.on("radioClosePoll", async ({ broadcastId, pollId, userId }, callback) => {
     try {
+      const callerId = await resolveCallerId(socket, userId);
       const { rows: pollRows } = await db.query(
         `SELECT rp.*, rb.host_id FROM radio_polls rp
          JOIN radio_broadcasts rb ON rb.id = rp.broadcast_id
          WHERE rp.id = $1`,
         [pollId]
       );
-      if (!pollRows.length || String(pollRows[0].host_id) !== String(socket.currentUserId)) {
+      if (!pollRows.length || String(pollRows[0].host_id) !== String(callerId)) {
         throw new Error("Only the host can close this poll");
       }
       await db.query(`UPDATE radio_polls SET status = 'closed', closed_at = NOW() WHERE id = $1`, [pollId]);

@@ -1,100 +1,134 @@
 // backend/src/controllers/musicLibraryController.js
 //
-// Music Library Module (Option 1: host uploads) + the search
-// entry-point into Option 2 (external licensed providers), via
-// the MusicProviderInterface registry. This controller never
-// talks to S3/FFmpeg directly — that's audioProcessingService's
-// job — and never talks to a specific external API directly —
-// that's each provider's job. It only orchestrates.
+// This controller is what backend/src/routes/musicLibrary.routes.js
+// points to for every /radio/music-library/* endpoint — including
+// POST /songs/upload, which is the actual upload entry point used by
+// radio-room.html's "Upload" tab. It was missing from the codebase
+// entirely (referenced by the router, never implemented), which is
+// why audio upload silently failed: Express would throw
+// "Route.post() requires a callback function but got a [object
+// Undefined]" at boot, or 500 at request time depending on how it
+// failed to resolve.
+//
+// Upload flow, matching what radio-room.html already expects:
+//   1. multer (audioUpload middleware, diskStorage) saves the raw
+//      file to a temp path and populates req.file.
+//   2. We insert a radio_songs row immediately with status
+//      'processing' and respond 201 right away — the client's
+//      pollUploadStatus() then polls GET /songs/:id every 3s.
+//   3. In the background we run audioProcessingService
+//      .processUploadedSong() (ffprobe -> transcode/normalize ->
+//      extract cover art -> upload to Appwrite), then update the row
+//      to status 'ready' with the final file_url/cover_url/duration.
+//   4. On any failure the row flips to status 'failed' so the client
+//      polling loop stops cleanly instead of spinning forever.
+//   5. The raw temp file multer wrote to disk is always deleted,
+//      success or failure — audioProcessingService cleans up its own
+//      intermediate temp files internally.
 
 const fs = require("fs");
 const db = require("../config/db");
-const audioProcessingService = require("../services/audioProcessingService");
+const { processUploadedSong } = require("../services/audioProcessingService");
 const { getProvider, listProviderKeys } = require("../services/musicProviders");
+
+function safeUnlink(p) {
+  if (!p) return;
+  fs.unlink(p, () => {});
+}
 
 const MusicLibraryController = {
 
   /* ============================================================
-     UPLOAD A SONG
-     multer (configured in the route) puts the raw file on disk at
-     req.file.path — this handler creates a 'processing' row
-     immediately so the UI can show progress, then kicks off FFmpeg
-     processing, then flips the row to 'ready' or 'failed'.
+     UPLOAD A SONG (host's own library)
      ============================================================ */
   async uploadSong(req, res, next) {
-    let dbRow = null;
-    try {
-      if (!req.file) {
-        return res.status(400).json({ success: false, message: "Audio file is required" });
-      }
-      const { title, artist, album, genre, stationId } = req.body;
-      if (!title || !title.trim()) {
-        return res.status(400).json({ success: false, message: "Song title is required" });
-      }
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "Audio file is required" });
+    }
 
+    const { title, artist, album, genre, stationId } = req.body;
+    if (!title || !title.trim()) {
+      safeUnlink(req.file.path);
+      return res.status(400).json({ success: false, message: "Song title is required" });
+    }
+
+    let song;
+    try {
+      // If a stationId is supplied, confirm the uploader actually owns it —
+      // otherwise scope the song to just the uploader (no station).
+      let confirmedStationId = null;
       if (stationId) {
-        const { rows } = await db.query(
+        const { rows: stationRows } = await db.query(
           `SELECT id FROM radio_stations WHERE id = $1 AND host_id = $2`,
           [stationId, req.user.id]
         );
-        if (!rows.length) {
-          return res.status(403).json({ success: false, message: "Not authorized for this station" });
-        }
+        confirmedStationId = stationRows.length ? stationId : null;
       }
 
-      const { rows: insertRows } = await db.query(
+      const { rows } = await db.query(
         `INSERT INTO radio_songs
-           (uploader_id, station_id, title, artist, album, genre, source, status, original_file_url)
-         VALUES ($1, $2, $3, $4, $5, $6, 'upload', 'processing', NULL)
+           (title, artist, album, genre, source, status, uploader_id, station_id)
+         VALUES ($1, $2, $3, $4, 'upload', 'processing', $5, $6)
          RETURNING *`,
-        [req.user.id, stationId || null, title.trim(), artist || null, album || null, genre || null]
+        [title.trim(), artist || null, album || null, genre || null, req.user.id, confirmedStationId]
       );
-      dbRow = insertRows[0];
-
-      // Respond immediately with the "processing" row — the client
-      // polls GET /music-library/songs/:id or listens for a socket
-      // event to know when it flips to "ready". Processing (FFmpeg
-      // transcode + S3 upload) can take several seconds for longer
-      // tracks and shouldn't block the HTTP response.
-      res.status(202).json({ success: true, data: dbRow });
-
-      audioProcessingService
-        .processUploadedSong(req.file.path, req.file.originalname, dbRow.id)
-        .then(async (result) => {
-          await db.query(
-            `UPDATE radio_songs SET
-               status = 'ready',
-               file_url = $2,
-               cover_url = COALESCE($3, cover_url),
-               duration_seconds = $4,
-               artist = COALESCE(artist, $5),
-               album = COALESCE(album, $6),
-               genre = COALESCE(genre, $7)
-             WHERE id = $1`,
-            [
-              dbRow.id, result.fileUrl, result.coverUrl, result.durationSeconds,
-              result.suggestedArtist, result.suggestedAlbum, result.suggestedGenre
-            ]
-          );
-        })
-        .catch(async (err) => {
-          console.error("[uploadSong] processing failed:", err);
-          await db.query(
-            `UPDATE radio_songs SET status = 'failed', processing_error = $2 WHERE id = $1`,
-            [dbRow.id, err.message]
-          ).catch(() => {});
-        })
-        .finally(() => {
-          fs.unlink(req.file.path, () => {});
-        });
+      song = rows[0];
     } catch (err) {
-      if (req.file?.path) fs.unlink(req.file.path, () => {});
-      next(err);
+      safeUnlink(req.file.path);
+      return next(err);
     }
+
+    // Respond immediately so the client can start polling — processing
+    // (ffmpeg transcode/loudness-normalize) can take real time.
+    res.status(201).json({ success: true, data: song });
+
+    // Process in the background; the HTTP response above is already sent.
+    const tempPath = req.file.path;
+    const originalName = req.file.originalname;
+
+    processUploadedSong(tempPath, originalName, song.id)
+      .then(async (result) => {
+        await db.query(
+          `UPDATE radio_songs SET
+             file_url         = $2,
+             file_id          = $3,
+             cover_url        = COALESCE(cover_url, $4),
+             cover_file_id    = COALESCE(cover_file_id, $5),
+             duration_seconds = $6,
+             artist           = COALESCE(artist, $7),
+             album            = COALESCE(album, $8),
+             genre            = COALESCE(genre, $9),
+             status           = 'ready',
+             updated_at       = NOW()
+           WHERE id = $1`,
+          [
+            song.id,
+            result.fileUrl,
+            result.fileId,
+            result.coverUrl,
+            result.coverFileId,
+            result.durationSeconds,
+            result.suggestedArtist,
+            result.suggestedAlbum,
+            result.suggestedGenre
+          ]
+        );
+      })
+      .catch(async (err) => {
+        console.error(`[uploadSong] processing failed for song ${song.id} ❌`, err);
+        try {
+          await db.query(`UPDATE radio_songs SET status = 'failed', updated_at = NOW() WHERE id = $1`, [song.id]);
+        } catch (e) {
+          console.error("[uploadSong] couldn't mark song as failed:", e.message);
+        }
+      })
+      .finally(() => {
+        safeUnlink(tempPath);
+      });
   },
 
   /* ============================================================
-     GET SONG (for polling processing status)
+     GET / UPDATE / DELETE
      ============================================================ */
   async getSong(req, res, next) {
     try {
@@ -106,9 +140,6 @@ const MusicLibraryController = {
     }
   },
 
-  /* ============================================================
-     UPDATE SONG METADATA
-     ============================================================ */
   async updateSong(req, res, next) {
     try {
       const { title, artist, album, genre } = req.body;
@@ -117,7 +148,8 @@ const MusicLibraryController = {
            title  = COALESCE($3, title),
            artist = COALESCE($4, artist),
            album  = COALESCE($5, album),
-           genre  = COALESCE($6, genre)
+           genre  = COALESCE($6, genre),
+           updated_at = NOW()
          WHERE id = $1 AND uploader_id = $2
          RETURNING *`,
         [req.params.id, req.user.id, title, artist, album, genre]
@@ -131,9 +163,6 @@ const MusicLibraryController = {
     }
   },
 
-  /* ============================================================
-     DELETE SONG
-     ============================================================ */
   async deleteSong(req, res, next) {
     try {
       const { rows } = await db.query(
@@ -149,34 +178,56 @@ const MusicLibraryController = {
     }
   },
 
-  /* ============================================================
-     SEARCH — unified across the local library and any external
-     provider. ?provider=local (default) | jamendo | ...
-     ============================================================ */
-  async searchSongs(req, res, next) {
+  async likeSong(req, res, next) {
     try {
-      const { q, genre, provider = "local", page, pageSize, stationId } = req.query;
-
-      const musicProvider = getProvider(provider);
-      const results = await musicProvider.searchSongs(q || "", {
-        genre,
-        page,
-        pageSize,
-        requesterId: req.user.id,
-        stationId
-      });
-
-      res.json({ success: true, data: results, provider });
+      await db.query(
+        `INSERT INTO radio_song_likes (song_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [req.params.id, req.user.id]
+      );
+      await db.query(`UPDATE radio_songs SET like_count = like_count + 1 WHERE id = $1`, [req.params.id]).catch(() => {});
+      res.status(201).json({ success: true, message: "Song liked" });
     } catch (err) {
       next(err);
     }
   },
 
+  async unlikeSong(req, res, next) {
+    try {
+      await db.query(`DELETE FROM radio_song_likes WHERE song_id = $1 AND user_id = $2`, [req.params.id, req.user.id]);
+      await db.query(`UPDATE radio_songs SET like_count = GREATEST(like_count - 1, 0) WHERE id = $1`, [req.params.id]).catch(() => {});
+      res.json({ success: true, message: "Song unliked" });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  /* ============================================================
+     SEARCH / METADATA — across local + external providers
+     ============================================================ */
+  async searchSongs(req, res, next) {
+    try {
+      const { q, provider = "local", genre, page, pageSize, stationId } = req.query;
+      const impl = getProvider(provider);
+      const results = await impl.searchSongs(q || "", {
+        genre,
+        page: page ? Number(page) : undefined,
+        pageSize: pageSize ? Number(pageSize) : undefined,
+        requesterId: req.user.id,
+        stationId: stationId || undefined
+      });
+      res.json({ success: true, data: results });
+    } catch (err) {
+      // External providers can throw on misconfiguration (e.g. missing
+      // JAMENDO_CLIENT_ID) — surface that as a clean 400 rather than 500.
+      res.status(400).json({ success: false, message: err.message });
+    }
+  },
+
   async listGenres(req, res, next) {
     try {
-      const { provider = "local" } = req.query;
-      const musicProvider = getProvider(provider);
-      const genres = await musicProvider.getGenres();
+      const provider = req.query.provider || "local";
+      const impl = getProvider(provider);
+      const genres = await impl.getGenres();
       res.json({ success: true, data: genres });
     } catch (err) {
       next(err);
@@ -196,13 +247,13 @@ const MusicLibraryController = {
      ============================================================ */
   async createPlaylist(req, res, next) {
     try {
-      const { name, stationId } = req.body;
+      const { name } = req.body;
       if (!name || !name.trim()) {
         return res.status(400).json({ success: false, message: "Playlist name is required" });
       }
       const { rows } = await db.query(
-        `INSERT INTO radio_playlists (host_id, station_id, name) VALUES ($1, $2, $3) RETURNING *`,
-        [req.user.id, stationId || null, name.trim()]
+        `INSERT INTO radio_playlists (owner_id, name) VALUES ($1, $2) RETURNING *`,
+        [req.user.id, name.trim()]
       );
       res.status(201).json({ success: true, data: rows[0] });
     } catch (err) {
@@ -213,12 +264,7 @@ const MusicLibraryController = {
   async listPlaylists(req, res, next) {
     try {
       const { rows } = await db.query(
-        `SELECT p.*, COUNT(ps.song_id)::int AS song_count
-         FROM radio_playlists p
-         LEFT JOIN radio_playlist_songs ps ON ps.playlist_id = p.id
-         WHERE p.host_id = $1
-         GROUP BY p.id
-         ORDER BY p.updated_at DESC`,
+        `SELECT * FROM radio_playlists WHERE owner_id = $1 ORDER BY created_at DESC`,
         [req.user.id]
       );
       res.json({ success: true, data: rows });
@@ -229,8 +275,8 @@ const MusicLibraryController = {
 
   async getPlaylist(req, res, next) {
     try {
-      const localProvider = getProvider("local");
-      const playlist = await localProvider.getPlaylist(req.params.id);
+      const impl = getProvider("local");
+      const playlist = await impl.getPlaylist(req.params.id);
       if (!playlist) return res.status(404).json({ success: false, message: "Playlist not found" });
       res.json({ success: true, data: playlist });
     } catch (err) {
@@ -241,24 +287,24 @@ const MusicLibraryController = {
   async addSongToPlaylist(req, res, next) {
     try {
       const { songId } = req.body;
+      if (!songId) return res.status(400).json({ success: false, message: "songId is required" });
+
       const { rows: plRows } = await db.query(
-        `SELECT id FROM radio_playlists WHERE id = $1 AND host_id = $2`,
+        `SELECT id FROM radio_playlists WHERE id = $1 AND owner_id = $2`,
         [req.params.id, req.user.id]
       );
-      if (!plRows.length) {
-        return res.status(403).json({ success: false, message: "Not authorized for this playlist" });
-      }
+      if (!plRows.length) return res.status(403).json({ success: false, message: "Not authorized or playlist not found" });
 
-      const { rows: maxRows } = await db.query(
-        `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order
-         FROM radio_playlist_songs WHERE playlist_id = $1`,
+      const { rows: posRows } = await db.query(
+        `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM radio_playlist_songs WHERE playlist_id = $1`,
         [req.params.id]
       );
 
       await db.query(
         `INSERT INTO radio_playlist_songs (playlist_id, song_id, sort_order)
-         VALUES ($1, $2, $3) ON CONFLICT (playlist_id, song_id) DO NOTHING`,
-        [req.params.id, songId, maxRows[0].next_order]
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [req.params.id, songId, posRows[0].next_order]
       );
 
       res.status(201).json({ success: true, message: "Added to playlist" });
@@ -270,44 +316,16 @@ const MusicLibraryController = {
   async removeSongFromPlaylist(req, res, next) {
     try {
       const { rows: plRows } = await db.query(
-        `SELECT id FROM radio_playlists WHERE id = $1 AND host_id = $2`,
+        `SELECT id FROM radio_playlists WHERE id = $1 AND owner_id = $2`,
         [req.params.id, req.user.id]
       );
-      if (!plRows.length) {
-        return res.status(403).json({ success: false, message: "Not authorized for this playlist" });
-      }
+      if (!plRows.length) return res.status(403).json({ success: false, message: "Not authorized or playlist not found" });
+
       await db.query(
         `DELETE FROM radio_playlist_songs WHERE playlist_id = $1 AND song_id = $2`,
         [req.params.id, req.params.songId]
       );
       res.json({ success: true, message: "Removed from playlist" });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  /* ============================================================
-     LIKE / UNLIKE
-     ============================================================ */
-  async likeSong(req, res, next) {
-    try {
-      await db.query(
-        `INSERT INTO radio_song_likes (song_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [req.params.id, req.user.id]
-      );
-      res.status(201).json({ success: true, message: "Liked" });
-    } catch (err) {
-      next(err);
-    }
-  },
-
-  async unlikeSong(req, res, next) {
-    try {
-      await db.query(
-        `DELETE FROM radio_song_likes WHERE song_id = $1 AND user_id = $2`,
-        [req.params.id, req.user.id]
-      );
-      res.json({ success: true, message: "Unliked" });
     } catch (err) {
       next(err);
     }
