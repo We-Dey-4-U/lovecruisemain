@@ -375,6 +375,7 @@
 .gift-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px; padding: 12px 4px; cursor: pointer; }
 .gift-tile.selected { border-color: var(--onair-red); background: rgba(255,45,85,.08); }
 .gift-tile .g-emoji { font-size: 22px; }
+.gift-tile .g-icon-img { width: 26px; height: 26px; object-fit: contain; }
 .gift-tile .g-name { font-size: 9.5px; font-weight: 700; color: var(--text-dim); text-align: center; }
 .gift-tile .g-price { font-size: 9.5px; font-weight: 800; color: var(--gold); }
 .gift-send-btn { width: 100%; height: 50px; border-radius: 16px; font-size: 14px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg, var(--onair-red), #c2185b); color: #fff; }
@@ -770,7 +771,20 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ── GIFT ANIMATION ENGINE ROOT (same source as livestream) ──
+     This mount point + the GiftAnimationManager import below are
+     what actually render the animated gift PNG on screen. Radio
+     previously had neither, so radioGiftReceived only updated the
+     chat + top-gifters strip and nothing ever animated. ── -->
+<div id="gift-engine-root"></div>
+
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<script type="module">
+  import { GiftAnimationManager } from "./gift-engine/GiftAnimationManager.js";
+  window.__giftEngine = new GiftAnimationManager(document.getElementById("gift-engine-root"));
+</script>
+
 <script type="module">
 import "./js/api.js";
 import "./js/app.js";
@@ -1439,14 +1453,51 @@ function renderTopGifters(list) {
     `<img src="${escapeHtml(u.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.username)}&size=60`)}" alt="${escapeHtml(u.username)}" title="${escapeHtml(u.username)} · ${formatCoins(u.total)} coins" onerror="this.src='https://i.pravatar.cc/60'">`
   ).join("") + `<span class="label">Top Gifters</span>`;
 }
+
+/* ══════════════════════════════════════════
+   GIFT CATALOG — same shape as live.js's loadGiftCatalog(): map
+   gift.icon_url → `icon` so gift tiles show the real PNG icon
+   (with an emoji fallback), instead of emoji-only like before.
+══════════════════════════════════════════ */
 async function loadGiftCatalog() {
-  try { const r = await api.request("/gifts"); GIFT_LIST = r.data || []; }
-  catch (err) { GIFT_LIST = [{id:"g1",name:"Rose",emoji:"🌹",price_coins:5},{id:"g2",name:"Heart",emoji:"❤️",price_coins:10},{id:"g3",name:"Crown",emoji:"👑",price_coins:500}]; }
+  try {
+    const r = await api.request("/gifts");
+    GIFT_LIST = (r.data || []).map(g => ({
+      id: g.id,
+      name: g.name,
+      emoji: g.emoji,
+      icon: g.icon_url || null,
+      price_coins: g.price_coins
+    }));
+  } catch (err) {
+    GIFT_LIST = [
+      { id: "g1", name: "Rose", emoji: "🌹", icon: null, price_coins: 5 },
+      { id: "g2", name: "Heart", emoji: "❤️", icon: null, price_coins: 10 },
+      { id: "g3", name: "Crown", emoji: "👑", icon: null, price_coins: 500 }
+    ];
+  }
   renderGiftGrid();
 }
 function renderGiftGrid() {
   const grid = $("gift-modal-grid");
-  grid.innerHTML = GIFT_LIST.map(g => `<div class="gift-tile" data-id="${g.id}"><span class="g-emoji">${g.emoji||"🎁"}</span><span class="g-name">${escapeHtml(g.name)}</span><span class="g-price">${g.price_coins}🪙</span></div>`).join("");
+  grid.innerHTML = GIFT_LIST.map(g => `
+    <div class="gift-tile" data-id="${g.id}">
+      ${g.icon
+        ? `<img class="g-icon-img" src="${escapeHtml(g.icon)}" alt="${escapeHtml(g.name)}" data-fallback-emoji="${escapeHtml(g.emoji || "🎁")}">`
+        : `<span class="g-emoji">${g.emoji || "🎁"}</span>`}
+      <span class="g-name">${escapeHtml(g.name)}</span>
+      <span class="g-price">${g.price_coins}🪙</span>
+    </div>`).join("");
+
+  grid.querySelectorAll(".g-icon-img").forEach(img => {
+    img.addEventListener("error", () => {
+      const span = document.createElement("span");
+      span.className = "g-emoji";
+      span.textContent = img.dataset.fallbackEmoji || "🎁";
+      img.replaceWith(span);
+    }, { once: true });
+  });
+
   grid.querySelectorAll(".gift-tile").forEach(t => t.addEventListener("click", () => {
     grid.querySelectorAll(".gift-tile").forEach(x => x.classList.remove("selected"));
     t.classList.add("selected");
@@ -2070,12 +2121,28 @@ socket.on("newRadioComment", (payload) => {
   appendChat({ avatar: payload.avatar, name: payload.name, text: payload.text });
 });
 socket.on("newRadioReaction", ({ emoji }) => spawnParticle(emoji));
+
+/* ══════════════════════════════════════════════════════════
+   GIFT RECEIVED — same wiring as live.js's "giftReceived":
+   chat bubble + top-gifters refresh (unchanged), PLUS the two
+   lines that were missing and are the actual cause of "gifts
+   don't animate on radio": playGift() on the shared engine, and
+   dispatching giftLanded so anything else listening for it (e.g.
+   future combo/streak UI) still works the same as on livestream.
+══════════════════════════════════════════════════════════ */
 socket.on("radioGiftReceived", (payload) => {
   appendChat({ avatar: payload.avatar, name: payload.name, text: `sent ${payload.giftEmoji||"🎁"} ${payload.giftName}`, type: "gift" });
   loadTopGifters();
+  window.__giftEngine?.playGift(payload);
+  window.dispatchEvent(new CustomEvent("giftLanded", { detail: payload }));
 });
+
 socket.on("topRadioGiftersUpdated", (list) => renderTopGifters(list));
-socket.on("radioEnded", () => { showToast("This broadcast has ended"); setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800); });
+socket.on("radioEnded", () => {
+  try { window.__giftEngine?.stopAll?.(); } catch (e) {}
+  showToast("This broadcast has ended");
+  setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800);
+});
 socket.on("reconnect", () => { joinBroadcast(); refreshQueueSnapshot(); });
 
 socket.on("radioCohostsUpdated", ({ broadcastId: bId, roster }) => {
@@ -2112,6 +2179,17 @@ socket.on("radioSoundEffectPlayed", ({ broadcastId: bId, effect }) => { if (bId 
 socket.on("radioCommercialBreak", ({ broadcastId: bId, seconds }) => { if (bId === broadcastId) runCommercialBreak(seconds); });
 
 /* ══════════════════════════════════════════════════════════
+   GIFT ENGINE — TAB VISIBILITY (same pattern as live.js)
+══════════════════════════════════════════════════════════ */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    window.__giftEngine?.pauseQueue?.();
+  } else {
+    window.__giftEngine?.resumeQueue?.();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
    UI WIRING
 ══════════════════════════════════════════════════════════ */
 $("play-toggle-btn").addEventListener("click", togglePlay);
@@ -2127,7 +2205,11 @@ $("open-gift-sheet-btn").addEventListener("click", openGiftSheet);
 $("gift-backdrop").addEventListener("click", closeGiftSheet);
 $("gift-send-btn").addEventListener("click", sendSelectedGift);
 $("end-live-room-btn")?.addEventListener("click", endBroadcast);
-$("leave-room-btn").addEventListener("click", async () => { await leaveBroadcast(); window.location.href = "radio-discover.html"; });
+$("leave-room-btn").addEventListener("click", async () => {
+  await leaveBroadcast();
+  try { window.__giftEngine?.destroy?.(); } catch (e) {}
+  window.location.href = "radio-discover.html";
+});
 $("share-btn").addEventListener("click", () => {
   const url = `${window.location.origin}/radio-room.html?id=${broadcastId}`;
   navigator.clipboard?.writeText(url).then(() => showToast("Link copied!")).catch(() => showToast("Couldn't copy link"));

@@ -1,1 +1,0 @@
-import{t as e}from"./GiftAnimationManager-DnhUxJ4O.js";import"./app-C4Jn-lfK.js";/* empty css              */window.__giftEngine=new e(document.getElementById(`gift-engine-root`));

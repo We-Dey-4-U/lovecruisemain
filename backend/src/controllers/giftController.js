@@ -2,7 +2,12 @@ const db = require('../config/db');
 const GiftService = require('../services/giftService');
 const HostAcademyService = require('../services/hostAcademyService');
 
-const VALID_CONTEXT_TYPES = ['chat', 'call', 'live_room', 'podcast', 'profile'];
+// FIX: 'radio_broadcast' was missing here entirely. Every gift sent
+// from radio-room.html (contextType: "radio_broadcast") was being
+// rejected at this check with a 400 "Invalid contextType" — which is
+// exactly the "invalid content type" 400 you were seeing on
+// POST /api/gifts/send. Radio is a first-class gifting context now.
+const VALID_CONTEXT_TYPES = ['chat', 'call', 'live_room', 'podcast', 'profile', 'radio_broadcast'];
 
 const GiftController = {
   // GET /api/gifts
@@ -18,7 +23,8 @@ const GiftController = {
   // POST /api/gifts/send  { receiverId, giftId, quantity, contextType, contextId }
   //
   // This is the ONLY place in the entire codebase that emits
-  // "giftReceived", "topGiftersUpdated", or "battleScoreUpdated".
+  // "giftReceived", "radioGiftReceived", "topGiftersUpdated",
+  // "topRadioGiftersUpdated", or "battleScoreUpdated".
   // Every field in the broadcast below is sourced from the DB / the
   // committed transaction, never from req.body beyond the ids needed
   // to look the real records up.
@@ -29,6 +35,16 @@ const GiftController = {
   // GiftService.sendGift(). Previously only `giftEmoji` was sent,
   // so the frontend's PNG-based gift-animation engine had nothing
   // to render the sprite from and silently fell back to emoji.
+  //
+  // RADIO FIX (this pass): added a 'radio_broadcast' branch mirroring
+  // the existing 'live_room' branch — emits 'radioGiftReceived' to
+  // `radio:${contextId}` (the room radio.socket.js joins sockets to
+  // in joinRadio/"radio:" + broadcastId), plus a
+  // 'topRadioGiftersUpdated' refresh queried the same way
+  // radioController.topGifters() already does (context_type =
+  // 'radio_broadcast'). Without this branch the DB write would
+  // succeed but nothing would ever reach the room in realtime — no
+  // animation, no live top-gifters update, no gift chat bubble.
   async send(req, res, next) {
     try {
       const { receiverId, giftId, contextType, contextId } = req.body;
@@ -119,6 +135,29 @@ const GiftController = {
         });
       } else if (io && contextType === 'chat') {
         io.to(`conversation:${contextId}`).emit('giftReceived', socketPayload);
+      } else if (io && contextType === 'radio_broadcast') {
+        // Mirrors the live_room branch above, but for radio.socket.js's
+        // room naming convention (`radio:${broadcastId}`) and event
+        // names (radio-room.html listens for "radioGiftReceived" /
+        // "topRadioGiftersUpdated", not the live_room ones).
+        io.to(`radio:${contextId}`).emit('radioGiftReceived', socketPayload);
+
+        try {
+          const { rows: topGifters } = await db.query(
+            `SELECT u.id, u.username, u.avatar_url,
+                    COALESCE(SUM(gt.total_coins), 0) AS total
+             FROM gift_transactions gt
+             JOIN users u ON u.id = gt.sender_id
+             WHERE gt.context_type = 'radio_broadcast' AND gt.context_id = $1
+             GROUP BY u.id, u.username, u.avatar_url
+             ORDER BY total DESC
+             LIMIT 5`,
+            [contextId]
+          );
+          io.to(`radio:${contextId}`).emit('topRadioGiftersUpdated', topGifters);
+        } catch (e) {
+          console.error('[giftController.send] radio topGifters query failed:', e);
+        }
       }
 
       if (io) {
