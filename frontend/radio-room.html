@@ -146,11 +146,12 @@
   background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 16px;
   padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
   min-height: 108px; position: relative; cursor: default;
+  transition: border-color .2s, box-shadow .2s;
 }
 .guest-slot.empty { border-style: dashed; opacity: .55; cursor: pointer; }
 .guest-slot.empty:active { opacity: .85; }
 .guest-mic-avatar-wrap { position: relative; width: 44px; height: 44px; }
-.guest-mic-avatar-wrap img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.1); }
+.guest-mic-avatar-wrap img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.1); transition: box-shadow .2s; }
 .guest-mic-badge {
   position: absolute; bottom: -3px; right: -3px; width: 18px; height: 18px; border-radius: 50%;
   background: #2a2433; border: 2px solid var(--studio-panel); display: flex; align-items: center; justify-content: center; font-size: 9px;
@@ -172,6 +173,42 @@
 }
 .guest-mini-controls button.danger { color: var(--onair-red); }
 .guest-mini-controls button.active { background: rgba(0,217,181,.2); border-color: var(--teal); color: var(--teal); }
+
+/* ── GUEST "IS SPEAKING NOW" INDICATOR ──
+   Driven entirely by real per-track audio analysis in JS (see
+   attachTrackAnalyser/tickGuestSpeakingViz below) — not by the
+   mic_muted/status flag from the roster. The .speaking class is
+   toggled purely based on live audio energy on that participant's
+   individual remote track, so it correctly reflects who is
+   ACTUALLY talking at any moment, including after the host pauses
+   themself and hands the mic to an approved guest. */
+.guest-mic-pulse-ring {
+  position: absolute; top: 50%; left: 50%; width: 56px; height: 56px;
+  transform: translate(-50%, -50%); border-radius: 50%;
+  border: 2px solid rgba(255,45,85,.45); opacity: 0; pointer-events: none;
+}
+.guest-slot.speaking .guest-mic-pulse-ring { animation: guest-mic-pulse 1.4s ease-out infinite; }
+@keyframes guest-mic-pulse {
+  0% { opacity: .75; transform: translate(-50%,-50%) scale(.7); }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(1.5); }
+}
+.guest-slot.speaking {
+  border-color: rgba(255,45,85,.5);
+  box-shadow: 0 0 0 1px rgba(255,45,85,.25), 0 0 16px rgba(255,45,85,.28);
+}
+.guest-slot.speaking .guest-mic-avatar-wrap img {
+  box-shadow: 0 0 0 2px var(--onair-red);
+}
+.guest-eq { display: flex; gap: 2px; align-items: flex-end; height: 11px; margin-top: 1px; }
+.guest-eq span {
+  width: 2.5px; border-radius: 1px; height: 3px; background: var(--onair-red);
+  animation: guest-eq-bounce .9s ease-in-out infinite; animation-play-state: paused; opacity: .35;
+  transition: opacity .15s;
+}
+.guest-eq span:nth-child(2) { animation-delay: .15s; }
+.guest-eq span:nth-child(3) { animation-delay: .3s; }
+.guest-slot.speaking .guest-eq span { animation-play-state: running; opacity: 1; }
+@keyframes guest-eq-bounce { 0%, 100% { height: 3px; } 50% { height: 11px; } }
 
 @media (max-width: 380px) {
   .guest-booth { grid-template-columns: repeat(3, 1fr); }
@@ -774,13 +811,27 @@ let recvTransportPromise  = null;
 let micStream             = null;   // local mic MediaStream (host / approved guest)
 let micProducer           = null;   // our own outgoing audio producer
 let amProducing           = false;
-const consumers           = new Map(); // consumerId -> { consumer, track, socketId }
+const consumers           = new Map(); // consumerId -> { consumer, track, socketId, userId }
 
 // Every remote participant's audio (host + any live guests, minus
 // our own track) gets added to this single MediaStream, which the
 // <audio> element plays. This is the actual "everyone can hear the
 // host talk" pipeline.
 const remoteStream = new MediaStream();
+
+// ══════════════════════════════════════════
+// PER-SPEAKER "WHO IS TALKING RIGHT NOW" STATE
+// ══════════════════════════════════════════
+// Unlike `analyser` below (which watches ONE combined signal — the
+// host's own local mic if we are the host, or everyone's mixed
+// audio otherwise), this map watches each remote participant's
+// INDIVIDUAL track separately, keyed by their userId. That's what
+// lets the UI correctly show a wave/glow on the specific guest who
+// is actually speaking — including right after the host mutes
+// themself and hands the mic to a guest — without any special-case
+// logic tied to mute/pause events. It's purely reactive to real
+// audio energy on that person's track.
+const guestTrackAnalysers = new Map(); // userId(string) -> { analyser, dataArray, source, level }
 
 const audioEl = new Audio();
 audioEl.autoplay = true;
@@ -805,7 +856,12 @@ socket.on("connect", () => {
   console.log("[radio-room socket] ✅ connected. id=", socket.id, "transport=", socket.io.engine.transport.name);
 });
 socket.on("connect_error", (err) => console.error("[radio-room socket] ❌ connect_error:", err.message));
-socket.on("disconnect", (reason) => console.warn("[radio-room socket] ⚠️ disconnected. reason=", reason));
+socket.on("disconnect", (reason) => {
+  console.warn("[radio-room socket] ⚠️ disconnected. reason=", reason);
+  // Clean up any per-speaker analysers so a stale entry doesn't
+  // linger and keep a glow "stuck" on a slot after a hard drop.
+  for (const userId of [...guestTrackAnalysers.keys()]) detachTrackAnalyser(userId);
+});
 
 /* ══════════════════════════════════════════
    VU METER + WAVEFORM — now driven by REAL audio:
@@ -892,10 +948,21 @@ function tickAudioViz() {
     }
   });
 
+  // NOTE: this only drives the shared host-mic-body/pulse-ring/on-air
+  // dot when WE are the host (our own local mic monitor) or as a
+  // fallback for listeners before per-speaker analysers exist. Once
+  // guestTrackAnalysers has an entry for the current host's userId
+  // (i.e. we're a listener/guest consuming the host's real track),
+  // tickGuestSpeakingViz() below takes over driving these same
+  // elements with more accurate per-speaker data, so the two never
+  // fight — whichever last writes in a frame wins, and both agree
+  // when only the host is talking.
   const speaking = speakingLevel > 14;
-  $("host-mic-body").classList.toggle("speaking", speaking);
-  $("mic-pulse-ring").classList.toggle("active", speaking);
-  $("host-onair-dot").classList.toggle("on", speaking || (isHost && amProducing));
+  if (isHost || !guestTrackAnalysers.size) {
+    $("host-mic-body").classList.toggle("speaking", speaking);
+    $("mic-pulse-ring").classList.toggle("active", speaking);
+    $("host-onair-dot").classList.toggle("on", speaking || (isHost && amProducing));
+  }
 
   waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
   const w = waveCanvas.width, h = waveCanvas.height, mid = h / 2;
@@ -913,6 +980,81 @@ function tickAudioViz() {
     waveCtx.fillRect(i * barW + barW * 0.15, mid - barH / 2, barW * 0.7, barH);
   }
 }
+
+/* ══════════════════════════════════════════
+   PER-SPEAKER ANALYSIS — attach/detach a dedicated AnalyserNode
+   to a single remote participant's track, and a render loop that
+   toggles a `.speaking` class on that person's DOM element (the
+   guest-booth slot, or the host mic rig if the speaking userId is
+   the broadcast host) based on real audio energy.
+══════════════════════════════════════════ */
+function attachTrackAnalyser(userId, track) {
+  if (!userId || !track) return;
+  ensureAudioGraph();
+  if (!audioCtx) return;
+  try {
+    // A single-track MediaStream lets us analyze just this one
+    // person's audio in isolation, independent of the combined
+    // remoteStream used for actual playback.
+    const singleStream = new MediaStream([track]);
+    const source = audioCtx.createMediaStreamSource(singleStream);
+    const analyserNode = audioCtx.createAnalyser();
+    analyserNode.fftSize = 256;
+    source.connect(analyserNode);
+    const buf = new Uint8Array(analyserNode.frequencyBinCount);
+    guestTrackAnalysers.set(String(userId), { analyser: analyserNode, dataArray: buf, source, level: 0 });
+  } catch (err) {
+    console.warn("[attachTrackAnalyser] couldn't analyze track for", userId, err.message);
+  }
+}
+
+function detachTrackAnalyser(userId) {
+  const key = String(userId);
+  const entry = guestTrackAnalysers.get(key);
+  if (!entry) return;
+  try { entry.source.disconnect(); } catch (e) {}
+  guestTrackAnalysers.delete(key);
+
+  // Clear any lingering visual state for this person immediately
+  // rather than waiting for the next tick to notice they're gone.
+  const slotEl = document.querySelector(`.guest-slot[data-uid="${key}"]`);
+  if (slotEl) slotEl.classList.remove("speaking");
+  if (broadcast && key === String(broadcast.host_id) && !guestTrackAnalysers.size) {
+    $("host-mic-body")?.classList.remove("speaking");
+    $("mic-pulse-ring")?.classList.remove("active");
+  }
+}
+
+let guestVizRafHandle = null;
+function tickGuestSpeakingViz() {
+  guestVizRafHandle = requestAnimationFrame(tickGuestSpeakingViz);
+  if (!guestTrackAnalysers.size) return;
+
+  for (const [userId, entry] of guestTrackAnalysers) {
+    entry.analyser.getByteFrequencyData(entry.dataArray);
+    let sum = 0;
+    for (let i = 0; i < entry.dataArray.length; i++) sum += entry.dataArray[i];
+    const avg = sum / entry.dataArray.length;
+    entry.level = entry.level * 0.7 + avg * 0.3;
+    const speaking = entry.level > 12;
+
+    // Guest booth slot for this participant, if they're seated there.
+    const slotEl = document.querySelector(`.guest-slot[data-uid="${userId}"]`);
+    if (slotEl) slotEl.classList.toggle("speaking", speaking);
+
+    // If this track belongs to the broadcast HOST (i.e. we're a
+    // listener/guest consuming the host's real mic), also drive the
+    // main host mic rig — this is what correctly turns the host's
+    // wave OFF the instant they mute/pause, and correctly turns a
+    // guest's wave/pulse ON the instant the host hands off to them.
+    if (broadcast && String(userId) === String(broadcast.host_id)) {
+      $("host-mic-body")?.classList.toggle("speaking", speaking);
+      $("mic-pulse-ring")?.classList.toggle("active", speaking);
+      $("host-onair-dot")?.classList.toggle("on", speaking);
+    }
+  }
+}
+tickGuestSpeakingViz();
 
 /* ══════════════════════════════════════════
    MEDIASOUP — real audio pipeline
@@ -988,8 +1130,13 @@ async function consumeProducer({ producerId, socketId }) {
       rtpParameters: params.rtpParameters
     });
 
-    consumers.set(consumer.id, { consumer, track: consumer.track, socketId });
+    consumers.set(consumer.id, { consumer, track: consumer.track, socketId, userId: params.producerUserId });
     remoteStream.addTrack(consumer.track);
+
+    // Attach a dedicated per-speaker analyser on this participant's
+    // OWN track (separate from the combined remoteStream) so the UI
+    // can show exactly who is talking, not just "someone is".
+    attachTrackAnalyser(params.producerUserId, consumer.track);
 
     await socketEmitAsync("radioResumeConsumer", { broadcastId, consumerId: consumer.id });
 
@@ -999,7 +1146,10 @@ async function consumeProducer({ producerId, socketId }) {
       showToast("Tap ▶ to enable sound");
     });
 
-    consumer.on("transportclose", () => { consumers.delete(consumer.id); });
+    consumer.on("transportclose", () => {
+      consumers.delete(consumer.id);
+      detachTrackAnalyser(params.producerUserId);
+    });
   } catch (err) {
     console.error("[consumeProducer] ❌", err);
   }
@@ -1010,6 +1160,7 @@ function removeConsumerByProducer(producerId, socketId) {
     if (entry.socketId === socketId) {
       try { remoteStream.removeTrack(entry.track); } catch (e) {}
       try { entry.consumer.close(); } catch (e) {}
+      detachTrackAnalyser(entry.userId);
       consumers.delete(id);
     }
   }
@@ -1207,6 +1358,7 @@ async function joinBroadcast() {
 }
 async function leaveBroadcast() {
   stopProducingMic();
+  for (const userId of [...guestTrackAnalysers.keys()]) detachTrackAnalyser(userId);
   try { await api.request(`/radio/broadcasts/${broadcastId}/leave`, { method: "POST" }); } catch (e) {}
   socket.emit("leaveRadio", { broadcastId, userId: window.CURRENT_USER.id });
 }
@@ -1344,11 +1496,13 @@ function renderGuestBooth() {
     const statusLabel = live_ ? "LIVE" : "Muted";
     return `<div class="guest-slot" data-uid="${g.user_id}">
       <div class="guest-mic-avatar-wrap">
+        <div class="guest-mic-pulse-ring"></div>
         <img src="${escapeHtml(av)}" alt="" onerror="this.src='https://i.pravatar.cc/80'">
         <div class="guest-mic-badge ${badgeClass}">${badgeIcon}</div>
       </div>
       <div class="guest-slot-name">${escapeHtml(g.display_name || g.username || "Guest")}</div>
       <div class="guest-slot-status ${live_ ? "live" : ""}">${statusLabel}</div>
+      <div class="guest-eq"><span></span><span></span><span></span></div>
       ${isHost ? `
         <div class="guest-mini-controls">
           <button class="gm-mic ${live_ ? "active" : ""}" data-uid="${g.user_id}" data-muted="${g.mic_muted}" title="${live_ ? "Mute" : "Go live"}">${live_ ? "🔊" : "🎙️"}</button>
