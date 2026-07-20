@@ -11,6 +11,12 @@ const registerNotificationSocket = require("./notification.socket");
 const registerRadioSocket = require("./radio.socket");
 const registerRadioQueueSocket = require("./radioQueue.socket");
 
+console.log(
+  "registerRadioQueueSocket:",
+  typeof registerRadioQueueSocket,
+  registerRadioQueueSocket
+);
+
 module.exports = function socketSetup(httpServer) {
 
     const io = new Server(httpServer, {

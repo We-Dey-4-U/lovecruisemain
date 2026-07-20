@@ -771,11 +771,65 @@ function $(id) { return document.getElementById(id); }
 
 /* ══════════════════════════════════════════
    SOCKET
+   ------------------------------------------------------------
+   NOTE: transports was ["websocket"] only — that skips the
+   normal HTTP polling handshake and jumps straight to a WS
+   upgrade attempt. On Render, this is the #1 cause of
+   "WebSocket is closed before the connection is established"
+   showing up on every single connection attempt. Changed to
+   ["polling", "websocket"] so the connection is established via
+   polling first (which always works through Render's proxy),
+   then upgrades to WS afterward if the proxy supports it.
+   Full diagnostic logging added below so future connection
+   issues are visible in the console instead of silent.
 ══════════════════════════════════════════ */
-const socket = io(window.API_BASE_URL.replace("/api", ""), {
-  transports: ["websocket"],
+const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
+console.log("[radio-room socket] Connecting to:", SOCKET_URL);
+
+const socket = io(SOCKET_URL, {
+  transports: ["polling", "websocket"],
   reconnectionAttempts: 5,
   reconnectionDelay: 1000
+});
+
+/* ── DIAGNOSTIC LOGGING ── */
+socket.on("connect", () => {
+  console.log(
+    "[radio-room socket] ✅ connected. id=", socket.id,
+    "transport=", socket.io.engine.transport.name
+  );
+});
+
+socket.on("connect_error", (err) => {
+  console.error("[radio-room socket] ❌ connect_error:", err.message, err);
+});
+
+socket.on("disconnect", (reason) => {
+  console.warn("[radio-room socket] ⚠️ disconnected. reason=", reason);
+});
+
+socket.on("reconnect_attempt", (attempt) => {
+  console.log("[radio-room socket] 🔄 reconnect_attempt #", attempt);
+});
+
+socket.on("reconnect_error", (err) => {
+  console.error("[radio-room socket] ❌ reconnect_error:", err.message);
+});
+
+socket.on("reconnect_failed", () => {
+  console.error("[radio-room socket] ❌ reconnect_failed — giving up");
+});
+
+socket.io.on("error", (err) => {
+  console.error("[radio-room socket manager] ❌ error:", err);
+});
+
+socket.io.engine?.on("upgrade", (transport) => {
+  console.log("[radio-room socket] ⬆️ transport upgraded to:", transport.name);
+});
+
+socket.io.engine?.on("upgradeError", (err) => {
+  console.error("[radio-room socket] ❌ upgradeError:", err);
 });
 
 /* ══════════════════════════════════════════

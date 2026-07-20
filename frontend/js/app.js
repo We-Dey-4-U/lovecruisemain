@@ -121,17 +121,69 @@ async function initPresenceSocket() {
 
   if (presenceSocket) return;
 
-  presenceSocket = window.io(window.API_BASE_URL.replace("/api", ""), {
-    transports: ["websocket"],
+  const socketUrl = window.API_BASE_URL.replace("/api", "");
+  console.log("[presenceSocket] Connecting to:", socketUrl);
+
+  presenceSocket = window.io(socketUrl, {
+    // NOTE: was transports: ["websocket"] only — that skips the
+    // normal HTTP polling handshake and goes straight to a WS
+    // upgrade, which is the #1 cause of "WebSocket is closed
+    // before the connection is established" on Render. Allowing
+    // polling first lets the connection establish normally, then
+    // upgrade to WS if the proxy supports it.
+    transports: ["polling", "websocket"],
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000
   });
 
+  /* ── DIAGNOSTIC LOGGING ──────────────────────────────────
+     These fire for every connection attempt/failure so we can
+     see exactly what's happening at the transport layer, not
+     just "it didn't work". Check the browser console for these
+     prefixed lines.
+  ────────────────────────────────────────────────────────── */
   presenceSocket.on("connect", () => {
+    console.log(
+      "[presenceSocket] ✅ connected. id=", presenceSocket.id,
+      "transport=", presenceSocket.io.engine.transport.name
+    );
     presenceSocket.emit("registerUser", window.CURRENT_USER.id);
   });
 
+  presenceSocket.on("connect_error", (err) => {
+    console.error("[presenceSocket] ❌ connect_error:", err.message, err);
+  });
+
+  presenceSocket.on("disconnect", (reason) => {
+    console.warn("[presenceSocket] ⚠️ disconnected. reason=", reason);
+  });
+
+  presenceSocket.on("reconnect_attempt", (attempt) => {
+    console.log("[presenceSocket] 🔄 reconnect_attempt #", attempt);
+  });
+
+  presenceSocket.on("reconnect_error", (err) => {
+    console.error("[presenceSocket] ❌ reconnect_error:", err.message);
+  });
+
+  presenceSocket.on("reconnect_failed", () => {
+    console.error("[presenceSocket] ❌ reconnect_failed — giving up");
+  });
+
+  presenceSocket.io.on("error", (err) => {
+    console.error("[presenceSocket manager] ❌ error:", err);
+  });
+
+  presenceSocket.io.engine?.on("upgrade", (transport) => {
+    console.log("[presenceSocket] ⬆️ transport upgraded to:", transport.name);
+  });
+
+  presenceSocket.io.engine?.on("upgradeError", (err) => {
+    console.error("[presenceSocket] ❌ upgradeError:", err);
+  });
+
   presenceSocket.on("reconnect", () => {
+    console.log("[presenceSocket] ✅ reconnected");
     presenceSocket.emit("registerUser", window.CURRENT_USER.id);
   });
 

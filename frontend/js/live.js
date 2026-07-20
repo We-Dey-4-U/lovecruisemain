@@ -30,20 +30,31 @@
 //   exist server-side, but the join/leave/mute-vs-leave flow is
 //   identical, just parameterized by seatIndex.
 //
-//   ── THIS PASS — HOST-ONLY PARTICIPANTS ROSTER + FULL KICK ──
-//   - NEW: window.openParticipantsModal() / closeParticipantsModal()
+//   ── HOST-ONLY PARTICIPANTS ROSTER + FULL KICK ──
+//   - window.openParticipantsModal() / closeParticipantsModal()
 //     — pulls the full room roster from the server (host-only;
 //     regular viewers never see this) and renders it into the
 //     #viewers-modal markup added to live.html / podcast-live.html.
-//   - NEW: window.hostKickUserFromRoom(socketId) — removes ANY user
+//   - window.hostKickUserFromRoom(socketId) — removes ANY user
 //     from the room entirely (audience, seated, or guest), not just
 //     a seat/guest occupant. Server is sole authority.
-//   - NEW: "youWereKicked" listener — if the HOST removes you from
+//   - "youWereKicked" listener — if the HOST removes you from
 //     the room outright, tear down local media and leave.
 //   - "newComment" now recognizes payload.system and renders it as
 //     a system row — this is how the server announces joins, which
 //     is the only way a regular viewer learns who's in the room
 //     besides seeing an occupied seat/guest frame.
+//
+//   ── THIS PASS — SOCKET CONNECTION DIAGNOSTICS + TRANSPORT FIX ──
+//   - transports was ["websocket"] only, forcing an immediate WS
+//     upgrade with no polling handshake first. On Render this
+//     produces "WebSocket is closed before the connection is
+//     established" on every attempt. Changed to
+//     ["polling", "websocket"] so the connection establishes via
+//     HTTP polling first, then upgrades to WS if the proxy allows it.
+//   - Added connect / connect_error / disconnect / reconnect_* /
+//     upgrade / upgradeError logging so failures are visible and
+//     diagnosable in the console instead of silent.
 //
 
 import * as mediasoupClient from "mediasoup-client";
@@ -105,16 +116,60 @@ const roomId = params.get("room") || params.get("id");
 if (!roomId) window.showToast?.("Invalid room link");
 
 /* ── Socket ── */
-const socket = io(window.API_BASE_URL.replace("/api", ""), {
-  transports:          ["websocket"],
+const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
+console.log("[live.js socket] Connecting to:", SOCKET_URL);
+
+const socket = io(SOCKET_URL, {
+  // NOTE: was transports: ["websocket"] only — forcing straight to
+  // a WS upgrade with no polling handshake first. That is the
+  // classic cause of "WebSocket is closed before the connection is
+  // established" on Render's proxy. Allow polling first, then
+  // upgrade to WS if possible.
+  transports:          ["polling", "websocket"],
   reconnectionAttempts: 5,
   reconnectionDelay:   1000
 });
 
-// Exposed so the visual-only enhancement module (js/live-mic-ring.js)
-// can tell "my own tile" apart from remote ones, without needing any
-// access to the socket instance or WebRTC internals.
-socket.on("connect", () => { window.__mySocketId = socket.id; });
+/* ── DIAGNOSTIC LOGGING ── */
+socket.on("connect", () => {
+  console.log(
+    "[live.js socket] ✅ connected. id=", socket.id,
+    "transport=", socket.io.engine.transport.name
+  );
+  window.__mySocketId = socket.id;
+});
+
+socket.on("connect_error", (err) => {
+  console.error("[live.js socket] ❌ connect_error:", err.message, err);
+});
+
+socket.on("disconnect", (reason) => {
+  console.warn("[live.js socket] ⚠️ disconnected. reason=", reason);
+});
+
+socket.on("reconnect_attempt", (attempt) => {
+  console.log("[live.js socket] 🔄 reconnect_attempt #", attempt);
+});
+
+socket.on("reconnect_error", (err) => {
+  console.error("[live.js socket] ❌ reconnect_error:", err.message);
+});
+
+socket.on("reconnect_failed", () => {
+  console.error("[live.js socket] ❌ reconnect_failed — giving up");
+});
+
+socket.io.on("error", (err) => {
+  console.error("[live.js socket manager] ❌ error:", err);
+});
+
+socket.io.engine?.on("upgrade", (transport) => {
+  console.log("[live.js socket] ⬆️ transport upgraded to:", transport.name);
+});
+
+socket.io.engine?.on("upgradeError", (err) => {
+  console.error("[live.js socket] ❌ upgradeError:", err);
+});
 
 function $(id) { return document.getElementById(id); }
 
