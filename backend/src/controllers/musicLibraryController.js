@@ -28,12 +28,42 @@
 
 const fs = require("fs");
 const db = require("../config/db");
-const { processUploadedSong } = require("../services/audioProcessingService");
 const { getProvider, listProviderKeys } = require("../services/musicProviders");
 
 function safeUnlink(p) {
   if (!p) return;
   fs.unlink(p, () => {});
+}
+
+// ── LAZY-LOAD audioProcessingService ──
+// audioProcessingService.js requires fluent-ffmpeg / @ffmpeg-installer/
+// @ffprobe-installer — native/optional dependencies. If those aren't
+// installed on the server, `require`-ing them at the TOP of this file
+// (or anywhere that runs at app boot, like the routes file importing
+// this controller) throws MODULE_NOT_FOUND and crashes the ENTIRE
+// Node process before it ever binds a port — which takes down every
+// socket.io connection app-wide, not just uploads. Loading it lazily,
+// only inside the one handler that actually needs it, means a missing
+// package degrades to "uploads return 503" instead of "the whole app
+// is down."
+let _audioProcessingService = null;
+let _audioProcessingLoadError = null;
+function getAudioProcessingService() {
+  if (_audioProcessingService) return _audioProcessingService;
+  if (_audioProcessingLoadError) throw _audioProcessingLoadError;
+  try {
+    _audioProcessingService = require("../services/audioProcessingService");
+    return _audioProcessingService;
+  } catch (err) {
+    console.error(
+      "[musicLibraryController] audioProcessingService failed to load — " +
+      "run `npm install fluent-ffmpeg @ffmpeg-installer/ffmpeg @ffprobe-installer/ffprobe` " +
+      "on the server. Audio upload will return 503 until this is fixed. ❌",
+      err.message
+    );
+    _audioProcessingLoadError = err;
+    throw err;
+  }
 }
 
 const MusicLibraryController = {
@@ -44,6 +74,17 @@ const MusicLibraryController = {
   async uploadSong(req, res, next) {
     if (!req.file) {
       return res.status(400).json({ success: false, message: "Audio file is required" });
+    }
+
+    let audioService;
+    try {
+      audioService = getAudioProcessingService();
+    } catch (err) {
+      safeUnlink(req.file.path);
+      return res.status(503).json({
+        success: false,
+        message: "Audio processing isn't available on the server right now — try again shortly"
+      });
     }
 
     const { title, artist, album, genre, stationId } = req.body;
@@ -86,7 +127,7 @@ const MusicLibraryController = {
     const tempPath = req.file.path;
     const originalName = req.file.originalname;
 
-    processUploadedSong(tempPath, originalName, song.id)
+    audioService.processUploadedSong(tempPath, originalName, song.id)
       .then(async (result) => {
         await db.query(
           `UPDATE radio_songs SET
