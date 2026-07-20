@@ -9,7 +9,30 @@
 // screen" symptom. Standard webcam captures are 8-bit, so VP9 now
 // uses profile-id "0" (the standard 8-bit profile) and is listed
 // AFTER VP8/H264 so the most broadly-compatible codec wins whenever
-// the client also offers it. Nothing else in this file changed.
+// the client also offers it.
+//
+// FIX (this pass) — "Channel request handler with ID ... not found"
+// on createWebRtcTransport: this module cached routers in `routers`
+// keyed by roomId FOREVER, with no way to know a cached router had
+// since been closed elsewhere (room.js's closeRoom()/close() closes
+// the router but had no way to tell THIS module's cache to forget
+// it). Radio rooms get closed automatically whenever producers+peers
+// both hit 0 (see radioMedia.socket.js cleanupRadioMedia), which is
+// exactly what happens between "host goes live" and "a guest gets
+// invited/approved later" if the room emptied out in between. The
+// next createRouter(roomId) call would then find the stale, CLOSED
+// router still sitting in the cache and hand it straight back —
+// calling createWebRtcTransport() on a closed router's channel is
+// exactly what throws "Channel request handler ... not found".
+//
+// Fixed two ways (belt and suspenders):
+//   1. createRouter() now checks router.closed on any cache hit and
+//      transparently creates + caches a fresh one if the cached
+//      entry is dead.
+//   2. closeRouter() is exported and MUST be called by whatever
+//      closes the owning room (see room.js), so the cache is
+//      evicted proactively instead of relying only on the lazy
+//      check in (1).
 
 const { getWorker } = require("./worker");
 
@@ -77,7 +100,20 @@ const MEDIA_CODECS = [
 ];
 
 async function createRouter(roomId) {
-  if (routers.has(roomId)) return routers.get(roomId);
+  const cached = routers.get(roomId);
+
+  // FIX: a cache hit is only valid if the router is still alive.
+  // mediasoup's Router exposes a `.closed` getter — if it's true,
+  // the underlying worker channel handler is gone and MUST NOT be
+  // reused, or every call on it (createWebRtcTransport included)
+  // throws "Channel request handler ... not found".
+  if (cached) {
+    if (!cached.closed) {
+      return cached;
+    }
+    console.warn(`[router] Cached router for room ${roomId} was closed — discarding and creating a fresh one`);
+    routers.delete(roomId);
+  }
 
   const worker = getWorker();
   if (!worker) throw new Error("Mediasoup worker not ready");
@@ -91,12 +127,13 @@ async function createRouter(roomId) {
 
 function getRouter(roomId) {
   const router = routers.get(roomId);
-  if (!router) throw new Error(`Router not initialized for room ${roomId}`);
+  if (!router || router.closed) throw new Error(`Router not initialized for room ${roomId}`);
   return router;
 }
 
 function hasRouter(roomId) {
-  return routers.has(roomId);
+  const router = routers.get(roomId);
+  return !!router && !router.closed;
 }
 
 function closeRouter(roomId) {

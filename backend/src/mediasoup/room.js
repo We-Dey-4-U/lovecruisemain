@@ -2,7 +2,7 @@
 // Premium LiveRoom — SFU with simulcast, VP9/H264, send+recv transports
 
 const { createSendTransport, createRecvTransport } = require("./transport");
-const { createRouter } = require("./router");
+const { createRouter, closeRouter } = require("./router");
 
 const rooms = new Map();
 
@@ -209,6 +209,14 @@ class LiveRoom {
     if (this.router) {
       try { this.router.close(); } catch (e) {}
     }
+    // FIX: evict router.js's own cache entry for this room too — its
+    // module-level `routers` Map otherwise keeps handing back this
+    // now-closed router on the next createRouter(roomId) call, which
+    // is what caused "Channel request handler ... not found" for any
+    // guest whose transport was created after the room had cycled
+    // closed/reopened (radioMedia.socket.js's cleanupRadioMedia calls
+    // closeRoom() whenever a broadcast briefly has 0 producers/peers).
+    closeRouter(this.roomId);
     this.peers.clear();
     this.transports.clear();
     this.producers.clear();

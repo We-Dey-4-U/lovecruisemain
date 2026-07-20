@@ -33,6 +33,29 @@
 // fires first because the client emits joinRadio then radioJoinMedia
 // in that order on the same socket (socket.io preserves per-socket
 // event ordering).
+//
+// FIX (this pass) — "Channel request handler with ID ... not found"
+// on createWebRtcTransport, specifically when a HOST-INVITED GUEST
+// tries to go live on mic:
+//
+//   room.js/router.js already guard against router.js's OWN internal
+//   cache handing back a closed router. But THIS file was checking
+//   `!room.router` (truthiness only) on the LiveRoom instance's own
+//   `.router` property — a separate reference from router.js's
+//   cache. If the LiveRoom object survived (never deleted+recreated
+//   via closeRoom()) while its `.router` became stale/closed through
+//   some other path — e.g. the room briefly emptying out between the
+//   host going live and a guest later being approved, or any router
+//   worker-level close — `!room.router` stayed `false` (the object
+//   still exists, it's just closed), so radioJoinMedia skipped
+//   calling createRouter() entirely and hand the guest's later
+//   radioCreateSendTransport call a dead router directly. That's
+//   exactly the failure this file's own error log traces back to.
+//
+//   Every place that read room.router now checks `.closed` explicitly
+//   as well as truthiness, and radioJoinMedia clears + rebuilds it
+//   the moment it finds a closed one, instead of trusting a stale
+//   truthy reference.
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
@@ -104,9 +127,23 @@ module.exports = (io, socket) => {
 
       let room = getRoom(roomId);
       if (!room) room = createRoom(roomId);
-      if (!room.router) {
+
+      // FIX: check `.closed`, not just truthiness. A LiveRoom instance
+      // can still hold a reference to a router whose underlying
+      // worker channel is already gone (room.router.closed === true)
+      // while the LiveRoom object itself is still cached in room.js's
+      // `rooms` Map. `!room.router` alone would be `false` here, so
+      // we'd skip rebuilding and every downstream transport call
+      // (radioCreateSendTransport/radioCreateRecvTransport) would get
+      // handed that dead router — which is exactly what was throwing
+      // "Channel request handler ... not found" for invited guests.
+      if (!room.router || room.router.closed) {
+        if (room.router?.closed) {
+          console.warn(`[radioJoinMedia] room.router for ${roomId} was closed — clearing stale reference and rebuilding`);
+        }
+        room.router = null;
         room.router = await createRouter(roomId);
-        console.log(`[radioJoinMedia] Router created for ${roomId}`);
+        console.log(`[radioJoinMedia] Router (re)created for ${roomId}`);
       }
 
       room.addPeer(socket.id, socket.currentUserId);
@@ -131,7 +168,9 @@ module.exports = (io, socket) => {
     try {
       const roomId = mediaRoomId(broadcastId);
       const room = getRoom(roomId);
-      if (!room?.router) throw new Error("Media room not ready");
+      // FIX: also reject a closed router here as a second line of
+      // defense, in case radioJoinMedia was somehow skipped/raced.
+      if (!room?.router || room.router.closed) throw new Error("Media room not ready");
 
       const transport = await createSendTransport(socket.id, roomId);
       room.transports.set(`${socket.id}:radiosend`, transport);
@@ -152,7 +191,7 @@ module.exports = (io, socket) => {
     try {
       const roomId = mediaRoomId(broadcastId);
       const room = getRoom(roomId);
-      if (!room?.router) throw new Error("Media room not ready");
+      if (!room?.router || room.router.closed) throw new Error("Media room not ready");
 
       const transport = await createRecvTransport(socket.id, roomId);
       room.transports.set(`${socket.id}:radiorecv`, transport);
@@ -299,7 +338,9 @@ module.exports = (io, socket) => {
     try {
       const roomId = mediaRoomId(broadcastId);
       const room = getRoom(roomId);
-      if (!room?.router) throw new Error("Media room not found");
+      // FIX: same `.closed` guard — canConsume()/consume() on a dead
+      // router's channel is just as invalid as createWebRtcTransport.
+      if (!room?.router || room.router.closed) throw new Error("Media room not found");
 
       const producer = room.producers.get(producerId);
       if (!producer || producer.closed) throw new Error("Producer not found or closed");
