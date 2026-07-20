@@ -8,6 +8,8 @@ const registerStreamSocket = require("./stream.socket");
 const registerGiftSocket = require("./gift.socket");
 const registerPresenceSocket = require("./presence.socket");
 const registerNotificationSocket = require("./notification.socket");
+const registerRadioSocket = require("./radio.socket");
+const registerRadioQueueSocket = require("./radioQueue.socket");
 
 module.exports = function socketSetup(httpServer) {
 
@@ -28,6 +30,8 @@ module.exports = function socketSetup(httpServer) {
         registerGiftSocket(io, socket);
         registerPresenceSocket(io, socket);
         registerNotificationSocket(io, socket);
+        registerRadioSocket(io, socket);
+        registerRadioQueueSocket(io, socket);
 
     });
 
