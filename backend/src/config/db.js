@@ -1,184 +1,185 @@
-// backend/src/config/db.js
-//
-// Enterprise-hardened Postgres access layer.
-// - Primary pool for writes + strong-consistency reads
-// - Optional read-replica pool(s) for read-heavy queries (feed,
-//   discover, leaderboards) — falls back to primary if no replica
-//   URL is configured, so this is a safe drop-in with zero config
-//   changes required on day one.
-// - Automatic retry for transient errors (connection resets,
-//   deadlocks) with exponential backoff.
-// - Slow query logging for observability.
-// - Graceful shutdown hook (server.js calls db.shutdown()).
-
 const { Pool } = require("pg");
+const path = require("path");
+const fs = require("fs");
 
-const TRANSIENT_ERROR_CODES = new Set([
-  "ECONNRESET",
-  "ETIMEDOUT",
-  "57P01", // admin shutdown
-  "57P02", // crash shutdown
-  "57P03", // cannot connect now
-  "40001", // serialization failure
-  "40P01", // deadlock detected
-]);
+// ======================================================
+// Load Environment Variables
+// ======================================================
 
-const SLOW_QUERY_MS = parseInt(process.env.SLOW_QUERY_MS || "300", 10);
+const envPath = path.join(process.cwd(), ".env");
 
-function buildPool(connectionString, label) {
-  if (!connectionString) return null;
+console.log("======================================");
+console.log("🚀 PostgreSQL Configuration");
+console.log("======================================");
+console.log("📁 DB File:", __filename);
+console.log("📁 Working Directory:", process.cwd());
 
-  const pool = new Pool({
-    connectionString,
-    ssl: process.env.PGSSL_DISABLE === "true" ? false : { rejectUnauthorized: false },
-    max: parseInt(process.env.PG_POOL_MAX || "20", 10),
-    min: parseInt(process.env.PG_POOL_MIN || "2", 10),
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
-    allowExitOnIdle: false,
-  });
-
-  pool.on("error", (err) => {
-    console.error(`[db:${label}] ❌ POOL ERROR`, {
-      message: err.message,
-      code: err.code,
-    });
-  });
-
-  return pool;
+if (fs.existsSync(envPath)) {
+  console.log("📄 Local .env found. Loading...");
+  require("dotenv").config({ path: envPath });
+} else {
+  console.log("🌍 No local .env found. Using environment variables.");
 }
 
-const primaryPool = buildPool(process.env.DATABASE_URL, "primary");
-if (!primaryPool) {
-  throw new Error("DATABASE_URL is required");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log(
+  "DATABASE_URL:",
+  process.env.DATABASE_URL ? "Loaded ✅" : "Missing ❌"
+);
+console.log("======================================");
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is missing.");
 }
 
-// Comma-separated list supported for multiple read replicas —
-// picks one at random per query for basic load distribution.
-const replicaUrls = (process.env.DATABASE_REPLICA_URLS || process.env.DATABASE_REPLICA_URL || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+// ======================================================
+// PostgreSQL Pool
+// ======================================================
 
-const replicaPools = replicaUrls.map((url, i) => buildPool(url, `replica-${i}`)).filter(Boolean);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
 
-function pickReplicaPool() {
-  if (replicaPools.length === 0) return primaryPool;
-  return replicaPools[Math.floor(Math.random() * replicaPools.length)];
-}
+  ssl: {
+    rejectUnauthorized: false,
+  },
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
 
-/**
- * Runs a query against the primary (read-write) pool, with
- * automatic retry on transient errors.
- */
-async function query(text, params, { retries = 2 } = {}) {
-  return _runWithRetry(primaryPool, text, params, retries, "primary");
-}
+  allowExitOnIdle: false,
+});
 
-/**
- * Runs a query against a read replica if configured, otherwise
- * transparently falls back to the primary. Use for read-heavy,
- * eventually-consistent-tolerant queries: feeds, discover,
- * leaderboards, analytics, public listings.
- */
-async function readQuery(text, params, { retries = 2 } = {}) {
-  const pool = pickReplicaPool();
-  return _runWithRetry(pool, text, params, retries, pool === primaryPool ? "primary" : "replica");
-}
+// ======================================================
+// Pool Events
+// ======================================================
 
-async function _runWithRetry(pool, text, params, retries, label) {
-  const start = Date.now();
+pool.on("connect", () => {
+  console.log("✅ New PostgreSQL client connected");
+});
+
+pool.on("acquire", () => {
+  console.log("📥 PostgreSQL client acquired");
+});
+
+pool.on("remove", () => {
+  console.log("📤 PostgreSQL client removed from pool");
+});
+
+pool.on("error", (err) => {
+  console.error("======================================");
+  console.error("❌ POSTGRESQL POOL ERROR");
+  console.error("======================================");
+  console.error("Message :", err.message);
+  console.error("Code    :", err.code);
+  console.error("Severity:", err.severity);
+  console.error("Detail  :", err.detail);
+  console.error("Hint    :", err.hint);
+  console.error("Stack:");
+  console.error(err.stack);
+  console.error("======================================");
+});
+
+// ======================================================
+// Startup Database Test
+// ======================================================
+
+(async () => {
+  console.log("======================================");
+  console.log("🔍 Testing PostgreSQL Connection...");
+  console.log("======================================");
+
   try {
-    const result = await pool.query(text, params);
-    const durationMs = Date.now() - start;
-    if (durationMs > SLOW_QUERY_MS) {
-      console.warn(`[db:${label}] 🐢 SLOW QUERY (${durationMs}ms):`, text.slice(0, 200));
-    }
-    return result;
+    const result = await pool.query(`
+      SELECT
+        NOW() AS server_time,
+        current_database() AS database_name,
+        current_user AS database_user,
+        version() AS postgres_version
+    `);
+
+    console.log("✅ Database connection successful!");
+    console.table(result.rows);
+
+    const tables = await pool.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema='public'
+      ORDER BY table_name;
+    `);
+
+    console.log("======================================");
+    console.log("📋 Tables Found:", tables.rowCount);
+    console.table(tables.rows);
+
   } catch (err) {
-    const isTransient = TRANSIENT_ERROR_CODES.has(err.code);
-    if (isTransient && retries > 0) {
-      const backoffMs = (3 - retries) * 150 + Math.random() * 100;
-      console.warn(`[db:${label}] ⚠️ transient error (${err.code}), retrying in ${backoffMs.toFixed(0)}ms. Retries left: ${retries - 1}`);
-      await sleep(backoffMs);
-      return _runWithRetry(pool, text, params, retries - 1, label);
+    console.error("======================================");
+    console.error("❌ DATABASE STARTUP TEST FAILED");
+    console.error("======================================");
+    console.error("Message :", err.message);
+    console.error("Code    :", err.code);
+    console.error("Severity:", err.severity);
+    console.error("Detail  :", err.detail);
+    console.error("Hint    :", err.hint);
+    console.error("Stack:");
+    console.error(err.stack);
+    console.error("======================================");
+  }
+})();
+
+// ======================================================
+// Query Wrapper
+// ======================================================
+
+async function query(text, params) {
+  try {
+    return await pool.query(text, params);
+  } catch (err) {
+    console.error("======================================");
+    console.error("❌ DATABASE QUERY FAILED");
+    console.error("======================================");
+    console.error("SQL:");
+    console.error(text);
+
+    if (params) {
+      console.error("Parameters:");
+      console.dir(params, { depth: null });
     }
 
-    console.error(`[db:${label}] ❌ QUERY FAILED`, {
-      message: err.message,
-      code: err.code,
-      detail: err.detail,
-      sql: text?.slice(0, 300),
-    });
+    console.error("--------------------------------------");
+    console.error("Message :", err.message);
+    console.error("Code    :", err.code);
+    console.error("Severity:", err.severity);
+    console.error("Detail  :", err.detail);
+    console.error("Hint    :", err.hint);
+    console.error("Stack:");
+    console.error(err.stack);
+    console.error("======================================");
+
     throw err;
   }
 }
+
+// ======================================================
+// Get Dedicated Client
+// ======================================================
 
 async function getClient() {
-  const client = await primaryPool.connect();
-  const releaseOriginal = client.release.bind(client);
-  // Guard against connections held open too long (leak detection)
-  const timeout = setTimeout(() => {
-    console.warn("[db] ⚠️ A client has been checked out for >30s — possible leak");
-  }, 30000);
-  client.release = (...args) => {
-    clearTimeout(timeout);
-    return releaseOriginal(...args);
-  };
-  return client;
-}
-
-/**
- * Runs a callback inside a transaction, handling BEGIN/COMMIT/ROLLBACK
- * and client release automatically.
- */
-async function withTransaction(fn) {
-  const client = await getClient();
   try {
-    await client.query("BEGIN");
-    const result = await fn(client);
-    await client.query("COMMIT");
-    return result;
+    const client = await pool.connect();
+    console.log("✅ Dedicated PostgreSQL client acquired");
+    return client;
   } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch (rollbackErr) {
-      console.error("[db] ❌ ROLLBACK FAILED", rollbackErr.message);
-    }
+    console.error("❌ Failed to acquire PostgreSQL client");
+    console.error(err);
     throw err;
-  } finally {
-    client.release();
   }
 }
 
-async function healthCheck() {
-  try {
-    const { rows } = await primaryPool.query("SELECT 1 AS ok");
-    return { ok: rows[0]?.ok === 1, pool: "primary" };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-}
-
-async function shutdown() {
-  console.log("[db] Closing connection pools...");
-  await Promise.allSettled([
-    primaryPool.end(),
-    ...replicaPools.map((p) => p.end()),
-  ]);
-  console.log("[db] Pools closed");
-}
+// ======================================================
 
 module.exports = {
   query,
-  readQuery,
   getClient,
-  withTransaction,
-  healthCheck,
-  shutdown,
-  pool: primaryPool, // legacy compat for any code doing db.pool.query(...)
+  pool,
 };

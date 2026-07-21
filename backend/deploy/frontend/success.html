@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vConnect — Payment Result</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+* { box-sizing: border-box; }
+
+.result-screen {
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px; text-align: center;
+}
+.result-icon {
+  width: 84px; height: 84px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 40px; margin-bottom: 20px;
+}
+.result-icon.pending  { background: rgba(255,157,0,.12); }
+.result-icon.success  { background: rgba(0,217,181,.12); }
+.result-icon.failed   { background: rgba(255,61,127,.12); }
+
+.result-title { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+.result-sub   { font-size: 13.5px; color: var(--text-dim); max-width: 320px; line-height: 1.5; margin-bottom: 28px; }
+
+.result-spinner {
+  width: 20px; height: 20px; border: 2.5px solid var(--border);
+  border-top-color: var(--magenta); border-radius: 50%;
+  animation: spin .8s linear infinite; margin-bottom: 20px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.result-btn {
+  height: 50px; padding: 0 28px; border-radius: 14px;
+  background: linear-gradient(135deg, #ff3d7f, #c2185b);
+  color: #fff; border: none; font-size: 14.5px; font-weight: 800;
+  cursor: pointer; text-decoration: none; display: inline-flex;
+  align-items: center; justify-content: center;
+}
+.result-ref {
+  margin-top: 18px; font-size: 11px; color: var(--text-dim);
+  font-family: monospace; word-break: break-all; max-width: 320px;
+}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="result-screen" id="result-screen">
+    <div class="result-spinner"></div>
+    <div class="result-title">Confirming your payment…</div>
+    <div class="result-sub">This usually takes just a few seconds. Please don't close this page.</div>
+  </div>
+</div>
+
+<script type="module">
+  import "/js/api.js";
+  import "/js/app.js";
+
+  // ── Read query params Flutterwave appended to the redirect ──
+  // e.g. ?status=completed&tx_ref=VC-FLW-...&transaction_id=10346387
+  const params = new URLSearchParams(window.location.search);
+  const txRef = params.get("tx_ref");
+  const flwStatus = params.get("status"); // 'completed' | 'cancelled' | 'failed'
+
+  console.log("[flw-success] tx_ref:", txRef, "status param:", flwStatus);
+
+  const screen = document.getElementById("result-screen");
+
+  function renderPending() {
+    screen.innerHTML = `
+      <div class="result-spinner"></div>
+      <div class="result-title">Confirming your payment…</div>
+      <div class="result-sub">This usually takes just a few seconds. Please don't close this page.</div>
+      ${txRef ? `<div class="result-ref">Ref: ${txRef}</div>` : ""}
+    `;
+  }
+
+  function renderSuccess(coinsCredited) {
+    screen.innerHTML = `
+      <div class="result-icon success">✅</div>
+      <div class="result-title">Payment successful!</div>
+      <div class="result-sub">${coinsCredited ? `${coinsCredited} coins have been added to your balance.` : "Your coins have been added to your balance."}</div>
+      <a class="result-btn" href="/coins.html">Back to Wallet</a>
+      ${txRef ? `<div class="result-ref">Ref: ${txRef}</div>` : ""}
+    `;
+  }
+
+  function renderFailed(message) {
+    screen.innerHTML = `
+      <div class="result-icon failed">✕</div>
+      <div class="result-title">Payment failed</div>
+      <div class="result-sub">${message || "Your payment could not be confirmed. If you were charged, contact support with the reference below."}</div>
+      <a class="result-btn" href="/coins.html">Try Again</a>
+      ${txRef ? `<div class="result-ref">Ref: ${txRef}</div>` : ""}
+    `;
+  }
+
+  function renderNoRef() {
+    screen.innerHTML = `
+      <div class="result-icon failed">?</div>
+      <div class="result-title">Missing payment reference</div>
+      <div class="result-sub">We couldn't find a payment reference in this link. If you completed a payment, check your wallet balance or transaction history.</div>
+      <a class="result-btn" href="/coins.html">Back to Wallet</a>
+    `;
+  }
+
+  async function pollStatus(attempt = 0) {
+    if (!txRef) {
+      renderNoRef();
+      return;
+    }
+
+    // If Flutterwave told us up front the user cancelled, no need to poll.
+    if (flwStatus === "cancelled") {
+      renderFailed("Payment was cancelled.");
+      return;
+    }
+
+    if (!requireAuthOrRedirect()) return;
+
+    try {
+      const res = await window.api.request(`/payments/flutterwave/status/${txRef}`);
+      const tx = res.data;
+      console.log("[flw-success] status check:", tx?.status);
+
+      if (tx.status === "success") {
+        await refreshCurrentUser().catch(() => {});
+        renderSuccess(tx.coins_credited);
+        return;
+      }
+      if (tx.status === "failed") {
+        renderFailed();
+        return;
+      }
+
+      // still pending — the webhook may not have landed yet.
+      // Keep polling for up to ~30s, then tell the user to check
+      // their wallet instead of spinning forever.
+      if (attempt < 10) {
+        renderPending();
+        setTimeout(() => pollStatus(attempt + 1), 3000);
+      } else {
+        screen.innerHTML = `
+          <div class="result-icon pending">⏳</div>
+          <div class="result-title">Still confirming…</div>
+          <div class="result-sub">This is taking longer than usual. Your coins will be added automatically once confirmed — check your wallet in a moment.</div>
+          <a class="result-btn" href="/coins.html">Go to Wallet</a>
+          <div class="result-ref">Ref: ${txRef}</div>
+        `;
+      }
+    } catch (err) {
+      console.error("[flw-success] status check failed:", err);
+      if (attempt < 10) {
+        setTimeout(() => pollStatus(attempt + 1), 3000);
+      } else {
+        renderFailed("Could not confirm payment status. Check your wallet or contact support.");
+      }
+    }
+  }
+
+  pollStatus();
+</script>
+</body>
+</html>

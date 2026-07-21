@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lovio — Leaderboard</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+.lb-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 10;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+.lb-topbar h1 { font-size: 19px; font-weight: 900; flex: 1; letter-spacing: -.3px; }
+.back-btn {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; text-decoration: none; flex: none;
+}
+
+/* Hero: your own rank card */
+.lb-my-rank {
+  margin: 14px 16px 0;
+  background: linear-gradient(135deg, rgba(255,61,127,.14), rgba(160,90,255,.10));
+  border: 1px solid rgba(255,61,127,.25);
+  border-radius: 20px; padding: 16px 18px;
+  display: flex; align-items: center; gap: 14px;
+}
+.lb-my-rank img {
+  width: 46px; height: 46px; border-radius: 50%; object-fit: cover;
+  border: 2px solid var(--magenta); flex: none;
+}
+.lb-my-rank .info { flex: 1; min-width: 0; }
+.lb-my-rank .lbl { font-size: 11px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.lb-my-rank .val { font-size: 17px; font-weight: 900; margin-top: 2px; }
+.lb-my-rank .rank-badge {
+  flex: none; text-align: center; background: rgba(255,255,255,.06);
+  border: 1px solid var(--border); border-radius: 14px; padding: 8px 14px;
+}
+.lb-my-rank .rank-badge .num { font-size: 18px; font-weight: 900; color: #ffc857; }
+.lb-my-rank .rank-badge .sub { font-size: 9.5px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+
+/* Type tabs: Top Gifters / Top Hosts / Biggest Gifts */
+.lb-type-tabs {
+  display: flex; gap: 8px; padding: 16px 16px 4px; overflow-x: auto; scrollbar-width: none;
+}
+.lb-type-tabs::-webkit-scrollbar { display: none; }
+.lb-type-tab {
+  flex: 0 0 auto; padding: 9px 16px; border-radius: 20px;
+  font-size: 12.5px; font-weight: 800; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-dim); transition: all .18s; white-space: nowrap;
+}
+.lb-type-tab.active { background: var(--magenta); border-color: var(--magenta); color: #fff; }
+
+/* Period chips */
+.lb-period-row { display: flex; gap: 7px; padding: 10px 16px 4px; overflow-x: auto; scrollbar-width: none; }
+.lb-period-row::-webkit-scrollbar { display: none; }
+.lb-period-chip {
+  flex: 0 0 auto; padding: 6px 13px; border-radius: 16px;
+  font-size: 11.5px; font-weight: 700; cursor: pointer;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-dim); transition: all .15s; white-space: nowrap;
+}
+.lb-period-chip.active { background: rgba(255,200,87,.15); border-color: #ffc857; color: #ffc857; }
+
+/* Direction toggle (biggest gifts only) */
+.lb-direction-row { display: none; gap: 8px; padding: 8px 16px 0; }
+.lb-direction-row.show { display: flex; }
+.lb-direction-btn {
+  flex: 1; padding: 8px; border-radius: 12px; font-size: 12px; font-weight: 800;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer;
+}
+.lb-direction-btn.active { background: rgba(0,217,181,.12); border-color: #00d9b5; color: #00d9b5; }
+
+/* List */
+.lb-list { padding: 14px 12px 100px; }
+.lb-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 12px 14px; margin-bottom: 8px;
+  cursor: pointer; transition: transform .15s, box-shadow .15s;
+}
+.lb-row:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+.lb-row.me { border-color: var(--magenta); background: rgba(255,61,127,.06); }
+.lb-rank-num {
+  flex: none; width: 30px; text-align: center; font-size: 15px; font-weight: 900; color: var(--text-dim);
+}
+.lb-rank-num.top1 { color: #ffd54f; font-size: 20px; }
+.lb-rank-num.top2 { color: #cfd8dc; font-size: 18px; }
+.lb-rank-num.top3 { color: #ff9d5c; font-size: 17px; }
+.lb-row img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid var(--border); }
+.lb-row .name-block { flex: 1; min-width: 0; }
+.lb-row .name-block strong { font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 4px; }
+.lb-row .name-block small { font-size: 11.5px; color: var(--text-dim); }
+.lb-row .coins { flex: none; text-align: right; }
+.lb-row .coins .amt { font-size: 14.5px; font-weight: 900; color: #ffc857; }
+.lb-row .coins .amt::after { content: " 🪙"; }
+.lb-row .coins .sub { font-size: 10px; color: var(--text-dim); }
+.verified-dot-sm {
+  width: 13px; height: 13px; border-radius: 50%; background: var(--teal, #00d9b5);
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+}
+.verified-dot-sm svg { width: 8px; height: 8px; color: #fff; }
+
+.lb-gift-row { display: flex; align-items: center; gap: 6px; }
+.lb-gift-emoji { font-size: 20px; flex: none; }
+
+.empty-lb { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+.empty-lb .icon { font-size: 40px; margin-bottom: 12px; }
+
+.skel-lb-row {
+  height: 66px; border-radius: 16px; margin-bottom: 8px;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
+  background-size: 200% 100%; animation: lb-shimmer 1.5s infinite;
+}
+@keyframes lb-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div class="screen" style="padding:0;">
+
+    <div class="lb-topbar">
+      <a href="home.html" class="back-btn" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      </a>
+      <h1>Leaderboard</h1>
+    </div>
+
+    <div class="lb-my-rank" id="lb-my-rank" style="display:none;">
+      <img id="my-rank-avatar" src="" alt="">
+      <div class="info">
+        <div class="lbl">Your rank</div>
+        <div class="val" id="my-rank-coins">0 coins</div>
+      </div>
+      <div class="rank-badge">
+        <div class="num" id="my-rank-num">—</div>
+        <div class="sub">rank</div>
+      </div>
+    </div>
+
+    <div class="lb-type-tabs" id="lb-type-tabs">
+      <div class="lb-type-tab active" data-type="gifters">💸 Top Gifters</div>
+      <div class="lb-type-tab" data-type="receivers">🏆 Top Hosts</div>
+      <div class="lb-type-tab" data-type="biggest">🎁 Biggest Gifts</div>
+    </div>
+
+    <div class="lb-period-row" id="lb-period-row">
+      <div class="lb-period-chip active" data-period="today">Today</div>
+      <div class="lb-period-chip" data-period="week">This Week</div>
+      <div class="lb-period-chip" data-period="month">This Month</div>
+      <div class="lb-period-chip" data-period="all">All Time</div>
+    </div>
+
+    <div class="lb-direction-row" id="lb-direction-row">
+      <button class="lb-direction-btn active" data-direction="sent">Sent</button>
+      <button class="lb-direction-btn" data-direction="received">Received</button>
+    </div>
+
+    <div class="lb-list" id="lb-list">
+      <div class="skel-lb-row"></div>
+      <div class="skel-lb-row"></div>
+      <div class="skel-lb-row"></div>
+      <div class="skel-lb-row"></div>
+      <div class="skel-lb-row"></div>
+    </div>
+
+  </div>
+
+  <nav class="tabbar">
+    <a class="tab" href="home.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</a>
+    <a class="tab" href="discover.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>Discover</a>
+    <a class="tab tab-mid" href="go-live.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="22" height="22"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>Live</a>
+    <a class="tab" href="chat.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.55L3 20l1.05-5.4A8.5 8.5 0 1 1 21 11.5Z"/></svg>Chat</a>
+    <a class="tab" href="profile.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 5-6 8-6s6.5 2 8 6"/></svg>Profile</a>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import "./js/api.js";
+import "./js/app.js";
+
+if (!window.requireAuthOrRedirect()) { throw new Error("Auth required"); }
+
+/* ══════════════════════════════════════════
+   STATE
+   type: 'gifters' | 'receivers' | 'biggest'
+   period: matches backend LeaderboardService.PERIODS
+   direction: 'sent' | 'received' (biggest-gifts only)
+══════════════════════════════════════════ */
+let activeType      = "gifters";
+let activePeriod     = "today";
+let activeDirection  = "sent";
+
+/* ══════════════════════════════════════════
+   TABS
+══════════════════════════════════════════ */
+document.getElementById("lb-type-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".lb-type-tab");
+  if (!tab) return;
+  activeType = tab.dataset.type;
+  document.querySelectorAll(".lb-type-tab").forEach(t => t.classList.remove("active"));
+  tab.classList.add("active");
+  document.getElementById("lb-direction-row").classList.toggle("show", activeType === "biggest");
+  loadAll();
+});
+
+document.getElementById("lb-period-row").addEventListener("click", (e) => {
+  const chip = e.target.closest(".lb-period-chip");
+  if (!chip) return;
+  activePeriod = chip.dataset.period;
+  document.querySelectorAll(".lb-period-chip").forEach(c => c.classList.remove("active"));
+  chip.classList.add("active");
+  loadAll();
+});
+
+document.getElementById("lb-direction-row").addEventListener("click", (e) => {
+  const btn = e.target.closest(".lb-direction-btn");
+  if (!btn) return;
+  activeDirection = btn.dataset.direction;
+  document.querySelectorAll(".lb-direction-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  loadAll();
+});
+
+/* ══════════════════════════════════════════
+   MY RANK CARD
+   GET /leaderboard/me?type=gifter|receiver&period=
+   (skipped for the "biggest gifts" tab — that endpoint has no
+   per-user rank concept, it's just a records list)
+══════════════════════════════════════════ */
+async function loadMyRank() {
+  const card = document.getElementById("lb-my-rank");
+  if (activeType === "biggest") { card.style.display = "none"; return; }
+
+  const type = activeType === "receivers" ? "receiver" : "gifter";
+  try {
+    const res = await window.api.request(`/leaderboard/me?type=${type}&period=${activePeriod}`);
+    const d = res.data || {};
+    const me = window.CURRENT_USER || {};
+    const avatar = me.avatarUrl || me.avatar_url ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(me.displayName || me.display_name || me.username || "U")}&background=ff3d7f&color=fff&size=80`;
+    document.getElementById("my-rank-avatar").src = avatar;
+    document.getElementById("my-rank-coins").textContent =
+      `${window.formatCoins(d.total_coins || 0)} coins ${type === "gifter" ? "sent" : "received"}`;
+    document.getElementById("my-rank-num").textContent = d.rank ? `#${d.rank}` : "—";
+    card.style.display = "flex";
+  } catch (err) {
+    console.error("[leaderboard] my-rank load failed:", err);
+    card.style.display = "none";
+  }
+}
+
+/* ══════════════════════════════════════════
+   MAIN LIST
+══════════════════════════════════════════ */
+async function loadList() {
+  const listEl = document.getElementById("lb-list");
+  listEl.innerHTML = `<div class="skel-lb-row"></div><div class="skel-lb-row"></div><div class="skel-lb-row"></div><div class="skel-lb-row"></div>`;
+
+  try {
+    let endpoint;
+    if (activeType === "gifters")       endpoint = `/leaderboard/gifters?period=${activePeriod}&limit=50`;
+    else if (activeType === "receivers") endpoint = `/leaderboard/receivers?period=${activePeriod}&limit=50`;
+    else                                  endpoint = `/leaderboard/biggest-gifts?period=${activePeriod}&direction=${activeDirection}&limit=50`;
+
+    const res = await window.api.request(endpoint);
+    const rows = res.data || [];
+
+    if (!rows.length) {
+      listEl.innerHTML = `
+        <div class="empty-lb">
+          <div class="icon">🏆</div>
+          <h3 style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px;">Nobody here yet</h3>
+          <p style="font-size:12.5px;">Be the first to ${activeType === "receivers" ? "receive" : "send"} a gift this period.</p>
+        </div>`;
+      return;
+    }
+
+    const myId = String(window.CURRENT_USER?.id || "");
+    listEl.innerHTML = rows.map((row, i) => buildRowHtml(row, i, myId)).join("");
+
+    listEl.querySelectorAll("[data-user-id]").forEach(el => {
+      el.addEventListener("click", () => { window.location.href = `profile.html?id=${el.dataset.userId}`; });
+    });
+  } catch (err) {
+    console.error("[leaderboard] list load failed:", err);
+    listEl.innerHTML = `
+      <div class="empty-lb">
+        <div class="icon">⚠️</div>
+        <h3 style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px;">Couldn't load leaderboard</h3>
+        <p style="font-size:12.5px;">${window.escapeHtml(err.message || "Check your connection and try again.")}</p>
+      </div>`;
+  }
+}
+
+function rankClass(rank) {
+  if (rank === 1) return "top1";
+  if (rank === 2) return "top2";
+  if (rank === 3) return "top3";
+  return "";
+}
+function rankEmoji(rank) {
+  if (rank === 1) return "🥇";
+  if (rank === 2) return "🥈";
+  if (rank === 3) return "🥉";
+  return `#${rank}`;
+}
+
+function buildRowHtml(row, i, myId) {
+  if (activeType === "biggest") {
+    // shape: { id, total_coins, quantity, created_at, gift_name, emoji, user_id, username, display_name, avatar_url }
+    const rank = i + 1;
+    const isMe = String(row.user_id) === myId;
+    const avatar = row.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(row.display_name || row.username || "U")}&background=random&color=fff&size=80`;
+    return `
+      <div class="lb-row ${isMe ? "me" : ""}" data-user-id="${row.user_id}">
+        <span class="lb-rank-num ${rankClass(rank)}">${rankEmoji(rank)}</span>
+        <img src="${window.escapeHtml(avatar)}" alt="" onerror="this.src='https://i.pravatar.cc/100'">
+        <div class="name-block">
+          <strong>${window.escapeHtml(row.display_name || row.username || "User")}</strong>
+          <small class="lb-gift-row"><span class="lb-gift-emoji">${row.emoji || "🎁"}</span> ${window.escapeHtml(row.gift_name || "Gift")} ×${row.quantity || 1}</small>
+        </div>
+        <div class="coins">
+          <div class="amt">${window.formatCoins(row.total_coins || 0)}</div>
+          <div class="sub">${window.timeAgo(row.created_at)}</div>
+        </div>
+      </div>`;
+  }
+
+  // gifters / receivers shape: { id, username, display_name, avatar_url, is_verified, total_coins,
+  //   hosts_supported|unique_gifters, gift_count, rank }
+  const rank = row.rank || (i + 1);
+  const isMe = String(row.id) === myId;
+  const avatar = row.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(row.display_name || row.username || "U")}&background=random&color=fff&size=80`;
+  const subLabel = activeType === "receivers"
+    ? `${window.formatCoins(row.unique_gifters || 0)} gifters · ${window.formatCoins(row.gift_count || 0)} gifts`
+    : `${window.formatCoins(row.hosts_supported || 0)} hosts · ${window.formatCoins(row.gift_count || 0)} gifts`;
+
+  return `
+    <div class="lb-row ${isMe ? "me" : ""}" data-user-id="${row.id}">
+      <span class="lb-rank-num ${rankClass(rank)}">${rankEmoji(rank)}</span>
+      <img src="${window.escapeHtml(avatar)}" alt="" onerror="this.src='https://i.pravatar.cc/100'">
+      <div class="name-block">
+        <strong>${window.escapeHtml(row.display_name || row.username || "User")}${row.is_verified ? `<span class="verified-dot-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></span>` : ""}${isMe ? " (You)" : ""}</strong>
+        <small>${subLabel}</small>
+      </div>
+      <div class="coins">
+        <div class="amt">${window.formatCoins(row.total_coins || 0)}</div>
+        <div class="sub">${activeType === "receivers" ? "received" : "sent"}</div>
+      </div>
+    </div>`;
+}
+
+async function loadAll() {
+  await Promise.all([loadMyRank(), loadList()]);
+}
+
+loadAll();
+</script>
+</body>
+</html>

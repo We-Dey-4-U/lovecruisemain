@@ -1,0 +1,2249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lovecruise FM — Studio</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+/* ══════════════════════════════════════════════════════════
+room
+   LOVECRUISE FM STUDIO — professional broadcast studio UI
+   Layers on top of the existing radio-room CSS variables
+   (--bg, --surface, --border, --text, --text-dim, --magenta).
+══════════════════════════════════════════════════════════ */
+:root {
+  --studio-navy: #0c0a14;
+  --studio-panel: #16121f;
+  --studio-panel2: #1c1728;
+  --onair-red: #ff2d55;
+  --gold: #ffc857;
+  --teal: #00d9b5;
+  --violet: #a05aff;
+}
+
+/* ── TOPBAR ── */
+.room-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 30;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+.topbar-icon-btn {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; flex: none; text-decoration: none;
+}
+.room-topbar-info { flex: 1; min-width: 0; }
+.room-topbar-info strong { font-size: 14.5px; font-weight: 800; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-topbar-info small { font-size: 11.5px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.live-pill-sm {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255,45,85,.92); color: #fff; font-size: 9px; font-weight: 900;
+  padding: 2px 7px; border-radius: 7px; letter-spacing: .04em;
+}
+.live-pill-sm .dot { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse-anim 1.4s infinite; }
+@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.7)} }
+.timer-pill { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--text-dim); }
+.net-pill { display:inline-flex; align-items:center; gap:3px; }
+.net-pill .bar { width:2.5px; background:var(--text-dim); border-radius:1px; display:inline-block; }
+.net-pill .bar.b1{height:4px} .net-pill .bar.b2{height:6px} .net-pill .bar.b3{height:8px}
+.net-pill.good .bar { background: var(--teal); }
+.net-pill.fair .bar.b1, .net-pill.fair .bar.b2 { background: var(--gold); }
+.net-pill.poor .bar.b1 { background: var(--onair-red); }
+
+/* ══════════════════════════════════════════════════════════
+   STUDIO STAGE — the main broadcast room visualization
+══════════════════════════════════════════════════════════ */
+.studio-stage {
+  position: relative; margin: 14px 16px 0; border-radius: 28px; overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255,45,85,.10), transparent 55%),
+    radial-gradient(circle at 85% 100%, rgba(160,90,255,.14), transparent 55%),
+    linear-gradient(155deg, var(--studio-navy) 0%, var(--studio-panel) 55%, var(--studio-navy) 100%);
+  border: 1px solid rgba(255,255,255,.06);
+  padding: 20px 14px 18px;
+}
+/* acoustic wall panel texture */
+.studio-stage::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.025) 0 26px, transparent 26px 30px);
+}
+.onair-sign-row { display: flex; align-items: center; justify-content: space-between; position: relative; margin-bottom: 14px; }
+.onair-sign {
+  font-size: 11px; font-weight: 900; letter-spacing: .12em; padding: 5px 12px; border-radius: 8px;
+  background: rgba(255,45,85,.12); border: 1px solid rgba(255,45,85,.4); color: #ff5577;
+  box-shadow: 0 0 0 rgba(255,45,85,0); transition: box-shadow .3s, background .3s, color .3s;
+}
+.onair-sign.live {
+  background: var(--onair-red); color: #fff; border-color: var(--onair-red);
+  box-shadow: 0 0 18px rgba(255,45,85,.65), 0 0 36px rgba(255,45,85,.3);
+  animation: onair-flicker 2.6s infinite;
+}
+@keyframes onair-flicker {
+  0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:.55} 94%{opacity:1} 96%{opacity:.8} 97%{opacity:1}
+}
+.bitrate-pill { font-size: 9.5px; font-weight: 800; color: var(--text-dim); background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; }
+
+/* ── HOST MIC RIG (center) ── */
+.host-mic-rig { position: relative; display: flex; flex-direction: column; align-items: center; padding: 6px 0 10px; }
+.boom-shadow-arm {
+  position: absolute; top: -8px; left: 50%; width: 3px; height: 46px;
+  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.03));
+  transform: translateX(-50%) rotate(18deg); transform-origin: top center; border-radius: 2px;
+}
+.mic-pulse-ring {
+  position: absolute; top: 30px; left: 50%; width: 96px; height: 96px; transform: translate(-50%, 0);
+  border-radius: 50%; border: 2px solid rgba(255,45,85,.35); opacity: 0;
+}
+.mic-pulse-ring.active { animation: mic-pulse 1.6s ease-out infinite; }
+@keyframes mic-pulse {
+  0% { opacity: .7; transform: translate(-50%,0) scale(.75); }
+  100% { opacity: 0; transform: translate(-50%,0) scale(1.55); }
+}
+.host-mic-body {
+  position: relative; width: 92px; height: 92px; border-radius: 26px;
+  background: linear-gradient(155deg, #2a2433, #14101c);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+  display: flex; align-items: center; justify-content: center; margin-top: 30px;
+  transition: box-shadow .25s, border-color .25s;
+}
+.host-mic-body.speaking {
+  border-color: rgba(255,45,85,.6);
+  box-shadow: 0 0 26px rgba(255,45,85,.55), 0 10px 30px rgba(0,0,0,.5);
+}
+.host-mic-grille {
+  width: 66px; height: 66px; border-radius: 18px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,255,255,.14), transparent 50%),
+    repeating-linear-gradient(0deg, #33303e 0 2px, #221f2b 2px 4px);
+  border: 1px solid rgba(0,0,0,.4);
+}
+.host-onair-dot {
+  position: absolute; top: 8px; right: 8px; width: 12px; height: 12px; border-radius: 50%;
+  background: #4a1622; box-shadow: inset 0 0 3px rgba(0,0,0,.6);
+}
+.host-onair-dot.on { background: var(--onair-red); box-shadow: 0 0 10px rgba(255,45,85,.9); }
+.host-mic-label { margin-top: 12px; font-size: 15px; font-weight: 900; }
+.host-mic-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+.host-mic-sub img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+
+/* ── VU METER ── */
+.vu-meter { display: flex; gap: 3px; align-items: flex-end; height: 22px; margin-top: 10px; }
+.vu-seg { width: 4px; border-radius: 2px; background: rgba(255,255,255,.08); transition: background .06s, height .06s; }
+.vu-seg.lit-green { background: var(--teal); }
+.vu-seg.lit-gold { background: var(--gold); }
+.vu-seg.lit-red { background: var(--onair-red); }
+
+/* ── WAVEFORM ── */
+.waveform-wrap { margin-top: 12px; width: 100%; height: 44px; }
+.waveform-wrap canvas { width: 100%; height: 100%; display: block; }
+
+/* ── GUEST BOOM-MIC BOOTH ── */
+.guest-booth { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+.guest-slot {
+  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 16px;
+  padding: 10px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-height: 108px; position: relative; cursor: default;
+  transition: border-color .2s, box-shadow .2s;
+}
+.guest-slot.empty { border-style: dashed; opacity: .55; cursor: pointer; }
+.guest-slot.empty:active { opacity: .85; }
+.guest-mic-avatar-wrap { position: relative; width: 44px; height: 44px; }
+.guest-mic-avatar-wrap img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,.1); transition: box-shadow .2s; }
+.guest-mic-badge {
+  position: absolute; bottom: -3px; right: -3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #2a2433; border: 2px solid var(--studio-panel); display: flex; align-items: center; justify-content: center; font-size: 9px;
+}
+.guest-mic-badge.live { background: var(--onair-red); }
+.guest-mic-badge.muted { background: #3a3a44; }
+.guest-mic-badge.pending { background: var(--gold); }
+.guest-slot-name { font-size: 10.5px; font-weight: 800; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.guest-slot-status { font-size: 9px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .03em; }
+.guest-slot-status.live { color: var(--onair-red); }
+.guest-slot-status.invited { color: var(--gold); }
+.guest-empty-icon { font-size: 20px; opacity: .5; margin-top: 6px; }
+.guest-empty-label { font-size: 9.5px; color: var(--text-dim); font-weight: 700; text-align: center; }
+.guest-mini-controls { display: flex; gap: 4px; margin-top: 2px; }
+.guest-mini-controls button {
+  width: 22px; height: 22px; border-radius: 7px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05); color: var(--text); font-size: 10px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.guest-mini-controls button.danger { color: var(--onair-red); }
+.guest-mini-controls button.active { background: rgba(0,217,181,.2); border-color: var(--teal); color: var(--teal); }
+
+/* ── GUEST "IS SPEAKING NOW" INDICATOR ──
+   Driven entirely by real per-track audio analysis in JS (see
+   attachTrackAnalyser/tickGuestSpeakingViz below) — not by the
+   mic_muted/status flag from the roster. The .speaking class is
+   toggled purely based on live audio energy on that participant's
+   individual remote track, so it correctly reflects who is
+   ACTUALLY talking at any moment, including after the host pauses
+   themself and hands the mic to an approved guest. */
+.guest-mic-pulse-ring {
+  position: absolute; top: 50%; left: 50%; width: 56px; height: 56px;
+  transform: translate(-50%, -50%); border-radius: 50%;
+  border: 2px solid rgba(255,45,85,.45); opacity: 0; pointer-events: none;
+}
+.guest-slot.speaking .guest-mic-pulse-ring { animation: guest-mic-pulse 1.4s ease-out infinite; }
+@keyframes guest-mic-pulse {
+  0% { opacity: .75; transform: translate(-50%,-50%) scale(.7); }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(1.5); }
+}
+.guest-slot.speaking {
+  border-color: rgba(255,45,85,.5);
+  box-shadow: 0 0 0 1px rgba(255,45,85,.25), 0 0 16px rgba(255,45,85,.28);
+}
+.guest-slot.speaking .guest-mic-avatar-wrap img {
+  box-shadow: 0 0 0 2px var(--onair-red);
+}
+.guest-eq { display: flex; gap: 2px; align-items: flex-end; height: 11px; margin-top: 1px; }
+.guest-eq span {
+  width: 2.5px; border-radius: 1px; height: 3px; background: var(--onair-red);
+  animation: guest-eq-bounce .9s ease-in-out infinite; animation-play-state: paused; opacity: .35;
+  transition: opacity .15s;
+}
+.guest-eq span:nth-child(2) { animation-delay: .15s; }
+.guest-eq span:nth-child(3) { animation-delay: .3s; }
+.guest-slot.speaking .guest-eq span { animation-play-state: running; opacity: 1; }
+@keyframes guest-eq-bounce { 0%, 100% { height: 3px; } 50% { height: 11px; } }
+
+@media (max-width: 380px) {
+  .guest-booth { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   LISTENER "NOW PLAYING" ROW (compact, always visible)
+══════════════════════════════════════════════════════════ */
+.listener-strip {
+  display: flex; align-items: center; gap: 12px; margin: 14px 16px 0;
+  padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+}
+.listener-strip-cover { width: 46px; height: 46px; border-radius: 12px; object-fit: cover; flex: none; }
+.listener-strip-info { flex: 1; min-width: 0; }
+.listener-strip-title { font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listener-strip-sub { font-size: 11px; color: var(--text-dim); }
+.play-toggle-btn {
+  width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--onair-red), var(--violet)); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 18px; flex: none;
+  box-shadow: 0 6px 18px rgba(255,45,85,.35);
+}
+.vol-btn, .follow-mini-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); cursor: pointer; flex: none;
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.follow-mini-btn.following { color: var(--onair-red); border-color: rgba(255,45,85,.4); background: rgba(255,45,85,.08); }
+
+/* ══════════════════════════════════════════════════════════
+   NOW PLAYING (music library queue) — persistent strip
+══════════════════════════════════════════════════════════ */
+.now-playing-bar {
+  display: none; align-items: center; gap: 12px; margin: 10px 16px 0;
+  padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+}
+.now-playing-bar.show { display: flex; }
+.np-cover { width: 46px; height: 46px; border-radius: 12px; object-fit: cover; flex: none; background: linear-gradient(135deg, rgba(255,45,85,.25), rgba(160,90,255,.2)); }
+.np-info { flex: 1; min-width: 0; }
+.np-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-progress-track { height: 3px; background: var(--border); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.np-progress-fill { height: 100%; background: linear-gradient(90deg, var(--onair-red), var(--violet)); width: 0%; transition: width 1s linear; }
+.np-badge { flex: none; font-size: 9.5px; font-weight: 900; color: var(--violet); background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.3); border-radius: 8px; padding: 3px 8px; letter-spacing: .04em; }
+.np-transport { display: flex; gap: 4px; flex: none; }
+.np-transport button { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+
+/* ══════════════════════════════════════════════════════════
+   TOP GIFTERS STRIP
+══════════════════════════════════════════════════════════ */
+.top-gifters-strip { display: flex; align-items: center; gap: 6px; margin: 10px 16px 0; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow-x: auto; }
+.top-gifters-strip img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid var(--bg); margin-left: -8px; flex: none; }
+.top-gifters-strip img:first-child { margin-left: 0; }
+.top-gifters-strip .label { font-size: 11px; color: var(--text-dim); margin-left: 8px; font-weight: 700; white-space: nowrap; }
+
+.poll-widget { display: none; margin: 12px 16px 0; padding: 14px; background: var(--surface); border: 1px solid rgba(160,90,255,.3); border-radius: 18px; }
+.poll-widget.show { display: block; }
+.poll-question { font-size: 13.5px; font-weight: 800; margin-bottom: 10px; }
+.poll-option { position: relative; margin-bottom: 8px; cursor: pointer; }
+.poll-option-bar { position: absolute; inset: 0; background: rgba(160,90,255,.15); border-radius: 12px; width: 0%; transition: width .4s; }
+.poll-option-label { position: relative; z-index: 1; display: flex; justify-content: space-between; padding: 9px 12px; font-size: 12.5px; font-weight: 700; border: 1px solid var(--border); border-radius: 12px; }
+.poll-option.voted .poll-option-label { border-color: var(--violet); }
+.poll-total { font-size: 10.5px; color: var(--text-dim); margin-top: 4px; }
+.poll-close-btn { margin-top: 8px; width: 100%; background: rgba(255,45,85,.12); color: #ff5577; border: 1px solid rgba(255,45,85,.3); border-radius: 10px; padding: 8px; font-size: 11.5px; font-weight: 800; cursor: pointer; }
+
+/* ══════════════════════════════════════════════════════════
+   REACTIONS + FLOATING FX
+══════════════════════════════════════════════════════════ */
+.fx-layer { position: fixed; bottom: 110px; right: 10px; width: 60px; height: 200px; pointer-events: none; z-index: 15; }
+.fx-particle { position: absolute; bottom: 0; right: 10px; font-size: 22px; animation: float-up 2.6s ease-out forwards; }
+@keyframes float-up { 0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-180px) translateX(var(--drift, 0)) rotate(var(--rot, 0deg)); opacity: 0; } }
+.reaction-row { display: flex; gap: 10px; justify-content: center; margin: 12px 16px 0; }
+.reaction-btn { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); font-size: 19px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+.room-actions-row { display: flex; gap: 10px; margin: 14px 16px 0; }
+.room-action-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 6px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700; position: relative; }
+.room-action-btn .ic { font-size: 19px; }
+.room-action-btn.gift { color: var(--gold); border-color: rgba(255,200,87,.3); background: rgba(255,200,87,.06); }
+.room-action-btn.music { color: var(--teal); border-color: rgba(0,217,181,.3); background: rgba(0,217,181,.06); }
+.room-action-badge { position: absolute; top: 4px; right: 10px; background: var(--onair-red); color: #fff; font-size: 9px; font-weight: 900; border-radius: 8px; min-width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+
+.cohost-request-btn.pending { opacity: .6; pointer-events: none; }
+
+/* ══════════════════════════════════════════════════════════
+   PRESENTER CONTROL DECK (host only)
+══════════════════════════════════════════════════════════ */
+.control-deck { margin: 16px 16px 0; }
+.deck-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.deck-header h3 { font-size: 13px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+.deck-header .rec-indicator { display: flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: var(--text-dim); cursor: pointer; }
+.deck-header .rec-indicator .dot { width: 8px; height: 8px; border-radius: 50%; background: #4a1622; }
+.deck-header .rec-indicator.on .dot { background: var(--onair-red); animation: pulse-anim 1.2s infinite; }
+.deck-header .rec-indicator.on { color: var(--onair-red); }
+
+.deck-panel { background: var(--studio-panel2); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; padding: 14px; }
+.deck-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.deck-row:last-child { margin-bottom: 0; }
+.deck-label { font-size: 10.5px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; width: 78px; flex: none; }
+.deck-slider { flex: 1; -webkit-appearance: none; height: 5px; border-radius: 3px; background: rgba(255,255,255,.1); outline: none; }
+.deck-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, var(--onair-red), var(--violet)); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.deck-val { width: 34px; text-align: right; font-size: 11px; font-weight: 800; color: var(--text-dim); flex: none; }
+.deck-toggle-btn { flex: none; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; font-weight: 800; cursor: pointer; }
+.deck-toggle-btn.on { background: rgba(255,45,85,.15); border-color: var(--onair-red); color: #ff5577; }
+.deck-toggle-btn.muted-state { background: rgba(255,45,85,.15); border-color: var(--onair-red); color: #ff5577; }
+
+.deck-divider { height: 1px; background: rgba(255,255,255,.07); margin: 14px 0; }
+
+.sfx-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sfx-btn { padding: 12px 4px; border-radius: 14px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--text); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.sfx-btn .ic { font-size: 18px; }
+.sfx-btn:active { transform: scale(.94); background: rgba(255,45,85,.12); border-color: rgba(255,45,85,.35); }
+
+.jingle-row { display: flex; gap: 8px; }
+.jingle-row button { flex: 1; padding: 10px 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--text); font-size: 11px; font-weight: 800; cursor: pointer; }
+
+.deck-stats-row { display: flex; gap: 8px; }
+.deck-stat-chip { flex: 1; text-align: center; padding: 9px 4px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); }
+.deck-stat-chip .v { font-size: 14px; font-weight: 900; }
+.deck-stat-chip .l { font-size: 9px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; margin-top: 1px; }
+
+.commercial-btn { width: 100%; padding: 12px; border-radius: 14px; border: 1px solid rgba(255,200,87,.35); background: rgba(255,200,87,.1); color: var(--gold); font-size: 12.5px; font-weight: 800; cursor: pointer; }
+
+.end-live-room-btn { width: 100%; margin-top: 4px; background: var(--onair-red); color: #fff; border: none; border-radius: 14px; padding: 12px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+
+/* ── Commercial break overlay ── */
+.commercial-overlay {
+  position: fixed; inset: 0; z-index: 400; background: rgba(6,4,10,.92); backdrop-filter: blur(6px);
+  display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px; text-align: center; padding: 20px;
+}
+.commercial-overlay.show { display: flex; }
+.commercial-overlay .co-title { font-size: 20px; font-weight: 900; color: var(--gold); }
+.commercial-overlay .co-sub { font-size: 13px; color: var(--text-dim); }
+.commercial-overlay .co-timer { font-size: 40px; font-weight: 900; font-variant-numeric: tabular-nums; margin-top: 4px; }
+
+/* ══════════════════════════════════════════════════════════
+   CHAT
+══════════════════════════════════════════════════════════ */
+.chat-section { margin: 16px 16px 0; padding: 0 0 100px; }
+.chat-title { font-size: 12.5px; font-weight: 800; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.chat-scroll { height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.chat-row { display: flex; gap: 8px; align-items: flex-start; }
+.chat-row img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; margin-top: 2px; }
+.chat-bubble { background: var(--bg); border-radius: 14px; padding: 7px 12px; font-size: 12.5px; line-height: 1.45; max-width: 100%; }
+.chat-bubble .uname { font-weight: 800; color: #ff5577; margin-right: 5px; }
+.chat-row.system { justify-content: center; }
+.chat-row.system .chat-bubble { background: transparent; color: var(--text-dim); font-size: 11px; text-align: center; }
+.chat-row.gift .chat-bubble { background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); }
+.chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
+.chat-input-row input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 11px 16px; color: var(--text); font-size: 13.5px; outline: none; }
+.chat-send-btn { width: 44px; height: 44px; border-radius: 50%; border: none; background: var(--onair-red); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
+
+/* ══════════════════════════════════════════════════════════
+   SHEETS (shared pattern)
+══════════════════════════════════════════════════════════ */
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+.bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 85vh; overflow-y: auto; }
+.bottom-sheet.open { bottom: 0; }
+.sheet-handle { width: 38px; height: 4px; background: var(--border); border-radius: 2px; margin: 14px auto 20px; }
+.sheet-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.sheet-title-row span { font-size: 16px; font-weight: 900; }
+.gift-balance-pill { display: flex; align-items: center; gap: 5px; background: rgba(255,200,87,.12); border: 1px solid rgba(255,200,87,.25); border-radius: 20px; padding: 5px 12px; font-size: 13px; font-weight: 700; color: var(--gold); }
+.gift-modal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-bottom: 16px; max-height: 260px; overflow-y: auto; }
+.gift-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 16px; padding: 12px 4px; cursor: pointer; }
+.gift-tile.selected { border-color: var(--onair-red); background: rgba(255,45,85,.08); }
+.gift-tile .g-emoji { font-size: 22px; }
+.gift-tile .g-icon-img { width: 26px; height: 26px; object-fit: contain; }
+.gift-tile .g-name { font-size: 9.5px; font-weight: 700; color: var(--text-dim); text-align: center; }
+.gift-tile .g-price { font-size: 9.5px; font-weight: 800; color: var(--gold); }
+.gift-send-btn { width: 100%; height: 50px; border-radius: 16px; font-size: 14px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg, var(--onair-red), #c2185b); color: #fff; }
+.gift-send-btn:disabled { opacity: .4; cursor: not-allowed; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
+.form-group input, .form-group select { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; }
+.save-btn { width: 100%; background: linear-gradient(135deg, var(--onair-red), var(--violet)); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
+.save-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
+.toast.show { opacity: 1; }
+
+/* ── invite guest sheet extras ── */
+.invite-hint { font-size: 11.5px; color: var(--text-dim); margin: -6px 0 14px; line-height: 1.5; }
+
+/* ── invite modal (invited user sees this) ── */
+.invite-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); z-index: 450; display: none; align-items: center; justify-content: center; padding: 20px; }
+.invite-modal-backdrop.show { display: flex; }
+.invite-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 26px 22px; max-width: 340px; width: 100%; text-align: center; }
+.invite-modal .im-icon { font-size: 34px; margin-bottom: 10px; }
+.invite-modal .im-title { font-size: 16px; font-weight: 900; margin-bottom: 6px; }
+.invite-modal .im-body { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 18px; }
+.invite-modal .im-row { display: flex; gap: 10px; }
+.invite-modal .im-row button { flex: 1; padding: 12px; border-radius: 14px; border: none; font-size: 13px; font-weight: 800; cursor: pointer; }
+.invite-modal .im-accept { background: linear-gradient(135deg, var(--onair-red), var(--violet)); color: #fff; }
+.invite-modal .im-decline { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border) !important; }
+
+/* ── guest queue rows inside the guest-booth sheet ── */
+.gb-tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 4px; margin-bottom: 16px; }
+.gb-tab-btn { flex: 1; border: none; background: none; color: var(--text-dim); font-size: 11.5px; font-weight: 800; padding: 9px 4px; border-radius: 10px; cursor: pointer; }
+.gb-tab-btn.active { background: var(--surface); color: #ff5577; }
+.gb-panel { display: none; }
+.gb-panel.active { display: block; }
+.gb-row { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.gb-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.gb-row .gn { flex: 1; font-size: 13px; font-weight: 700; }
+.gb-row .gs { font-size: 10.5px; color: var(--text-dim); }
+.gb-approve-btn, .gb-reject-btn { border: none; border-radius: 10px; padding: 6px 12px; font-size: 11.5px; font-weight: 800; cursor: pointer; }
+.gb-approve-btn { background: var(--teal); color: #00231d; }
+.gb-reject-btn { background: rgba(255,45,85,.15); color: #ff5577; margin-left: 6px; }
+.gb-empty-hint { text-align: center; padding: 20px; color: var(--text-dim); font-size: 12.5px; }
+
+/* ══════════════════════════════════════════════════════════
+   MUSIC SHEET — unchanged from prior pass
+══════════════════════════════════════════════════════════ */
+.music-tabs { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 4px; margin-bottom: 16px; }
+.music-tab-btn { flex: 1; border: none; background: none; color: var(--text-dim); font-size: 11.5px; font-weight: 800; padding: 9px 4px; border-radius: 10px; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.music-tab-btn.active { background: var(--surface); color: #ff5577; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.music-tab-badge { background: var(--onair-red); color: #fff; font-size: 9px; font-weight: 900; border-radius: 8px; min-width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+.music-panel { display: none; }
+.music-panel.active { display: block; }
+.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-row input { flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 13.5px; padding: 11px 14px; outline: none; }
+.search-row select { flex: none; width: 96px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 12px; padding: 0 8px; outline: none; }
+.search-row button { flex: none; width: 44px; height: 44px; border-radius: 14px; border: none; cursor: pointer; background: linear-gradient(135deg, var(--onair-red), var(--violet)); color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.song-result-row { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.song-result-cover { width: 42px; height: 42px; border-radius: 10px; object-fit: cover; flex: none; background: linear-gradient(135deg, rgba(255,45,85,.25), rgba(160,90,255,.2)); }
+.song-result-info { flex: 1; min-width: 0; }
+.song-result-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-result-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-result-tag { font-size: 8.5px; font-weight: 800; color: var(--violet); background: rgba(160,90,255,.12); border-radius: 6px; padding: 1px 5px; margin-left: 5px; letter-spacing: .03em; }
+.song-result-actions { display: flex; gap: 6px; flex: none; }
+.song-result-actions button { border: none; border-radius: 10px; padding: 7px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.btn-request { background: rgba(255,45,85,.12); color: #ff5577; }
+.btn-queue { background: rgba(0,217,181,.14); color: var(--teal); }
+.divider-label { display: flex; align-items: center; gap: 8px; margin: 18px 0 12px; font-size: 10.5px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; }
+.divider-label::before, .divider-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.freeform-request-btn { width: 100%; background: var(--bg); border: 1.5px dashed var(--border); border-radius: 14px; color: var(--text-dim); font-size: 12.5px; font-weight: 700; padding: 12px; cursor: pointer; }
+.request-row { display: flex; align-items: center; gap: 10px; padding: 11px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.request-vote-btn { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 15px; }
+.request-vote-btn.voted { border-color: var(--onair-red); color: #ff5577; background: rgba(255,45,85,.08); }
+.request-vote-btn .vcount { font-size: 9.5px; font-weight: 800; margin-top: 1px; }
+.request-info { flex: 1; min-width: 0; }
+.request-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.request-meta { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.request-host-actions { display: flex; gap: 6px; flex: none; }
+.request-host-actions button { border: none; border-radius: 10px; padding: 7px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer; }
+.btn-approve { background: var(--teal); color: #00231d; }
+.btn-reject { background: rgba(255,45,85,.15); color: #ff5577; }
+.queue-now-card { display: flex; align-items: center; gap: 12px; padding: 14px; margin-bottom: 14px; background: linear-gradient(135deg, rgba(255,45,85,.1), rgba(160,90,255,.08)); border: 1px solid rgba(255,45,85,.25); border-radius: 16px; }
+.queue-now-cover { width: 54px; height: 54px; border-radius: 12px; object-fit: cover; flex: none; }
+.queue-now-info { flex: 1; min-width: 0; }
+.queue-now-title { font-size: 13.5px; font-weight: 800; }
+.queue-now-artist { font-size: 11px; color: var(--text-dim); }
+.queue-transport-row { display: flex; gap: 8px; flex: none; }
+.queue-transport-row button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+.queue-item-row { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }
+.queue-item-pos { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: var(--text-dim); }
+.queue-item-info { flex: 1; min-width: 0; }
+.queue-item-title { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-item-artist { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-item-actions { display: flex; gap: 4px; flex: none; }
+.queue-item-actions button { width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.queue-item-actions button.danger { color: #ff5577; }
+.upload-drop { border: 1.5px dashed var(--border); border-radius: 16px; padding: 22px 14px; text-align: center; cursor: pointer; margin-bottom: 16px; background: var(--bg); }
+.upload-drop.has-file { border-color: var(--teal); background: rgba(0,217,181,.06); }
+.upload-drop .up-icon { font-size: 26px; margin-bottom: 6px; }
+.upload-drop .up-txt { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+.upload-progress-track { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 10px; display: none; }
+.upload-progress-track.show { display: block; }
+.upload-progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--teal), var(--violet)); transition: width .3s; }
+.upload-status-text { font-size: 11px; color: var(--text-dim); margin-top: 8px; text-align: center; display: none; }
+.upload-status-text.show { display: block; }
+.music-empty-hint { text-align: center; padding: 24px 16px; color: var(--text-dim); font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="screen" style="padding:0;overflow-y:auto;">
+
+    <div class="room-topbar">
+      <a href="radio-discover.html" class="topbar-icon-btn" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="17" height="17"><polyline points="15 18 9 12 15 6"/></svg>
+      </a>
+      <div class="room-topbar-info">
+        <strong id="topbar-station-title">Loading…</strong>
+        <small>
+          <span class="live-pill-sm"><span class="dot"></span>LIVE</span>
+          <span id="topbar-listener-count">0</span> listening
+          <span class="timer-pill" id="show-timer">00:00</span>
+          <span class="net-pill good" id="net-pill"><span class="bar b1"></span><span class="bar b2"></span><span class="bar b3"></span></span>
+        </small>
+      </div>
+      <button class="topbar-icon-btn" id="share-btn" aria-label="Share">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      </button>
+    </div>
+
+    <!-- ══ STUDIO STAGE ══ -->
+    <div class="studio-stage">
+      <div class="onair-sign-row">
+        <span class="onair-sign" id="onair-sign">ON AIR</span>
+        <span class="bitrate-pill" id="bitrate-pill">🎙️ Live mic</span>
+      </div>
+
+      <div class="host-mic-rig">
+        <div class="boom-shadow-arm"></div>
+        <div class="mic-pulse-ring" id="mic-pulse-ring"></div>
+        <div class="host-mic-body" id="host-mic-body">
+          <div class="host-mic-grille"></div>
+          <div class="host-onair-dot" id="host-onair-dot"></div>
+        </div>
+        <div class="host-mic-label" id="station-title">Loading…</div>
+        <div class="host-mic-sub"><img id="host-avatar" src="https://i.pravatar.cc/100?img=3" alt=""><span id="host-name">Host</span></div>
+        <div class="vu-meter" id="vu-meter"></div>
+        <div class="waveform-wrap"><canvas id="waveform-canvas"></canvas></div>
+      </div>
+
+      <div class="guest-booth" id="guest-booth"></div>
+    </div>
+
+    <!-- ══ LISTENER TUNE-IN STRIP ══ -->
+    <div class="listener-strip">
+      <img class="listener-strip-cover" id="listener-cover" src="" alt="">
+      <div class="listener-strip-info">
+        <div class="listener-strip-title" id="listener-program-title">Live Program</div>
+        <div class="listener-strip-sub">🎧 <span id="listener-count">0</span> listening now</div>
+      </div>
+      <button class="vol-btn" id="vol-btn" aria-label="Mute">🔊</button>
+      <button class="play-toggle-btn" id="play-toggle-btn" aria-label="Play">▶</button>
+      <button class="follow-mini-btn" id="follow-mini-btn" aria-label="Follow">➕</button>
+    </div>
+
+    <!-- ══ NOW PLAYING (music queue) ══ -->
+    <div class="now-playing-bar" id="now-playing-bar">
+      <img class="np-cover" id="np-cover" src="" alt="">
+      <div class="np-info">
+        <div class="np-title" id="np-title">—</div>
+        <div class="np-artist" id="np-artist">—</div>
+        <div class="np-progress-track"><div class="np-progress-fill" id="np-progress-fill"></div></div>
+      </div>
+      <span class="np-badge">ON QUEUE</span>
+      <div class="np-transport" id="np-host-transport" style="display:none;">
+        <button id="np-pause-btn" title="Pause">⏸</button>
+        <button id="np-next-btn" title="Next">⏭</button>
+      </div>
+    </div>
+
+    <div class="top-gifters-strip" id="top-gifters-strip"><span class="label">Loading top gifters…</span></div>
+    <div class="poll-widget" id="poll-widget"></div>
+
+    <div class="reaction-row">
+      <button class="reaction-btn" id="heart-btn">❤️</button>
+      <button class="reaction-btn" id="fire-btn">🔥</button>
+      <button class="reaction-btn" id="clap-btn">👏</button>
+      <button class="reaction-btn" id="laugh-btn">😂</button>
+    </div>
+
+    <div class="room-actions-row">
+      <button class="room-action-btn gift" id="open-gift-sheet-btn"><span class="ic">🎁</span>Send gift</button>
+      <button class="room-action-btn music" id="open-music-sheet-btn">
+        <span class="ic">🎵</span>Music
+        <span class="room-action-badge" id="music-action-badge" style="display:none;">0</span>
+      </button>
+      <button class="room-action-btn cohost-request-btn" id="request-cohost-btn"><span class="ic">🎙️</span>Request Mic</button>
+      <button class="room-action-btn" id="leave-room-btn"><span class="ic">🚪</span>Leave</button>
+    </div>
+
+    <!-- ══ PRESENTER CONTROL DECK (host only) ══ -->
+    <div class="control-deck" id="control-deck" style="display:none;">
+      <div class="deck-header">
+        <h3>🎛️ Control Deck</h3>
+        <div class="rec-indicator" id="rec-indicator"><span class="dot"></span><span id="rec-label">Not recording</span></div>
+      </div>
+
+      <div class="deck-panel">
+        <div class="deck-row">
+          <span class="deck-label">Master Mic</span>
+          <button class="deck-toggle-btn" id="master-mute-btn">🎙️ Live</button>
+          <button class="deck-toggle-btn" id="open-guest-booth-btn" style="margin-left:auto;">🙋 Guest Booth <span id="guest-req-badge" style="display:none;color:#ffc857">●</span></button>
+        </div>
+        <div class="deck-row">
+          <span class="deck-label">Music Vol</span>
+          <input type="range" class="deck-slider" id="music-vol-slider" min="0" max="100" value="70">
+          <span class="deck-val" id="music-vol-val">70%</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-label">Guest Mix</span>
+          <input type="range" class="deck-slider" id="guest-vol-slider" min="0" max="100" value="85">
+          <span class="deck-val" id="guest-vol-val">85%</span>
+        </div>
+        <div class="deck-row">
+          <span class="deck-label">Bg. Music</span>
+          <button class="deck-toggle-btn" id="bg-music-toggle-btn">Off</button>
+          <span class="deck-label" style="width:auto;margin-left:10px;">Poll</span>
+          <button class="deck-toggle-btn" id="open-create-poll-btn">+ Start</button>
+        </div>
+
+        <div class="deck-divider"></div>
+
+        <div class="deck-row" style="margin-bottom:10px;">
+          <span class="deck-label" style="width:auto;">Jingles</span>
+        </div>
+        <div class="jingle-row" style="margin-bottom:14px;">
+          <button id="intro-jingle-btn">▶ Intro</button>
+          <button id="outro-jingle-btn">⏹ Outro</button>
+        </div>
+
+        <div class="deck-row" style="margin-bottom:10px;">
+          <span class="deck-label" style="width:auto;">Sound FX</span>
+        </div>
+        <div class="sfx-pad" id="sfx-pad">
+          <button class="sfx-btn" data-effect="applause"><span class="ic">👏</span>Applause</button>
+          <button class="sfx-btn" data-effect="airhorn"><span class="ic">📯</span>Air Horn</button>
+          <button class="sfx-btn" data-effect="drumroll"><span class="ic">🥁</span>Drum Roll</button>
+          <button class="sfx-btn" data-effect="cheer"><span class="ic">🎉</span>Cheer</button>
+          <button class="sfx-btn" data-effect="laugh"><span class="ic">😂</span>Laugh</button>
+          <button class="sfx-btn" data-effect="boo"><span class="ic">😱</span>Boo</button>
+        </div>
+
+        <div class="deck-divider"></div>
+
+        <div class="deck-stats-row" style="margin-bottom:14px;">
+          <div class="deck-stat-chip"><div class="v" id="deck-listener-count">0</div><div class="l">Listeners</div></div>
+          <div class="deck-stat-chip"><div class="v" id="deck-show-timer">00:00</div><div class="l">On Air</div></div>
+          <div class="deck-stat-chip"><div class="v" id="deck-bitrate">Mic</div><div class="l">Source</div></div>
+        </div>
+
+        <button class="commercial-btn" id="commercial-break-btn" style="margin-bottom:10px;">📻 Trigger Commercial Break</button>
+        <button class="end-live-room-btn" id="end-live-room-btn">End broadcast</button>
+      </div>
+    </div>
+
+    <div class="chat-section">
+      <div class="chat-title">Live chat</div>
+      <div class="chat-scroll" id="chat-scroll"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Say something…" maxlength="200">
+        <button class="chat-send-btn" id="chat-send-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="fx-layer" id="fx-layer"></div>
+
+<!-- ── COMMERCIAL BREAK OVERLAY ── -->
+<div class="commercial-overlay" id="commercial-overlay">
+  <div class="co-title">📻 WE'LL BE RIGHT BACK</div>
+  <div class="co-sub">Commercial break in progress</div>
+  <div class="co-timer" id="commercial-timer">0:30</div>
+</div>
+
+<!-- ── GUEST INVITE MODAL (shown to the invited user) ── -->
+<div class="invite-modal-backdrop" id="invite-modal-backdrop">
+  <div class="invite-modal">
+    <div class="im-icon">🎙️</div>
+    <div class="im-title">Love FM Invitation</div>
+    <div class="im-body" id="invite-modal-body">You've been invited to join the live radio show as a guest speaker.</div>
+    <div class="im-row">
+      <button class="im-decline" id="invite-decline-btn">Decline</button>
+      <button class="im-accept" id="invite-accept-btn">Accept</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── GIFT SHEET ── -->
+<div class="sheet-backdrop" id="gift-backdrop"></div>
+<div class="bottom-sheet" id="gift-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>Send a Gift</span><span class="gift-balance-pill">🪙 <span id="gift-balance">0</span></span></div>
+  <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px">Gifting <b style="color:#ff5577" id="gift-target-name">Host</b></div>
+  <div class="gift-modal-grid" id="gift-modal-grid"></div>
+  <button class="gift-send-btn" id="gift-send-btn" disabled>Select a gift to send</button>
+</div>
+
+<!-- ── GUEST BOOTH SHEET (host: requests + invited + invite-by-username) ── -->
+<div class="sheet-backdrop" id="guest-booth-backdrop"></div>
+<div class="bottom-sheet" id="guest-booth-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>🙋 Guest Booth</span></div>
+
+  <div class="form-group" style="margin-bottom:10px;">
+    <label>Invite a guest by username</label>
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="invite-username-input" placeholder="@username" maxlength="40" style="flex:1;">
+      <button class="save-btn" id="invite-send-btn" style="width:auto;padding:0 18px;">Invite</button>
+    </div>
+  </div>
+  <div class="invite-hint">The guest gets a notification and can accept or decline. Once accepted, tap their mic in the booth to bring them live.</div>
+
+  <div class="gb-tabs">
+    <button class="gb-tab-btn active" data-gbtab="requests">Requests</button>
+    <button class="gb-tab-btn" data-gbtab="invited">Invited</button>
+    <button class="gb-tab-btn" data-gbtab="live">Live Now</button>
+  </div>
+  <div class="gb-panel active" id="gb-panel-requests"><div class="gb-empty-hint">No requests yet</div></div>
+  <div class="gb-panel" id="gb-panel-invited"><div class="gb-empty-hint">No pending invites</div></div>
+  <div class="gb-panel" id="gb-panel-live"><div class="gb-empty-hint">No guests live yet</div></div>
+</div>
+
+<!-- ── MUSIC SHEET ── -->
+<div class="sheet-backdrop" id="music-backdrop"></div>
+<div class="bottom-sheet" id="music-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>🎵 Music</span></div>
+  <div class="music-tabs">
+    <button class="music-tab-btn active" data-tab="search">Search</button>
+    <button class="music-tab-btn" data-tab="requests">Requests <span class="music-tab-badge" id="requests-tab-badge" style="display:none;">0</span></button>
+    <button class="music-tab-btn" data-tab="queue">Queue</button>
+    <button class="music-tab-btn" data-tab="upload" id="upload-tab-btn" style="display:none;">Upload</button>
+  </div>
+
+  <div class="music-panel active" id="panel-search">
+    <div class="search-row">
+      <input type="text" id="music-search-input" placeholder="Search songs or artists…" maxlength="150">
+      <select id="music-search-provider"><option value="local">Library</option><option value="jamendo">Jamendo</option></select>
+      <button id="music-search-btn" aria-label="Search">🔍</button>
+    </div>
+    <div id="search-results-list"></div>
+    <div class="divider-label">or</div>
+    <button class="freeform-request-btn" id="open-freeform-btn">✏️ Can't find it? Type a song name instead</button>
+    <div id="freeform-form" style="display:none;margin-top:14px;">
+      <div class="form-group"><label>Song name</label><input type="text" id="request-song" placeholder="e.g. Love Nwantiti" maxlength="150"></div>
+      <div class="form-group"><label>Artist (optional)</label><input type="text" id="request-artist" placeholder="e.g. CKay" maxlength="100"></div>
+      <button class="save-btn" id="request-send-btn">Send Request</button>
+    </div>
+  </div>
+
+  <div class="music-panel" id="panel-requests"><div id="requests-list"><div class="music-empty-hint">No pending requests yet</div></div></div>
+  <div class="music-panel" id="panel-queue"><div id="queue-now-wrap"></div><div id="queue-list"><div class="music-empty-hint">Queue is empty</div></div></div>
+  <div class="music-panel" id="panel-upload">
+    <div class="upload-drop" id="upload-drop">
+      <div class="up-icon">🎧</div>
+      <div class="up-txt" id="upload-drop-text">Tap to choose an audio file (mp3, m4a, wav, flac — up to 100MB)</div>
+      <input type="file" id="upload-file-input" accept="audio/mpeg,audio/mp4,audio/aac,audio/wav,audio/flac,.mp3,.m4a,.aac,.wav,.flac" style="display:none;">
+    </div>
+    <div class="form-group"><label>Title</label><input type="text" id="upload-title" placeholder="Song title" maxlength="150"></div>
+    <div class="form-group"><label>Artist (optional)</label><input type="text" id="upload-artist" placeholder="Artist name" maxlength="100"></div>
+    <button class="save-btn" id="upload-submit-btn">Upload Song</button>
+    <div class="upload-progress-track" id="upload-progress-track"><div class="upload-progress-fill" id="upload-progress-fill"></div></div>
+    <div class="upload-status-text" id="upload-status-text"></div>
+  </div>
+</div>
+
+<!-- ── CREATE POLL SHEET (host only) ── -->
+<div class="sheet-backdrop" id="create-poll-backdrop"></div>
+<div class="bottom-sheet" id="create-poll-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title-row"><span>Start a Poll</span></div>
+  <div class="form-group"><label>Question</label><input type="text" id="poll-question" placeholder="e.g. Who's your favorite host?" maxlength="150"></div>
+  <div class="form-group"><label>Option 1</label><input type="text" id="poll-opt-0" maxlength="60"></div>
+  <div class="form-group"><label>Option 2</label><input type="text" id="poll-opt-1" maxlength="60"></div>
+  <div class="form-group"><label>Option 3 (optional)</label><input type="text" id="poll-opt-2" maxlength="60"></div>
+  <div class="form-group"><label>Option 4 (optional)</label><input type="text" id="poll-opt-3" maxlength="60"></div>
+  <button class="save-btn" id="poll-create-btn">Start Poll</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ── GIFT ANIMATION ENGINE ROOT (same source as livestream) ──
+     This mount point + the GiftAnimationManager import below are
+     what actually render the animated gift PNG on screen. Radio
+     previously had neither, so radioGiftReceived only updated the
+     chat + top-gifters strip and nothing ever animated. ── -->
+<div id="gift-engine-root"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<script type="module">
+  import { GiftAnimationManager } from "./gift-engine/GiftAnimationManager.js";
+  window.__giftEngine = new GiftAnimationManager(document.getElementById("gift-engine-root"));
+</script>
+
+<script type="module">
+import "./js/api.js";
+import "./js/app.js";
+import * as mediasoupClient from "https://esm.sh/mediasoup-client@3.7.15";
+
+if (!requireAuthOrRedirect()) { throw new Error("auth required"); }
+
+/* ══════════════════════════════════════════
+   URL / STATE
+══════════════════════════════════════════ */
+const params      = new URLSearchParams(window.location.search);
+const broadcastId = params.get("id");
+if (!broadcastId) showToast("Invalid broadcast link");
+
+let broadcast     = null;
+let isHost        = false;
+let following     = false;
+let isPlaying     = false;
+let isMuted       = false;
+let GIFT_LIST     = [];
+let selectedGift  = null;
+let coinBalance   = Number(window.CURRENT_USER?.coinBalance ?? window.CURRENT_USER?.coin_balance ?? 0);
+let cohostRoster  = [];
+let masterMuted   = false;
+let recording     = false;
+let bgMusicOn     = false;
+let commercialTimerHandle = null;
+
+/* ══════════════════════════════════════════
+   REAL AUDIO (mediasoup) STATE — this replaces the old fake
+   HLS-based audio path entirely.
+══════════════════════════════════════════ */
+let device               = null;
+let deviceLoaded          = false;
+let mediaSendTransport    = null;
+let mediaRecvTransport    = null;
+let recvTransportPromise  = null;
+let micStream             = null;   // local mic MediaStream (host / approved guest)
+let micProducer           = null;   // our own outgoing audio producer
+let amProducing           = false;
+const consumers           = new Map(); // consumerId -> { consumer, track, socketId, userId }
+
+// Every remote participant's audio (host + any live guests, minus
+// our own track) gets added to this single MediaStream, which the
+// <audio> element plays. This is the actual "everyone can hear the
+// host talk" pipeline.
+const remoteStream = new MediaStream();
+
+// ══════════════════════════════════════════
+// PER-SPEAKER "WHO IS TALKING RIGHT NOW" STATE
+// ══════════════════════════════════════════
+// Unlike `analyser` below (which watches ONE combined signal — the
+// host's own local mic if we are the host, or everyone's mixed
+// audio otherwise), this map watches each remote participant's
+// INDIVIDUAL track separately, keyed by their userId. That's what
+// lets the UI correctly show a wave/glow on the specific guest who
+// is actually speaking — including right after the host mutes
+// themself and hands the mic to a guest — without any special-case
+// logic tied to mute/pause events. It's purely reactive to real
+// audio energy on that person's track.
+const guestTrackAnalysers = new Map(); // userId(string) -> { analyser, dataArray, source, level }
+
+const audioEl = new Audio();
+audioEl.autoplay = true;
+audioEl.playsInline = true;
+audioEl.srcObject = remoteStream;
+
+function $(id) { return document.getElementById(id); }
+
+/* ══════════════════════════════════════════
+   SOCKET
+══════════════════════════════════════════ */
+const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
+console.log("[radio-room socket] Connecting to:", SOCKET_URL);
+
+const socket = io(SOCKET_URL, {
+  transports: ["polling", "websocket"],
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+});
+
+socket.on("connect", () => {
+  console.log("[radio-room socket] ✅ connected. id=", socket.id, "transport=", socket.io.engine.transport.name);
+});
+socket.on("connect_error", (err) => console.error("[radio-room socket] ❌ connect_error:", err.message));
+socket.on("disconnect", (reason) => {
+  console.warn("[radio-room socket] ⚠️ disconnected. reason=", reason);
+  // Clean up any per-speaker analysers so a stale entry doesn't
+  // linger and keep a glow "stuck" on a slot after a hard drop.
+  for (const userId of [...guestTrackAnalysers.keys()]) detachTrackAnalyser(userId);
+});
+
+/* ══════════════════════════════════════════
+   VU METER + WAVEFORM — now driven by REAL audio:
+   the host's own mic (local monitor, zero-latency) if we're the
+   host, or the combined remote stream (host + guests) for everyone
+   else, including guests listening to each other.
+══════════════════════════════════════════ */
+const VU_SEGMENTS = 24;
+const vuMeterEl = $("vu-meter");
+for (let i = 0; i < VU_SEGMENTS; i++) {
+  const seg = document.createElement("div");
+  seg.className = "vu-seg";
+  seg.style.height = "3px";
+  vuMeterEl.appendChild(seg);
+}
+const vuSegs = [...vuMeterEl.children];
+
+const waveCanvas = $("waveform-canvas");
+const waveCtx = waveCanvas.getContext("2d");
+function sizeCanvas() {
+  const rect = waveCanvas.getBoundingClientRect();
+  waveCanvas.width = rect.width * 2;
+  waveCanvas.height = rect.height * 2;
+}
+window.addEventListener("resize", sizeCanvas);
+
+let audioCtx = null, analyser = null, playbackSource = null, playbackGain = null, micAnalyserSource = null, dataArray = null;
+let speakingLevel = 0;
+
+function ensureAudioGraph() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Playback chain — this is what actually makes remote audio
+    // (host + guests) audible. createMediaElementSource takes over
+    // the element's native output, so we must reconnect it to
+    // destination ourselves.
+    playbackSource = audioCtx.createMediaElementSource(audioEl);
+    playbackGain = audioCtx.createGain();
+    playbackSource.connect(playbackGain).connect(audioCtx.destination);
+
+    // Visualization chain (VU meter / waveform)
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+
+    if (isHost && micStream) {
+      // Host sees their OWN mic level, zero-latency — not routed to
+      // destination (that would cause the host to hear themselves).
+      micAnalyserSource = audioCtx.createMediaStreamSource(micStream);
+      micAnalyserSource.connect(analyser);
+    } else {
+      playbackSource.connect(analyser);
+    }
+
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    sizeCanvas();
+    tickAudioViz();
+  } catch (err) {
+    console.warn("[audioGraph] Web Audio analysis unavailable:", err.message);
+  }
+}
+
+let rafHandle = null;
+function tickAudioViz() {
+  rafHandle = requestAnimationFrame(tickAudioViz);
+  if (!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+  const avg = sum / dataArray.length;
+  speakingLevel = speakingLevel * 0.7 + avg * 0.3;
+
+  const litCount = Math.round((speakingLevel / 255) * VU_SEGMENTS);
+  vuSegs.forEach((seg, i) => {
+    const h = 3 + Math.min(1, (i + 1) / VU_SEGMENTS) * 19 * (i < litCount ? 1 : 0.15);
+    seg.style.height = `${h}px`;
+    seg.classList.remove("lit-green", "lit-gold", "lit-red");
+    if (i < litCount) {
+      if (i > VU_SEGMENTS * 0.85) seg.classList.add("lit-red");
+      else if (i > VU_SEGMENTS * 0.6) seg.classList.add("lit-gold");
+      else seg.classList.add("lit-green");
+    }
+  });
+
+  // NOTE: this only drives the shared host-mic-body/pulse-ring/on-air
+  // dot when WE are the host (our own local mic monitor) or as a
+  // fallback for listeners before per-speaker analysers exist. Once
+  // guestTrackAnalysers has an entry for the current host's userId
+  // (i.e. we're a listener/guest consuming the host's real track),
+  // tickGuestSpeakingViz() below takes over driving these same
+  // elements with more accurate per-speaker data, so the two never
+  // fight — whichever last writes in a frame wins, and both agree
+  // when only the host is talking.
+  const speaking = speakingLevel > 14;
+  if (isHost || !guestTrackAnalysers.size) {
+    $("host-mic-body").classList.toggle("speaking", speaking);
+    $("mic-pulse-ring").classList.toggle("active", speaking);
+    $("host-onair-dot").classList.toggle("on", speaking || (isHost && amProducing));
+  }
+
+  waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
+  const w = waveCanvas.width, h = waveCanvas.height, mid = h / 2;
+  const barCount = 48;
+  const step = Math.floor(dataArray.length / barCount);
+  const barW = w / barCount;
+  const grad = waveCtx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, "#ff2d55");
+  grad.addColorStop(0.5, "#a05aff");
+  grad.addColorStop(1, "#00d9b5");
+  waveCtx.fillStyle = grad;
+  for (let i = 0; i < barCount; i++) {
+    const v = dataArray[i * step] / 255;
+    const barH = Math.max(4, v * h * 0.9);
+    waveCtx.fillRect(i * barW + barW * 0.15, mid - barH / 2, barW * 0.7, barH);
+  }
+}
+
+/* ══════════════════════════════════════════
+   PER-SPEAKER ANALYSIS — attach/detach a dedicated AnalyserNode
+   to a single remote participant's track, and a render loop that
+   toggles a `.speaking` class on that person's DOM element (the
+   guest-booth slot, or the host mic rig if the speaking userId is
+   the broadcast host) based on real audio energy.
+══════════════════════════════════════════ */
+function attachTrackAnalyser(userId, track) {
+  if (!userId || !track) return;
+  ensureAudioGraph();
+  if (!audioCtx) return;
+  try {
+    // A single-track MediaStream lets us analyze just this one
+    // person's audio in isolation, independent of the combined
+    // remoteStream used for actual playback.
+    const singleStream = new MediaStream([track]);
+    const source = audioCtx.createMediaStreamSource(singleStream);
+    const analyserNode = audioCtx.createAnalyser();
+    analyserNode.fftSize = 256;
+    source.connect(analyserNode);
+    const buf = new Uint8Array(analyserNode.frequencyBinCount);
+    guestTrackAnalysers.set(String(userId), { analyser: analyserNode, dataArray: buf, source, level: 0 });
+  } catch (err) {
+    console.warn("[attachTrackAnalyser] couldn't analyze track for", userId, err.message);
+  }
+}
+
+function detachTrackAnalyser(userId) {
+  const key = String(userId);
+  const entry = guestTrackAnalysers.get(key);
+  if (!entry) return;
+  try { entry.source.disconnect(); } catch (e) {}
+  guestTrackAnalysers.delete(key);
+
+  // Clear any lingering visual state for this person immediately
+  // rather than waiting for the next tick to notice they're gone.
+  const slotEl = document.querySelector(`.guest-slot[data-uid="${key}"]`);
+  if (slotEl) slotEl.classList.remove("speaking");
+  if (broadcast && key === String(broadcast.host_id) && !guestTrackAnalysers.size) {
+    $("host-mic-body")?.classList.remove("speaking");
+    $("mic-pulse-ring")?.classList.remove("active");
+  }
+}
+
+let guestVizRafHandle = null;
+function tickGuestSpeakingViz() {
+  guestVizRafHandle = requestAnimationFrame(tickGuestSpeakingViz);
+  if (!guestTrackAnalysers.size) return;
+
+  for (const [userId, entry] of guestTrackAnalysers) {
+    entry.analyser.getByteFrequencyData(entry.dataArray);
+    let sum = 0;
+    for (let i = 0; i < entry.dataArray.length; i++) sum += entry.dataArray[i];
+    const avg = sum / entry.dataArray.length;
+    entry.level = entry.level * 0.7 + avg * 0.3;
+    const speaking = entry.level > 12;
+
+    // Guest booth slot for this participant, if they're seated there.
+    const slotEl = document.querySelector(`.guest-slot[data-uid="${userId}"]`);
+    if (slotEl) slotEl.classList.toggle("speaking", speaking);
+
+    // If this track belongs to the broadcast HOST (i.e. we're a
+    // listener/guest consuming the host's real mic), also drive the
+    // main host mic rig — this is what correctly turns the host's
+    // wave OFF the instant they mute/pause, and correctly turns a
+    // guest's wave/pulse ON the instant the host hands off to them.
+    if (broadcast && String(userId) === String(broadcast.host_id)) {
+      $("host-mic-body")?.classList.toggle("speaking", speaking);
+      $("mic-pulse-ring")?.classList.toggle("active", speaking);
+      $("host-onair-dot")?.classList.toggle("on", speaking);
+    }
+  }
+}
+tickGuestSpeakingViz();
+
+/* ══════════════════════════════════════════
+   MEDIASOUP — real audio pipeline
+══════════════════════════════════════════ */
+function socketEmitAsync(event, payload) {
+  return new Promise((resolve, reject) => {
+    socket.emit(event, payload, (res) => {
+      if (res?.error) reject(new Error(res.error));
+      else resolve(res);
+    });
+  });
+}
+
+async function ensureRecvTransport() {
+  if (mediaRecvTransport) return mediaRecvTransport;
+  if (recvTransportPromise) return recvTransportPromise;
+
+  recvTransportPromise = (async () => {
+    const params = await socketEmitAsync("radioCreateRecvTransport", { broadcastId });
+    const transport = device.createRecvTransport({
+      ...params,
+      iceServers: window.__turnConfig || undefined
+    });
+    transport.on("connect", ({ dtlsParameters }, cb, errback) => {
+      socket.emit("radioConnectTransport", { broadcastId, transportId: transport.id, dtlsParameters }, (res) => {
+        if (res?.error) return errback(new Error(res.error));
+        cb();
+      });
+    });
+    mediaRecvTransport = transport;
+    return transport;
+  })();
+
+  return recvTransportPromise;
+}
+
+async function ensureSendTransport() {
+  if (mediaSendTransport) return mediaSendTransport;
+  const params = await socketEmitAsync("radioCreateSendTransport", { broadcastId });
+  const transport = device.createSendTransport({
+    ...params,
+    iceServers: window.__turnConfig || undefined
+  });
+  transport.on("connect", ({ dtlsParameters }, cb, errback) => {
+    socket.emit("radioConnectTransport", { broadcastId, transportId: transport.id, dtlsParameters }, (res) => {
+      if (res?.error) return errback(new Error(res.error));
+      cb();
+    });
+  });
+  transport.on("produce", ({ kind, rtpParameters }, cb, errback) => {
+    socket.emit("radioProduce", { broadcastId, transportId: transport.id, kind, rtpParameters }, (res) => {
+      if (res?.error) return errback(new Error(res.error));
+      cb({ id: res.producerId });
+    });
+  });
+  mediaSendTransport = transport;
+  return transport;
+}
+
+async function consumeProducer({ producerId, socketId }) {
+  if (socketId === socket.id) return; // never consume our own mic
+  try {
+    await deviceLoaded;
+    const transport = await ensureRecvTransport();
+    const params = await socketEmitAsync("radioConsume", {
+      broadcastId, transportId: transport.id, producerId, rtpCapabilities: device.rtpCapabilities
+    });
+
+    const consumer = await transport.consume({
+      id: params.id,
+      producerId: params.producerId,
+      kind: params.kind,
+      rtpParameters: params.rtpParameters
+    });
+
+    consumers.set(consumer.id, { consumer, track: consumer.track, socketId, userId: params.producerUserId });
+    remoteStream.addTrack(consumer.track);
+
+    // Attach a dedicated per-speaker analyser on this participant's
+    // OWN track (separate from the combined remoteStream) so the UI
+    // can show exactly who is talking, not just "someone is".
+    attachTrackAnalyser(params.producerUserId, consumer.track);
+
+    await socketEmitAsync("radioResumeConsumer", { broadcastId, consumerId: consumer.id });
+
+    // Autoplay may be blocked until a user gesture — surface that
+    // rather than silently failing.
+    audioEl.play().catch(() => {
+      showToast("Tap ▶ to enable sound");
+    });
+
+    consumer.on("transportclose", () => {
+      consumers.delete(consumer.id);
+      detachTrackAnalyser(params.producerUserId);
+    });
+  } catch (err) {
+    console.error("[consumeProducer] ❌", err);
+  }
+}
+
+function removeConsumerByProducer(producerId, socketId) {
+  for (const [id, entry] of consumers) {
+    if (entry.socketId === socketId) {
+      try { remoteStream.removeTrack(entry.track); } catch (e) {}
+      try { entry.consumer.close(); } catch (e) {}
+      detachTrackAnalyser(entry.userId);
+      consumers.delete(id);
+    }
+  }
+}
+
+async function startProducingMic() {
+  if (amProducing) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+  } catch (err) {
+    showToast("Microphone access denied — enable it in your browser settings");
+    return;
+  }
+
+  try {
+    const transport = await ensureSendTransport();
+    const track = micStream.getAudioTracks()[0];
+    micProducer = await transport.produce({
+      track,
+      codecOptions: { opusDtx: true, opusFec: true }
+    });
+    amProducing = true;
+    $("onair-sign").classList.add("live");
+    $("host-onair-dot").classList.add("on");
+
+    // Re-run the viz graph now that micStream exists (host case).
+    if (audioCtx) {
+      try { micAnalyserSource?.disconnect(); } catch (e) {}
+      micAnalyserSource = audioCtx.createMediaStreamSource(micStream);
+      micAnalyserSource.connect(analyser);
+    } else {
+      ensureAudioGraph();
+    }
+
+    micProducer.observer.once("close", () => { amProducing = false; });
+  } catch (err) {
+    console.error("[startProducingMic] ❌", err);
+    showToast(err.message || "Couldn't go live on mic");
+    micStream?.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+}
+
+function stopProducingMic() {
+  if (micProducer) { try { micProducer.close(); } catch (e) {} micProducer = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  amProducing = false;
+  socket.emit("radioStopProducing", { broadcastId });
+  $("host-onair-dot").classList.remove("on");
+}
+
+async function initRadioMedia() {
+  try {
+    const res = await socketEmitAsync("radioJoinMedia", { broadcastId });
+
+    device = new mediasoupClient.Device();
+    await device.load({ routerRtpCapabilities: res.rtpCapabilities });
+    deviceLoaded = Promise.resolve();
+
+    // Pull in anyone already live (host and/or guests) before we
+    // start our own mic, so a listener joining mid-show hears them
+    // immediately.
+    for (const p of res.existingProducers || []) {
+      consumeProducer(p);
+    }
+
+    if (isHost) {
+      await startProducingMic();
+    }
+  } catch (err) {
+    console.error("[initRadioMedia] ❌", err);
+    showToast("Couldn't connect the live audio — try refreshing");
+  }
+}
+
+socket.on("radioNewProducer", (info) => {
+  if (info.broadcastId !== broadcastId) return;
+  consumeProducer(info);
+});
+socket.on("radioProducerClosed", ({ broadcastId: bId, producerId, socketId }) => {
+  if (bId !== broadcastId) return;
+  removeConsumerByProducer(producerId, socketId);
+});
+
+/* ══════════════════════════════════════════
+   LOAD BROADCAST
+══════════════════════════════════════════ */
+async function loadBroadcast() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}`);
+    broadcast = res.data;
+    renderBroadcast(broadcast);
+    return broadcast;
+  } catch (err) {
+    console.error("[loadBroadcast] ❌", err);
+    showToast("Couldn't load this broadcast");
+    return null;
+  }
+}
+
+function renderBroadcast(b) {
+  const cover = b.station_cover || `https://ui-avatars.com/api/?name=${encodeURIComponent(b.station_title||"Radio")}&background=ff2d55&color=fff&size=300`;
+  const hostAv = b.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(b.username||"Host")}&size=80`;
+
+  $("station-title").textContent = b.title || b.station_title || "Live Radio";
+  $("topbar-station-title").textContent = b.title || b.station_title || "Live Radio";
+  $("listener-program-title").textContent = b.title || b.station_title || "Live Radio";
+  $("host-avatar").src = hostAv;
+  $("host-name").textContent = b.display_name || b.username || "Host";
+  $("gift-target-name").textContent = b.display_name || b.username || "Host";
+  $("listener-cover").src = cover;
+  $("onair-sign").classList.add("live");
+
+  isHost = String(b.host_id) === String(window.CURRENT_USER?.id);
+  $("control-deck").style.display = isHost ? "block" : "none";
+  if (isHost) $("open-gift-sheet-btn").style.display = "none";
+
+  if (isHost) {
+    $("request-cohost-btn").style.display = "none";
+    $("upload-tab-btn").style.display = "flex";
+    $("np-host-transport").style.display = "flex";
+  }
+
+  if (b.listener_count != null) updateListenerCount(b.listener_count);
+  if (b.started_at) startShowTimer(new Date(b.started_at).getTime());
+}
+
+function updateListenerCount(n) {
+  const val = formatCoins(n || 0);
+  $("listener-count").textContent = val;
+  $("topbar-listener-count").textContent = val;
+  $("deck-listener-count").textContent = val;
+}
+
+let timerHandle = null;
+function startShowTimer(startedAtMs) {
+  if (timerHandle) clearInterval(timerHandle);
+  function tick() {
+    const secs = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+    const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+    const label = h > 0
+      ? `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
+      : `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+    $("show-timer").textContent = label;
+    $("deck-show-timer").textContent = label;
+  }
+  tick();
+  timerHandle = setInterval(tick, 1000);
+}
+
+/* ══════════════════════════════════════════
+   PLAY / MUTE — now controls the mediasoup-fed <audio> element
+   instead of an HLS source.
+══════════════════════════════════════════ */
+function togglePlay() {
+  ensureAudioGraph();
+  if (audioCtx?.state === "suspended") audioCtx.resume();
+
+  if (!isPlaying) {
+    audioEl.play().then(() => {
+      isPlaying = true;
+      $("play-toggle-btn").innerHTML = "⏸";
+    }).catch(err => {
+      console.error("[togglePlay] ❌", err);
+      showToast("Couldn't start playback");
+    });
+  } else {
+    audioEl.pause();
+    isPlaying = false;
+    $("play-toggle-btn").innerHTML = "▶";
+  }
+}
+
+function toggleMute() {
+  isMuted = !isMuted;
+  audioEl.muted = isMuted;
+  $("vol-btn").textContent = isMuted ? "🔇" : "🔊";
+}
+
+/* ══════════════════════════════════════════
+   JOIN / LEAVE
+══════════════════════════════════════════ */
+async function joinBroadcast() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}/join`, { method: "POST" });
+    if (res.data?.listenerCount != null) updateListenerCount(res.data.listenerCount);
+  } catch (err) {
+    console.error("[joinBroadcast] ❌", err);
+    if (err.message?.includes("members-only") || err.message?.includes("subscribe")) showToast(err.message);
+  }
+  socket.emit("joinRadio", { broadcastId, userId: window.CURRENT_USER.id });
+  initRadioMedia();
+}
+async function leaveBroadcast() {
+  stopProducingMic();
+  for (const userId of [...guestTrackAnalysers.keys()]) detachTrackAnalyser(userId);
+  try { await api.request(`/radio/broadcasts/${broadcastId}/leave`, { method: "POST" }); } catch (e) {}
+  socket.emit("leaveRadio", { broadcastId, userId: window.CURRENT_USER.id });
+}
+
+async function toggleFollow() {
+  if (!broadcast?.station_id) return;
+  const btn = $("follow-mini-btn");
+  try {
+    if (!following) {
+      await api.request(`/radio/stations/${broadcast.station_id}/follow`, { method: "POST" });
+      following = true; btn.textContent = "✓"; btn.classList.add("following");
+      showToast("Following station");
+    } else {
+      await api.request(`/radio/stations/${broadcast.station_id}/follow`, { method: "DELETE" });
+      following = false; btn.textContent = "➕"; btn.classList.remove("following");
+    }
+  } catch (err) { showToast(err.message || "Action failed"); }
+}
+
+/* ══════════════════════════════════════════
+   CHAT
+══════════════════════════════════════════ */
+function appendChat({ avatar, name, text, type = "chat" }) {
+  const wrap = $("chat-scroll");
+  const row = document.createElement("div");
+  row.className = `chat-row ${type === "gift" ? "gift" : type === "system" ? "system" : ""}`;
+  row.innerHTML = (type !== "system")
+    ? `<img src="${escapeHtml(avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(name||"U")}&size=40`)}" alt=""><div class="chat-bubble"><span class="uname">${escapeHtml(name||"User")}</span>${escapeHtml(text)}</div>`
+    : `<div class="chat-bubble">${escapeHtml(text)}</div>`;
+  wrap.appendChild(row);
+  while (wrap.children.length > 80) wrap.removeChild(wrap.firstChild);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function sendChat() {
+  const input = $("chat-input");
+  const text = input.value.trim();
+  if (!text || text.length > 200) return;
+  socket.emit("radioComment", {
+    broadcastId, userId: window.CURRENT_USER.id,
+    avatar: window.CURRENT_USER.avatar_url || window.CURRENT_USER.avatarUrl,
+    name: window.CURRENT_USER.username || window.CURRENT_USER.display_name,
+    text
+  });
+  input.value = "";
+}
+
+/* ══════════════════════════════════════════
+   REACTIONS
+══════════════════════════════════════════ */
+function sendReaction(emoji) {
+  socket.emit("radioReaction", { broadcastId, emoji, userId: window.CURRENT_USER.id });
+  spawnParticle(emoji);
+}
+function spawnParticle(emoji) {
+  const layer = $("fx-layer");
+  const el = document.createElement("span");
+  el.className = "fx-particle";
+  el.textContent = emoji;
+  el.style.setProperty("--drift", `${(Math.random()*60-30).toFixed(0)}px`);
+  el.style.setProperty("--rot", `${(Math.random()*30-15).toFixed(0)}deg`);
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 2700);
+}
+
+/* ══════════════════════════════════════════
+   TOP GIFTERS / GIFTS
+══════════════════════════════════════════ */
+async function loadTopGifters() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}/top-gifters`);
+    renderTopGifters(res.data || []);
+  } catch (err) { $("top-gifters-strip").innerHTML = `<span class="label">No gifters yet</span>`; }
+}
+function renderTopGifters(list) {
+  const el = $("top-gifters-strip");
+  if (!list.length) { el.innerHTML = `<span class="label">Be the first to gift 🎁</span>`; return; }
+  el.innerHTML = list.map(u =>
+    `<img src="${escapeHtml(u.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.username)}&size=60`)}" alt="${escapeHtml(u.username)}" title="${escapeHtml(u.username)} · ${formatCoins(u.total)} coins" onerror="this.src='https://i.pravatar.cc/60'">`
+  ).join("") + `<span class="label">Top Gifters</span>`;
+}
+
+/* ══════════════════════════════════════════
+   GIFT CATALOG — same shape as live.js's loadGiftCatalog(): map
+   gift.icon_url → `icon` so gift tiles show the real PNG icon
+   (with an emoji fallback), instead of emoji-only like before.
+══════════════════════════════════════════ */
+async function loadGiftCatalog() {
+  try {
+    const r = await api.request("/gifts");
+    GIFT_LIST = (r.data || []).map(g => ({
+      id: g.id,
+      name: g.name,
+      emoji: g.emoji,
+      icon: g.icon_url || null,
+      price_coins: g.price_coins
+    }));
+  } catch (err) {
+    GIFT_LIST = [
+      { id: "g1", name: "Rose", emoji: "🌹", icon: null, price_coins: 5 },
+      { id: "g2", name: "Heart", emoji: "❤️", icon: null, price_coins: 10 },
+      { id: "g3", name: "Crown", emoji: "👑", icon: null, price_coins: 500 }
+    ];
+  }
+  renderGiftGrid();
+}
+function renderGiftGrid() {
+  const grid = $("gift-modal-grid");
+  grid.innerHTML = GIFT_LIST.map(g => `
+    <div class="gift-tile" data-id="${g.id}">
+      ${g.icon
+        ? `<img class="g-icon-img" src="${escapeHtml(g.icon)}" alt="${escapeHtml(g.name)}" data-fallback-emoji="${escapeHtml(g.emoji || "🎁")}">`
+        : `<span class="g-emoji">${g.emoji || "🎁"}</span>`}
+      <span class="g-name">${escapeHtml(g.name)}</span>
+      <span class="g-price">${g.price_coins}🪙</span>
+    </div>`).join("");
+
+  grid.querySelectorAll(".g-icon-img").forEach(img => {
+    img.addEventListener("error", () => {
+      const span = document.createElement("span");
+      span.className = "g-emoji";
+      span.textContent = img.dataset.fallbackEmoji || "🎁";
+      img.replaceWith(span);
+    }, { once: true });
+  });
+
+  grid.querySelectorAll(".gift-tile").forEach(t => t.addEventListener("click", () => {
+    grid.querySelectorAll(".gift-tile").forEach(x => x.classList.remove("selected"));
+    t.classList.add("selected");
+    selectedGift = GIFT_LIST.find(g => String(g.id) === t.dataset.id);
+    const btn = $("gift-send-btn");
+    btn.disabled = false;
+    btn.textContent = `Send ${selectedGift.emoji||"🎁"} ${selectedGift.name} (${selectedGift.price_coins} coins)`;
+  }));
+}
+function openGiftSheet() { $("gift-balance").textContent = formatCoins(coinBalance); $("gift-backdrop").classList.add("open"); $("gift-sheet").classList.add("open"); }
+function closeGiftSheet() { $("gift-backdrop").classList.remove("open"); $("gift-sheet").classList.remove("open"); }
+async function sendSelectedGift() {
+  if (!selectedGift || !broadcast) return;
+  if (coinBalance < selectedGift.price_coins) { showToast("Not enough coins"); setTimeout(() => window.location.href = "coins.html", 700); return; }
+  try {
+    await api.request("/gifts/send", { method: "POST", body: JSON.stringify({ receiverId: broadcast.host_id, giftId: selectedGift.id, quantity: 1, contextType: "radio_broadcast", contextId: broadcastId }) });
+    coinBalance -= selectedGift.price_coins;
+    persistCurrentUser({ coinBalance, coin_balance: coinBalance });
+    showToast(`🎁 Sent ${selectedGift.name}!`);
+    closeGiftSheet();
+  } catch (err) { showToast(err.message || "Gift failed"); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   GUEST BOOTH — boom-mic grid + host booth sheet + invite flow
+══════════════════════════════════════════════════════════ */
+const GUEST_SLOT_COUNT = 8;
+let myLastCohostStatus = null;
+
+function renderGuestBooth() {
+  const grid = $("guest-booth");
+  const live = cohostRoster.filter(r => r.status === "approved");
+  const slots = [];
+  for (let i = 0; i < GUEST_SLOT_COUNT; i++) slots.push(live[i] || null);
+
+  grid.innerHTML = slots.map((g, i) => {
+    if (!g) {
+      return `<div class="guest-slot empty" data-empty="1">
+        <div class="guest-empty-icon">🎙️</div>
+        <div class="guest-empty-label">${isHost ? "Empty seat" : "Empty"}</div>
+      </div>`;
+    }
+    const av = g.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(g.username||"G")}&size=80`;
+    const live_ = !g.mic_muted;
+    const badgeClass = live_ ? "live" : "muted";
+    const badgeIcon = live_ ? "🔴" : "🔇";
+    const statusLabel = live_ ? "LIVE" : "Muted";
+    return `<div class="guest-slot" data-uid="${g.user_id}">
+      <div class="guest-mic-avatar-wrap">
+        <div class="guest-mic-pulse-ring"></div>
+        <img src="${escapeHtml(av)}" alt="" onerror="this.src='https://i.pravatar.cc/80'">
+        <div class="guest-mic-badge ${badgeClass}">${badgeIcon}</div>
+      </div>
+      <div class="guest-slot-name">${escapeHtml(g.display_name || g.username || "Guest")}</div>
+      <div class="guest-slot-status ${live_ ? "live" : ""}">${statusLabel}</div>
+      <div class="guest-eq"><span></span><span></span><span></span></div>
+      ${isHost ? `
+        <div class="guest-mini-controls">
+          <button class="gm-mic ${live_ ? "active" : ""}" data-uid="${g.user_id}" data-muted="${g.mic_muted}" title="${live_ ? "Mute" : "Go live"}">${live_ ? "🔊" : "🎙️"}</button>
+          <button class="gm-lock ${g.mic_locked ? "active" : ""}" data-uid="${g.user_id}" data-locked="${g.mic_locked}" title="Lock mic">${g.mic_locked ? "🔒" : "🔓"}</button>
+          <button class="gm-remove danger" data-uid="${g.user_id}" title="Remove">✕</button>
+        </div>` : ""}
+    </div>`;
+  }).join("");
+
+  if (isHost) {
+    grid.querySelectorAll(".guest-slot.empty").forEach(el => el.addEventListener("click", () => openGuestBoothSheet()));
+    grid.querySelectorAll(".gm-mic").forEach(btn => btn.addEventListener("click", () => {
+      const wasMuted = btn.dataset.muted === "true";
+      const targetUserId = btn.dataset.uid;
+      socket.emit("radioSetGuestMic", { broadcastId, targetUserId, muted: !wasMuted }, (res) => {
+        if (res?.error) showToast(res.error);
+      });
+      // Also pause/resume the real mediasoup producer for that guest.
+      socket.emit("radioSetProducerPaused", { broadcastId, targetUserId, paused: !wasMuted });
+    }));
+    grid.querySelectorAll(".gm-lock").forEach(btn => btn.addEventListener("click", () => {
+      const wasLocked = btn.dataset.locked === "true";
+      socket.emit("radioSetGuestLock", { broadcastId, targetUserId: btn.dataset.uid, locked: !wasLocked }, (res) => {
+        if (res?.error) showToast(res.error);
+      });
+    }));
+    grid.querySelectorAll(".gm-remove").forEach(btn => btn.addEventListener("click", () => {
+      if (!confirm("Remove this guest from the booth?")) return;
+      socket.emit("radioKickCohost", { broadcastId, targetUserId: btn.dataset.uid });
+    }));
+  }
+
+  // Guest request badge on the control deck
+  const pendingCount = cohostRoster.filter(r => r.status === "pending").length;
+  const badge = $("guest-req-badge");
+  if (isHost && pendingCount > 0) { badge.style.display = "inline"; } else { badge.style.display = "none"; }
+
+  // Non-host "Request Mic" button state
+  if (!isHost) {
+    const mine = cohostRoster.find(r => String(r.user_id) === String(window.CURRENT_USER?.id));
+    const reqBtn = $("request-cohost-btn");
+    reqBtn.classList.remove("pending");
+    const icEl = reqBtn.querySelector(".ic");
+    const textNode = reqBtn.childNodes[reqBtn.childNodes.length - 1];
+    if (mine?.status === "approved") { icEl.textContent = "✅"; textNode.textContent = "On air"; }
+    else if (mine?.status === "pending") { reqBtn.classList.add("pending"); icEl.textContent = "⏳"; textNode.textContent = "Requested"; }
+    else if (mine?.status === "invited") { icEl.textContent = "🎙️"; textNode.textContent = "Invited!"; }
+    else { icEl.textContent = "🎙️"; textNode.textContent = "Request Mic"; }
+
+    // ── This is what actually makes an approved guest transmit ──
+    if (mine?.status === "approved" && myLastCohostStatus !== "approved") {
+      startProducingMic();
+    } else if (mine?.status !== "approved" && myLastCohostStatus === "approved") {
+      stopProducingMic();
+    }
+    myLastCohostStatus = mine?.status || null;
+  }
+}
+
+function requestCohost() {
+  if (isHost) return;
+  const mine = cohostRoster.find(r => String(r.user_id) === String(window.CURRENT_USER?.id));
+  if (mine?.status === "invited") { openInviteModal({ broadcastId, hostName: broadcast?.display_name || broadcast?.username }); return; }
+  if (mine?.status === "pending") return;
+  socket.emit("radioRequestCohost", { broadcastId, userId: window.CURRENT_USER.id }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("Request sent — waiting for host");
+  });
+}
+
+/* ── Guest booth sheet (host) ── */
+let gbActiveTab = "requests";
+function openGuestBoothSheet() {
+  $("guest-booth-backdrop").classList.add("open");
+  $("guest-booth-sheet").classList.add("open");
+  switchGbTab(gbActiveTab);
+  renderGuestBoothSheet();
+}
+function closeGuestBoothSheet() { $("guest-booth-backdrop").classList.remove("open"); $("guest-booth-sheet").classList.remove("open"); }
+function switchGbTab(tab) {
+  gbActiveTab = tab;
+  document.querySelectorAll(".gb-tab-btn").forEach(b => b.classList.toggle("active", b.dataset.gbtab === tab));
+  document.querySelectorAll(".gb-panel").forEach(p => p.classList.remove("active"));
+  $(`gb-panel-${tab}`).classList.add("active");
+}
+document.querySelectorAll(".gb-tab-btn").forEach(btn => btn.addEventListener("click", () => switchGbTab(btn.dataset.gbtab)));
+
+function renderGuestBoothSheet() {
+  const requests = cohostRoster.filter(r => r.status === "pending");
+  const invited = cohostRoster.filter(r => r.status === "invited");
+  const live = cohostRoster.filter(r => r.status === "approved");
+
+  $("gb-panel-requests").innerHTML = requests.length ? requests.map(r => guestRowHtml(r, "request")).join("") : `<div class="gb-empty-hint">No requests yet</div>`;
+  $("gb-panel-invited").innerHTML = invited.length ? invited.map(r => guestRowHtml(r, "invited")).join("") : `<div class="gb-empty-hint">No pending invites</div>`;
+  $("gb-panel-live").innerHTML = live.length ? live.map(r => guestRowHtml(r, "live")).join("") : `<div class="gb-empty-hint">No guests live yet</div>`;
+
+  $("gb-panel-requests").querySelectorAll("[data-approve]").forEach(btn => btn.addEventListener("click", () => {
+    socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.approve, action: "approve" });
+  }));
+  $("gb-panel-requests").querySelectorAll("[data-reject]").forEach(btn => btn.addEventListener("click", () => {
+    socket.emit("radioRespondCohost", { broadcastId, targetUserId: btn.dataset.reject, action: "reject" });
+  }));
+  $("gb-panel-live").querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => {
+    socket.emit("radioKickCohost", { broadcastId, targetUserId: btn.dataset.remove });
+  }));
+}
+function guestRowHtml(r, kind) {
+  const av = r.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(r.username||"G")}&size=60`;
+  const name = escapeHtml(r.display_name || r.username || "User");
+  let actions = "";
+  if (kind === "request") actions = `<button class="gb-approve-btn" data-approve="${r.user_id}">Approve</button><button class="gb-reject-btn" data-reject="${r.user_id}">Reject</button>`;
+  if (kind === "invited") actions = `<span class="gs">Awaiting response…</span>`;
+  if (kind === "live") actions = `<button class="gb-reject-btn" data-remove="${r.user_id}">Remove</button>`;
+  return `<div class="gb-row"><img src="${escapeHtml(av)}" onerror="this.src='https://i.pravatar.cc/60'"><span class="gn">${name}</span>${actions}</div>`;
+}
+
+$("invite-send-btn").addEventListener("click", () => {
+  const username = $("invite-username-input").value.trim();
+  if (!username) { showToast("Enter a username"); return; }
+  socket.emit("radioInviteGuest", { broadcastId, username }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast(`Invite sent to @${res.invited?.username || username}`);
+    $("invite-username-input").value = "";
+    switchGbTab("invited");
+  });
+});
+
+/* ── Invite modal (invited user side) ── */
+function openInviteModal({ hostName }) {
+  $("invite-modal-body").textContent = `${hostName || "The host"} invites you to join the live radio show as a guest speaker.`;
+  $("invite-modal-backdrop").classList.add("show");
+}
+function closeInviteModal() { $("invite-modal-backdrop").classList.remove("show"); }
+$("invite-accept-btn").addEventListener("click", () => {
+  socket.emit("radioRespondInvite", { broadcastId, action: "accept" }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("You're in the guest booth! The host will bring your mic live.");
+    closeInviteModal();
+  });
+});
+$("invite-decline-btn").addEventListener("click", () => {
+  socket.emit("radioRespondInvite", { broadcastId, action: "decline" }, () => closeInviteModal());
+});
+
+/* ══════════════════════════════════════════════════════════
+   MUSIC SYSTEM — search / requests / queue / upload
+══════════════════════════════════════════════════════════ */
+let musicActiveTab = "search";
+let pendingRequests = [];
+let queueState = { queue: [], nowPlaying: null };
+let npTicker = null;
+let myVotedRequestIds = new Set();
+
+function openMusicSheet(tab = "search") {
+  $("music-backdrop").classList.add("open");
+  $("music-sheet").classList.add("open");
+  switchMusicTab(tab);
+  loadRequests();
+  refreshQueueSnapshot();
+}
+function closeMusicSheet() { $("music-backdrop").classList.remove("open"); $("music-sheet").classList.remove("open"); }
+function switchMusicTab(tab) {
+  musicActiveTab = tab;
+  document.querySelectorAll(".music-tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".music-panel").forEach(p => p.classList.remove("active"));
+  $(`panel-${tab}`)?.classList.add("active");
+}
+document.querySelectorAll(".music-tab-btn").forEach(btn => btn.addEventListener("click", () => switchMusicTab(btn.dataset.tab)));
+
+async function searchMusic() {
+  const q = $("music-search-input").value.trim();
+  const provider = $("music-search-provider").value;
+  const list = $("search-results-list");
+  list.innerHTML = `<div class="music-empty-hint">Searching…</div>`;
+  try {
+    const qs = new URLSearchParams({ provider });
+    if (q) qs.set("q", q);
+    const res = await api.request(`/radio/music-library/search?${qs.toString()}`);
+    renderSearchResults(res.data || []);
+  } catch (err) { list.innerHTML = `<div class="music-empty-hint">Search failed — try again</div>`; }
+}
+function renderSearchResults(results) {
+  const list = $("search-results-list");
+  if (!results.length) { list.innerHTML = `<div class="music-empty-hint">No matches — try a different search or request a song by name below</div>`; return; }
+  list.innerHTML = results.map((r, i) => {
+    const cover = r.coverUrl || "";
+    const tag = r.provider === "jamendo" ? `<span class="song-result-tag">JAMENDO</span>` : "";
+    return `<div class="song-result-row" data-idx="${i}">
+      ${cover ? `<img class="song-result-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="song-result-cover"></div>`}
+      <div class="song-result-info"><div class="song-result-title">${escapeHtml(r.title || "Untitled")}${tag}</div><div class="song-result-artist">${escapeHtml(r.artist || "Unknown artist")}</div></div>
+      <div class="song-result-actions"><button class="btn-request" data-action="request" data-idx="${i}">Request</button>${isHost ? `<button class="btn-queue" data-action="queue" data-idx="${i}">+ Queue</button>` : ""}</div>
+    </div>`;
+  }).join("");
+  list.querySelectorAll("[data-action]").forEach(btn => btn.addEventListener("click", () => {
+    const r = results[Number(btn.dataset.idx)];
+    if (btn.dataset.action === "request") requestSongFromResult(r); else addResultToQueue(r);
+  }));
+}
+async function requestSongFromResult(result) {
+  try {
+    const body = result.provider === "local" ? { songId: result.id } : { externalProvider: result.provider, externalTrackId: result.id };
+    await api.request(`/radio/broadcasts/${broadcastId}/requests`, { method: "POST", body: JSON.stringify(body) });
+    showToast(`Requested "${result.title}" 🎵`);
+    switchMusicTab("requests"); loadRequests();
+  } catch (err) { showToast(err.message || "Couldn't send request"); }
+}
+async function addResultToQueue(result) {
+  if (!isHost) return;
+  try {
+    const body = result.provider === "local" ? { songId: result.id } : { externalProvider: result.provider, externalTrackId: result.id };
+    await api.request(`/radio/broadcasts/${broadcastId}/queue`, { method: "POST", body: JSON.stringify(body) });
+    showToast(`Added "${result.title}" to queue`); switchMusicTab("queue");
+  } catch (err) { showToast(err.message || "Couldn't add to queue"); }
+}
+$("open-freeform-btn").addEventListener("click", () => { const form = $("freeform-form"); form.style.display = form.style.display === "none" ? "block" : "none"; });
+async function sendSongRequest() {
+  const songName = $("request-song").value.trim();
+  const artistName = $("request-artist").value.trim();
+  if (!songName) { showToast("Enter a song name"); return; }
+  const btn = $("request-send-btn"); btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    await api.request(`/radio/broadcasts/${broadcastId}/requests`, { method: "POST", body: JSON.stringify({ songName, artistName }) });
+    showToast("Request sent 🎵");
+    $("request-song").value = ""; $("request-artist").value = ""; $("freeform-form").style.display = "none";
+    switchMusicTab("requests"); loadRequests();
+  } catch (err) { showToast(err.message || "Request failed"); }
+  finally { btn.disabled = false; btn.textContent = "Send Request"; }
+}
+async function loadRequests() {
+  try {
+    const res = await api.request(`/radio/broadcasts/${broadcastId}/requests?status=pending`);
+    pendingRequests = res.data || [];
+    renderRequestsList(); updateRequestBadges();
+  } catch (err) { $("requests-list").innerHTML = `<div class="music-empty-hint">Couldn't load requests</div>`; }
+}
+function updateRequestBadges() {
+  const count = pendingRequests.length;
+  const badge1 = $("requests-tab-badge"), badge2 = $("music-action-badge");
+  if (isHost && count > 0) { badge1.style.display = "flex"; badge1.textContent = count; badge2.style.display = "flex"; badge2.textContent = count; }
+  else { badge1.style.display = "none"; badge2.style.display = "none"; }
+}
+function renderRequestsList() {
+  const wrap = $("requests-list");
+  if (!pendingRequests.length) { wrap.innerHTML = `<div class="music-empty-hint">No pending requests yet</div>`; return; }
+  wrap.innerHTML = pendingRequests.map(r => {
+    const voted = myVotedRequestIds.has(String(r.id));
+    return `<div class="request-row" data-id="${r.id}">
+      <button class="request-vote-btn ${voted ? "voted" : ""}" data-vote="${r.id}">▲<span class="vcount">${r.vote_count || 0}</span></button>
+      <div class="request-info"><div class="request-title">${escapeHtml(r.song_name || r.title || "Untitled")}</div><div class="request-meta">${escapeHtml(r.artist_name || r.artist || "")} · requested by ${escapeHtml(r.username || "someone")}</div></div>
+      ${isHost ? `<div class="request-host-actions"><button class="btn-approve" data-approve="${r.id}">✓</button><button class="btn-reject" data-reject="${r.id}">✕</button></div>` : ""}
+    </div>`;
+  }).join("");
+  wrap.querySelectorAll("[data-vote]").forEach(btn => btn.addEventListener("click", () => voteOnRequest(btn.dataset.vote)));
+  wrap.querySelectorAll("[data-approve]").forEach(btn => btn.addEventListener("click", () => approveRequest(btn.dataset.approve)));
+  wrap.querySelectorAll("[data-reject]").forEach(btn => btn.addEventListener("click", () => rejectRequest(btn.dataset.reject)));
+}
+async function voteOnRequest(requestId) {
+  if (myVotedRequestIds.has(String(requestId))) return;
+  try { await api.request(`/radio/broadcasts/requests/${requestId}/vote`, { method: "POST" }); myVotedRequestIds.add(String(requestId)); }
+  catch (err) { showToast(err.message || "Couldn't vote"); }
+}
+async function approveRequest(requestId) {
+  try { await api.request(`/radio/broadcasts/requests/${requestId}/approve`, { method: "POST" }); showToast("Approved — added to queue ✓"); loadRequests(); switchMusicTab("queue"); refreshQueueSnapshot(); }
+  catch (err) { showToast(err.message || "Couldn't approve — attach a library match first"); }
+}
+async function rejectRequest(requestId) {
+  try { await api.request(`/radio/broadcasts/requests/${requestId}/reject`, { method: "POST" }); showToast("Request declined"); loadRequests(); }
+  catch (err) { showToast(err.message || "Couldn't decline request"); }
+}
+
+function refreshQueueSnapshot() {
+  socket.emit("radioGetQueueSnapshot", { broadcastId }, (res) => {
+    if (res?.error) return;
+    if (res?.ok) { queueState = { queue: res.queue || [], nowPlaying: res.nowPlaying || null }; renderQueueTab(); renderNowPlayingBar(); }
+  });
+}
+function renderQueueTab() {
+  const nowWrap = $("queue-now-wrap");
+  const np = queueState.nowPlaying;
+  if (np) {
+    const cover = np.cover_url || "";
+    nowWrap.innerHTML = `<div class="queue-now-card">
+      ${cover ? `<img class="queue-now-cover" src="${escapeHtml(cover)}" alt="">` : `<div class="queue-now-cover" style="background:linear-gradient(135deg, rgba(255,45,85,.3), rgba(160,90,255,.25));"></div>`}
+      <div class="queue-now-info"><div class="queue-now-title">▶ ${escapeHtml(np.title || "Now playing")}</div><div class="queue-now-artist">${escapeHtml(np.artist || "")}</div></div>
+      ${isHost ? `<div class="queue-transport-row"><button id="qt-pause-btn" title="Pause/Resume">${np.is_paused ? "▶" : "⏸"}</button><button id="qt-next-btn" title="Skip to next">⏭</button></div>` : ""}
+    </div>`;
+    $("qt-pause-btn")?.addEventListener("click", () => togglePausePlayback(np.is_paused));
+    $("qt-next-btn")?.addEventListener("click", playNextInQueue);
+  } else {
+    nowWrap.innerHTML = isHost ? `<div class="music-empty-hint">Nothing playing — approve a request or add from Search, then tap Next ⏭</div>` : `<div class="music-empty-hint">Nothing queued right now</div>`;
+  }
+  const list = $("queue-list");
+  if (!queueState.queue.length) { list.innerHTML = `<div class="music-empty-hint">Queue is empty</div>`; return; }
+  list.innerHTML = queueState.queue.map((item, i) => `
+    <div class="queue-item-row" data-item-id="${item.id}">
+      <div class="queue-item-pos">${i + 1}</div>
+      <div class="queue-item-info"><div class="queue-item-title">${escapeHtml(item.title || "Untitled")}</div><div class="queue-item-artist">${escapeHtml(item.artist || "")}</div></div>
+      ${isHost ? `<div class="queue-item-actions"><button data-up="${item.id}" ${i === 0 ? "disabled" : ""} title="Move up">▲</button><button data-down="${item.id}" ${i === queueState.queue.length - 1 ? "disabled" : ""} title="Move down">▼</button><button class="danger" data-remove="${item.id}" title="Remove">✕</button></div>` : ""}
+    </div>`).join("");
+  if (isHost) {
+    list.querySelectorAll("[data-up]").forEach(btn => btn.addEventListener("click", () => moveQueueItem(btn.dataset.up, -1)));
+    list.querySelectorAll("[data-down]").forEach(btn => btn.addEventListener("click", () => moveQueueItem(btn.dataset.down, 1)));
+    list.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => removeQueueItem(btn.dataset.remove)));
+  }
+}
+function renderNowPlayingBar() {
+  const bar = $("now-playing-bar");
+  const np = queueState.nowPlaying;
+  if (npTicker) { clearInterval(npTicker); npTicker = null; }
+  if (!np) { bar.classList.remove("show"); return; }
+  bar.classList.add("show");
+  $("np-cover").src = np.cover_url || "";
+  $("np-title").textContent = np.title || "Now playing";
+  $("np-artist").textContent = np.artist || "";
+  const duration = Number(np.duration_seconds) || 0;
+  const startedAt = np.started_at ? new Date(np.started_at).getTime() : Date.now();
+  function tick() {
+    if (!duration) { $("np-progress-fill").style.width = "0%"; return; }
+    const elapsed = np.is_paused ? (np.position_seconds || 0) : (Date.now() - startedAt) / 1000;
+    const pct = Math.max(0, Math.min(100, (elapsed / duration) * 100));
+    $("np-progress-fill").style.width = pct + "%";
+  }
+  tick(); npTicker = setInterval(tick, 1000);
+  if (isHost) { $("np-host-transport").style.display = "flex"; $("np-pause-btn").textContent = np.is_paused ? "▶" : "⏸"; }
+}
+async function moveQueueItem(itemId, direction) {
+  const idx = queueState.queue.findIndex(q => String(q.id) === String(itemId));
+  if (idx === -1) return;
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= queueState.queue.length) return;
+  const reordered = [...queueState.queue];
+  [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
+  const orderedItemIds = reordered.map(q => q.id);
+  try { await api.request(`/radio/broadcasts/${broadcastId}/queue/reorder`, { method: "PATCH", body: JSON.stringify({ orderedItemIds }) }); }
+  catch (err) { showToast(err.message || "Couldn't reorder queue"); }
+}
+async function removeQueueItem(itemId) {
+  try { await api.request(`/radio/broadcasts/${broadcastId}/queue/${itemId}`, { method: "DELETE" }); showToast("Removed from queue"); }
+  catch (err) { showToast(err.message || "Couldn't remove from queue"); }
+}
+async function playNextInQueue() {
+  try { await api.request(`/radio/broadcasts/${broadcastId}/next`, { method: "POST" }); }
+  catch (err) { showToast(err.message || "Couldn't skip to next track"); }
+}
+async function togglePausePlayback(currentlyPaused) {
+  try { await api.request(`/radio/broadcasts/${broadcastId}/${currentlyPaused ? "resume" : "pause"}`, { method: "POST" }); }
+  catch (err) { showToast(err.message || "Couldn't update playback"); }
+}
+$("np-pause-btn")?.addEventListener("click", () => togglePausePlayback(queueState.nowPlaying?.is_paused));
+$("np-next-btn")?.addEventListener("click", playNextInQueue);
+
+let selectedUploadFile = null;
+$("upload-drop").addEventListener("click", () => $("upload-file-input").click());
+$("upload-file-input").addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  selectedUploadFile = file;
+  $("upload-drop").classList.add("has-file");
+  $("upload-drop-text").textContent = `✓ ${file.name} (${(file.size / (1024*1024)).toFixed(1)}MB)`;
+  if (!$("upload-title").value.trim()) $("upload-title").value = file.name.replace(/\.[^/.]+$/, "");
+});
+async function submitUpload() {
+  const title = $("upload-title").value.trim();
+  const artist = $("upload-artist").value.trim();
+  if (!selectedUploadFile) { showToast("Choose an audio file first"); return; }
+  if (!title) { showToast("Give the song a title"); return; }
+  const btn = $("upload-submit-btn"); btn.disabled = true; btn.textContent = "Uploading…";
+  $("upload-progress-track").classList.add("show"); $("upload-status-text").classList.add("show"); $("upload-status-text").textContent = "Uploading file…";
+  try {
+    const formData = new FormData();
+    formData.append("audio", selectedUploadFile);
+    formData.append("title", title);
+    if (artist) formData.append("artist", artist);
+    if (broadcast?.station_id) formData.append("stationId", broadcast.station_id);
+    const accessToken = localStorage.getItem("accessToken");
+    const uploadRes = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${window.API_BASE_URL}/radio/music-library/songs/upload`);
+      xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+      xhr.upload.onprogress = (evt) => { if (evt.lengthComputable) $("upload-progress-fill").style.width = Math.round((evt.loaded / evt.total) * 100) + "%"; };
+      xhr.onload = () => { try { const data = JSON.parse(xhr.responseText); if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(new Error(data.message || "Upload failed")); } catch (e) { reject(new Error("Upload failed")); } };
+      xhr.onerror = () => reject(new Error("Upload failed — network error"));
+      xhr.send(formData);
+    });
+    $("upload-status-text").textContent = "Processing audio (this can take a moment)…";
+    await pollUploadStatus(uploadRes.data.id);
+  } catch (err) { showToast(err.message || "Upload failed"); $("upload-status-text").textContent = "Upload failed — try again"; }
+  finally { btn.disabled = false; btn.textContent = "Upload Song"; }
+}
+async function pollUploadStatus(songId) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const res = await api.request(`/radio/music-library/songs/${songId}`);
+      const song = res.data;
+      if (song.status === "ready") {
+        $("upload-status-text").textContent = "✓ Ready! You can now add it to the queue from Search.";
+        $("upload-progress-fill").style.width = "100%";
+        showToast("Song processed and ready 🎉");
+        selectedUploadFile = null;
+        $("upload-drop").classList.remove("has-file");
+        $("upload-drop-text").textContent = "Tap to choose an audio file (mp3, m4a, wav, flac — up to 100MB)";
+        $("upload-title").value = ""; $("upload-artist").value = "";
+        return;
+      }
+      if (song.status === "failed") { $("upload-status-text").textContent = "Processing failed — the file may be corrupt or an unsupported format."; return; }
+    } catch (err) {}
+  }
+  $("upload-status-text").textContent = "Still processing — check back in Search shortly.";
+}
+
+/* ══════════════════════════════════════════════════════════
+   LIVE POLLS
+══════════════════════════════════════════════════════════ */
+let activePoll = null;
+function renderPoll(poll) {
+  activePoll = poll;
+  const widget = $("poll-widget");
+  if (!poll) { widget.classList.remove("show"); return; }
+  if (poll.status === "closed") { widget.classList.add("show"); renderPollHtml(poll, true); setTimeout(() => { widget.classList.remove("show"); }, 4000); return; }
+  widget.classList.add("show"); renderPollHtml(poll, false);
+}
+function renderPollHtml(poll, closed) {
+  const widget = $("poll-widget");
+  const total = poll.totalVotes || 0;
+  const myVote = poll.myVote;
+  widget.innerHTML = `<div class="poll-question">📊 ${escapeHtml(poll.question)}${closed ? " (closed)" : ""}</div>
+    ${poll.options.map((opt, i) => {
+      const count = poll.votes?.[i] || 0;
+      const pct = total ? Math.round((count / total) * 100) : 0;
+      const voted = myVote === i;
+      return `<div class="poll-option ${voted ? "voted" : ""}" data-idx="${i}"><div class="poll-option-bar" style="width:${pct}%"></div><div class="poll-option-label"><span>${escapeHtml(opt)}</span><span>${pct}%</span></div></div>`;
+    }).join("")}
+    <div class="poll-total">${formatCoins(total)} vote${total===1?"":"s"}</div>
+    ${isHost && !closed ? `<button class="poll-close-btn" id="poll-close-inline-btn">Close poll</button>` : ""}`;
+  if (!closed) {
+    widget.querySelectorAll(".poll-option").forEach(el => el.addEventListener("click", () => {
+      if (isHost) return;
+      socket.emit("radioVotePoll", { broadcastId, pollId: poll.id, optionIndex: Number(el.dataset.idx), userId: window.CURRENT_USER.id });
+    }));
+  }
+  $("poll-close-inline-btn")?.addEventListener("click", () => socket.emit("radioClosePoll", { broadcastId, pollId: poll.id }));
+}
+function openCreatePollSheet() { $("create-poll-backdrop").classList.add("open"); $("create-poll-sheet").classList.add("open"); }
+function closeCreatePollSheet() { $("create-poll-backdrop").classList.remove("open"); $("create-poll-sheet").classList.remove("open"); }
+function submitCreatePoll() {
+  const question = $("poll-question").value.trim();
+  const options = ["poll-opt-0", "poll-opt-1", "poll-opt-2", "poll-opt-3"].map(id => $(id).value.trim()).filter(Boolean);
+  if (!question) { showToast("Enter a question"); return; }
+  if (options.length < 2) { showToast("Add at least 2 options"); return; }
+  socket.emit("radioCreatePoll", { broadcastId, question, options }, (res) => {
+    if (res?.error) { showToast(res.error); return; }
+    showToast("Poll started 📊");
+    closeCreatePollSheet();
+    ["poll-question","poll-opt-0","poll-opt-1","poll-opt-2","poll-opt-3"].forEach(id => { if ($(id)) $(id).value = ""; });
+  });
+}
+
+/* ══════════════════════════════════════════════════════════
+   CONTROL DECK — master mute, sliders, jingles, SFX pad,
+   commercial break, recording toggle
+══════════════════════════════════════════════════════════ */
+function synthTone(freq, duration, type = "sine", gainPeak = 0.25) {
+  try {
+    ensureAudioGraph();
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(gainPeak, audioCtx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+  } catch (e) {}
+}
+const SFX_PLAYERS = {
+  applause: () => { [400,500,600,700].forEach((f,i) => setTimeout(() => synthTone(f, .4, "triangle", .12), i*40)); },
+  airhorn: () => { synthTone(220, .8, "sawtooth", .2); },
+  drumroll: () => { for (let i=0;i<14;i++) setTimeout(() => synthTone(140, .08, "square", .1), i*60); },
+  cheer: () => { [523,659,784].forEach((f,i) => setTimeout(() => synthTone(f, .5, "triangle", .15), i*60)); },
+  laugh: () => { [300,340,300,340].forEach((f,i) => setTimeout(() => synthTone(f, .18, "sine", .15), i*120)); },
+  boo: () => { synthTone(160, .9, "sawtooth", .12); }
+};
+const SFX_LABELS = { applause: "👏 Applause", airhorn: "📯 Air Horn", drumroll: "🥁 Drum Roll", cheer: "🎉 Cheer", laugh: "😂 Laugh", boo: "😱 Boo" };
+function playSfxLocally(effect) { SFX_PLAYERS[effect]?.(); spawnParticle(SFX_LABELS[effect]?.split(" ")[0] || "🎵"); }
+
+document.querySelectorAll(".sfx-btn").forEach(btn => btn.addEventListener("click", () => {
+  const effect = btn.dataset.effect;
+  playSfxLocally(effect);
+  socket.emit("radioSoundEffect", { broadcastId, effect }, (res) => { if (res?.error) showToast(res.error); });
+  appendChat({ type: "system", text: `🔊 ${SFX_LABELS[effect]} played` });
+}));
+
+$("intro-jingle-btn").addEventListener("click", () => {
+  [523,659,784,1046].forEach((f,i) => setTimeout(() => synthTone(f, .3, "triangle", .18), i*90));
+  appendChat({ type: "system", text: "🎶 Intro jingle played" });
+});
+$("outro-jingle-btn").addEventListener("click", () => {
+  [784,659,523].forEach((f,i) => setTimeout(() => synthTone(f, .35, "triangle", .18), i*110));
+  appendChat({ type: "system", text: "🎶 Outro jingle played" });
+});
+
+$("master-mute-btn").addEventListener("click", () => {
+  masterMuted = !masterMuted;
+  const btn = $("master-mute-btn");
+  btn.textContent = masterMuted ? "🔇 Muted" : "🎙️ Live";
+  btn.classList.toggle("muted-state", masterMuted);
+  $("host-onair-dot").classList.toggle("on", !masterMuted);
+  // Master mute now actually pauses/resumes the host's real producer.
+  if (micProducer) {
+    try { masterMuted ? micProducer.pause() : micProducer.resume(); } catch (e) {}
+  }
+});
+
+$("music-vol-slider").addEventListener("input", (e) => { $("music-vol-val").textContent = `${e.target.value}%`; if (playbackGain) playbackGain.gain.value = Number(e.target.value) / 100; });
+$("guest-vol-slider").addEventListener("input", (e) => { $("guest-vol-val").textContent = `${e.target.value}%`; });
+$("bg-music-toggle-btn").addEventListener("click", (e) => { bgMusicOn = !bgMusicOn; e.target.textContent = bgMusicOn ? "On" : "Off"; e.target.classList.toggle("on", bgMusicOn); });
+
+$("rec-indicator").addEventListener("click", () => {
+  recording = !recording;
+  $("rec-indicator").classList.toggle("on", recording);
+  $("rec-label").textContent = recording ? "Recording" : "Not recording";
+  appendChat({ type: "system", text: recording ? "⏺️ Host started recording this show" : "⏹️ Recording stopped" });
+});
+
+$("commercial-break-btn").addEventListener("click", () => { socket.emit("radioCommercialBreak", { broadcastId, seconds: 30 }); });
+
+function runCommercialBreak(seconds) {
+  clearInterval(commercialTimerHandle);
+  let remaining = seconds;
+  $("commercial-overlay").classList.add("show");
+  $("commercial-timer").textContent = `0:${String(remaining).padStart(2,"0")}`;
+  commercialTimerHandle = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) { clearInterval(commercialTimerHandle); $("commercial-overlay").classList.remove("show"); return; }
+    $("commercial-timer").textContent = remaining >= 60 ? `${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,"0")}` : `0:${String(remaining).padStart(2,"0")}`;
+  }, 1000);
+}
+
+/* ══════════════════════════════════════════════════════════
+   END BROADCAST
+══════════════════════════════════════════════════════════ */
+async function endBroadcast() {
+  if (!confirm("End this broadcast for all listeners?")) return;
+  try {
+    stopProducingMic();
+    await api.request(`/radio/broadcasts/${broadcastId}/end`, { method: "POST" });
+    socket.emit("radioEnded", { broadcastId });
+    window.location.href = "radio-discover.html";
+  } catch (err) { showToast(err.message || "Couldn't end broadcast"); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   SOCKET EVENTS
+══════════════════════════════════════════════════════════ */
+socket.on("connect", () => {
+  if (window.CURRENT_USER?.id) socket.emit("registerUser", window.CURRENT_USER.id);
+  joinBroadcast();
+  refreshQueueSnapshot();
+});
+socket.on("listenerCountUpdated", ({ listenerCount }) => updateListenerCount(listenerCount));
+socket.on("newRadioComment", (payload) => {
+  if (payload.system) { appendChat({ type: "system", text: payload.text }); return; }
+  appendChat({ avatar: payload.avatar, name: payload.name, text: payload.text });
+});
+socket.on("newRadioReaction", ({ emoji }) => spawnParticle(emoji));
+
+/* ══════════════════════════════════════════════════════════
+   GIFT RECEIVED — same wiring as live.js's "giftReceived":
+   chat bubble + top-gifters refresh (unchanged), PLUS the two
+   lines that were missing and are the actual cause of "gifts
+   don't animate on radio": playGift() on the shared engine, and
+   dispatching giftLanded so anything else listening for it (e.g.
+   future combo/streak UI) still works the same as on livestream.
+══════════════════════════════════════════════════════════ */
+socket.on("radioGiftReceived", (payload) => {
+  appendChat({ avatar: payload.avatar, name: payload.name, text: `sent ${payload.giftEmoji||"🎁"} ${payload.giftName}`, type: "gift" });
+  loadTopGifters();
+  window.__giftEngine?.playGift(payload);
+  window.dispatchEvent(new CustomEvent("giftLanded", { detail: payload }));
+});
+
+socket.on("topRadioGiftersUpdated", (list) => renderTopGifters(list));
+socket.on("radioEnded", () => {
+  try { window.__giftEngine?.stopAll?.(); } catch (e) {}
+  showToast("This broadcast has ended");
+  setTimeout(() => { window.location.href = "radio-discover.html"; }, 1800);
+});
+socket.on("reconnect", () => { joinBroadcast(); refreshQueueSnapshot(); });
+
+socket.on("radioCohostsUpdated", ({ broadcastId: bId, roster }) => {
+  if (bId !== broadcastId) return;
+  cohostRoster = roster || [];
+  renderGuestBooth();
+  if (isHost && ($("guest-booth-sheet").classList.contains("open"))) renderGuestBoothSheet();
+});
+socket.on("radioCohostRequested", () => { if (isHost) showToast("New guest request 🙋"); });
+socket.on("radioCohostResponse", ({ action, invite }) => {
+  if (invite) showToast(action === "accept" ? "Guest accepted your invite 🎙️" : "Guest declined your invite");
+  else showToast(action === "approve" ? "You're live as a guest! 🎙️" : "Request declined");
+});
+socket.on("radioCohostKicked", () => { showToast("You were removed from the guest booth"); stopProducingMic(); });
+socket.on("radioCohostInvite", (payload) => { if (payload.broadcastId === broadcastId) openInviteModal(payload); });
+socket.on("radioGuestMicSet", ({ muted }) => showToast(muted ? "The host muted your mic" : "You're live! 🎙️"));
+
+socket.on("radioPollUpdated", ({ broadcastId: bId, poll }) => { if (bId === broadcastId) renderPoll(poll); });
+socket.on("radioPollClosed", ({ broadcastId: bId, poll }) => { if (bId === broadcastId) renderPoll({ ...poll, status: "closed" }); });
+
+socket.on("radioSongRequested", ({ broadcastId: bId }) => { if (bId !== broadcastId) return; if (isHost) showToast("New song request 🎵"); loadRequests(); });
+socket.on("radioRequestVoted", ({ requestId, voteCount }) => {
+  const row = document.querySelector(`.request-row[data-id="${requestId}"] .vcount`);
+  if (row) row.textContent = voteCount;
+  const idx = pendingRequests.findIndex(r => String(r.id) === String(requestId));
+  if (idx !== -1) pendingRequests[idx].vote_count = voteCount;
+});
+socket.on("radioRequestApproved", ({ broadcastId: bId }) => { if (bId === broadcastId) loadRequests(); });
+socket.on("radioRequestRejected", ({ broadcastId: bId }) => { if (bId === broadcastId) loadRequests(); });
+socket.on("radioQueueUpdated", ({ broadcastId: bId, queue }) => { if (bId !== broadcastId) return; queueState.queue = queue || []; renderQueueTab(); });
+socket.on("radioNowPlaying", ({ broadcastId: bId, nowPlaying }) => { if (bId !== broadcastId) return; queueState.nowPlaying = nowPlaying || null; renderQueueTab(); renderNowPlayingBar(); });
+
+socket.on("radioSoundEffectPlayed", ({ broadcastId: bId, effect }) => { if (bId === broadcastId) playSfxLocally(effect); });
+socket.on("radioCommercialBreak", ({ broadcastId: bId, seconds }) => { if (bId === broadcastId) runCommercialBreak(seconds); });
+
+/* ══════════════════════════════════════════════════════════
+   GIFT ENGINE — TAB VISIBILITY (same pattern as live.js)
+══════════════════════════════════════════════════════════ */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    window.__giftEngine?.pauseQueue?.();
+  } else {
+    window.__giftEngine?.resumeQueue?.();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════
+   UI WIRING
+══════════════════════════════════════════════════════════ */
+$("play-toggle-btn").addEventListener("click", togglePlay);
+$("vol-btn").addEventListener("click", toggleMute);
+$("follow-mini-btn").addEventListener("click", toggleFollow);
+$("heart-btn").addEventListener("click", () => sendReaction("❤️"));
+$("fire-btn").addEventListener("click", () => sendReaction("🔥"));
+$("clap-btn").addEventListener("click", () => sendReaction("👏"));
+$("laugh-btn").addEventListener("click", () => sendReaction("😂"));
+$("chat-send-btn").addEventListener("click", sendChat);
+$("chat-input").addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+$("open-gift-sheet-btn").addEventListener("click", openGiftSheet);
+$("gift-backdrop").addEventListener("click", closeGiftSheet);
+$("gift-send-btn").addEventListener("click", sendSelectedGift);
+$("end-live-room-btn")?.addEventListener("click", endBroadcast);
+$("leave-room-btn").addEventListener("click", async () => {
+  await leaveBroadcast();
+  try { window.__giftEngine?.destroy?.(); } catch (e) {}
+  window.location.href = "radio-discover.html";
+});
+$("share-btn").addEventListener("click", () => {
+  const url = `${window.location.origin}/radio-room.html?id=${broadcastId}`;
+  navigator.clipboard?.writeText(url).then(() => showToast("Link copied!")).catch(() => showToast("Couldn't copy link"));
+});
+
+$("open-music-sheet-btn").addEventListener("click", () => openMusicSheet("search"));
+$("music-backdrop").addEventListener("click", closeMusicSheet);
+$("music-search-btn").addEventListener("click", searchMusic);
+$("music-search-input").addEventListener("keydown", e => { if (e.key === "Enter") searchMusic(); });
+$("request-send-btn").addEventListener("click", sendSongRequest);
+$("upload-submit-btn").addEventListener("click", submitUpload);
+
+$("request-cohost-btn").addEventListener("click", requestCohost);
+$("open-guest-booth-btn")?.addEventListener("click", openGuestBoothSheet);
+$("guest-booth-backdrop").addEventListener("click", closeGuestBoothSheet);
+$("open-create-poll-btn")?.addEventListener("click", openCreatePollSheet);
+$("create-poll-backdrop").addEventListener("click", closeCreatePollSheet);
+$("poll-create-btn").addEventListener("click", submitCreatePoll);
+
+window.addEventListener("beforeunload", () => { leaveBroadcast(); });
+
+/* ══════════════════════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════════════════════ */
+renderGuestBooth(); // draw empty booth immediately, before roster loads
+(async function boot() {
+  const b = await loadBroadcast();
+  if (!b) { setTimeout(() => window.location.href = "radio-discover.html", 1500); return; }
+  await loadGiftCatalog();
+  await loadTopGifters();
+  loadRequests();
+  appendChat({ type: "system", text: isHost ? "You're on air! Welcome to your Studio 🎙️" : "Welcome to the studio 🎧" });
+})();
+</script>
+</body>
+</html>

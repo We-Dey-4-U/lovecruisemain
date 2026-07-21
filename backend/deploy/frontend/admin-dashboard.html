@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vConnect — Admin Dashboard</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+* { box-sizing: border-box; }
+body { background: var(--bg); }
+
+.admin-shell { display: flex; min-height: 100vh; max-width: 1200px; margin: 0 auto; }
+
+/* ══ SIDEBAR ══ */
+.admin-sidebar {
+  width: 220px; flex: none; background: var(--surface);
+  border-right: 1px solid var(--border); min-height: 100vh;
+  display: flex; flex-direction: column; position: sticky; top: 0;
+}
+.admin-brand {
+  padding: 22px 20px 18px; display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-brand .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--magenta); flex: none; }
+.admin-brand span { font-size: 16px; font-weight: 900; letter-spacing: -.3px; }
+.admin-brand small { display: block; font-size: 10px; color: var(--text-dim); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+
+.admin-nav { flex: 1; padding: 14px 10px; overflow-y: auto; }
+.admin-nav-item {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 10px 12px; border-radius: 12px; border: none; background: none;
+  color: var(--text-dim); font-size: 13.5px; font-weight: 700; cursor: pointer;
+  text-align: left; margin-bottom: 2px; transition: background .15s, color .15s;
+}
+.admin-nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
+.admin-nav-item.active { background: rgba(255,61,127,.12); color: var(--magenta); }
+.admin-nav-item .ni-icon { width: 20px; text-align: center; flex: none; }
+.admin-nav-item .ni-badge {
+  margin-left: auto; background: var(--magenta); color: #fff; font-size: 10px;
+  font-weight: 800; border-radius: 8px; padding: 1px 7px; min-width: 18px; text-align: center;
+}
+
+.admin-sidebar-footer { padding: 14px; border-top: 1px solid var(--border); }
+.admin-sidebar-footer button {
+  width: 100%; padding: 10px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg); color: #ff4455; font-size: 12.5px; font-weight: 700; cursor: pointer;
+}
+
+/* ══ MAIN ══ */
+.admin-main { flex: 1; min-width: 0; }
+.admin-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--bg); z-index: 5;
+}
+.admin-topbar h1 { font-size: 19px; font-weight: 900; }
+.admin-topbar .admin-who { font-size: 12.5px; color: var(--text-dim); }
+.admin-content { padding: 22px 24px 60px; }
+
+/* ══ STAT CARDS ══ */
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; }
+.stat-card .sc-label { font-size: 11px; color: var(--text-dim); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.stat-card .sc-val { font-size: 24px; font-weight: 900; margin-top: 6px; }
+.stat-card.accent .sc-val { color: var(--magenta); }
+.stat-card.gold .sc-val { color: #ffc857; }
+.stat-card.teal .sc-val { color: #00d9b5; }
+
+/* ══ PANELS / TABLES ══ */
+.admin-panel { display: none; }
+.admin-panel.active { display: block; }
+.panel-section { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; margin-bottom: 20px; }
+.panel-section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.panel-section-header h3 { font-size: 14.5px; font-weight: 800; }
+.subtabs { display: flex; gap: 6px; }
+.subtab {
+  padding: 6px 13px; border-radius: 18px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text-dim); font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.subtab.active { background: rgba(255,61,127,.12); border-color: var(--magenta); color: var(--magenta); }
+
+table.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th { text-align: left; padding: 10px 16px; font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+.admin-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table .cell-user { display: flex; align-items: center; gap: 10px; }
+.admin-table .cell-user img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex: none; }
+.admin-table .cell-sub { font-size: 11px; color: var(--text-dim); }
+
+.pill { display: inline-block; font-size: 10.5px; font-weight: 800; padding: 3px 10px; border-radius: 10px; text-transform: uppercase; letter-spacing: .03em; }
+.pill-pending { background: rgba(255,200,87,.15); color: #ffc857; }
+.pill-approved, .pill-success, .pill-active, .pill-paid { background: rgba(0,217,181,.15); color: #00d9b5; }
+.pill-rejected, .pill-failed, .pill-banned, .pill-dismissed { background: rgba(255,68,85,.15); color: #ff4455; }
+.pill-suspended { background: rgba(255,157,0,.15); color: #ff9d00; }
+.pill-open, .pill-reviewed { background: rgba(160,90,255,.15); color: #a05aff; }
+
+.row-actions { display: flex; gap: 6px; }
+.row-actions button {
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font-size: 11.5px; font-weight: 700; padding: 6px 11px; border-radius: 9px; cursor: pointer;
+}
+.row-actions button.approve { color: #00d9b5; border-color: rgba(0,217,181,.3); }
+.row-actions button.reject, .row-actions button.danger { color: #ff4455; border-color: rgba(255,68,85,.3); }
+
+.empty-row { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 13px; }
+.loading-row { text-align: center; padding: 30px; color: var(--text-dim); font-size: 13px; }
+
+select.inline-select, input.inline-input {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 5px 8px; font-size: 12px; outline: none;
+}
+
+.gift-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px; padding: 16px 18px; }
+.gift-form-grid input, .gift-form-grid select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 9px 12px; font-size: 13px; outline: none; }
+.gift-form-grid button { grid-column: 1/-1; background: linear-gradient(135deg,#ff3d7f,#a05aff); border: none; color: #fff; font-weight: 800; border-radius: 12px; padding: 11px; cursor: pointer; font-size: 13.5px; }
+
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.9); color: #fff; padding: 10px 20px; border-radius: 20px;
+  font-size: 13px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none;
+  transition: opacity .25s; white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+
+@media (max-width: 760px) {
+  .admin-shell { flex-direction: column; }
+  .admin-sidebar { width: 100%; min-height: auto; position: static; flex-direction: row; overflow-x: auto; }
+  .admin-nav { display: flex; padding: 8px; }
+  .admin-nav-item { flex: none; }
+  .admin-sidebar-footer { display: none; }
+  .admin-brand { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="admin-shell">
+  <div class="admin-sidebar">
+    <div class="admin-brand">
+      <span class="logo-dot"></span>
+      <div><span>vConnect</span><small>Admin</small></div>
+    </div>
+    <nav class="admin-nav" id="admin-nav">
+      <button class="admin-nav-item active" data-panel="overview"><span class="ni-icon">📊</span> Overview</button>
+      <button class="admin-nav-item" data-panel="sellers"><span class="ni-icon">🛍️</span> Seller Applications <span class="ni-badge" id="nav-sellers-badge" style="display:none">0</span></button>
+      <button class="admin-nav-item" data-panel="users"><span class="ni-icon">👤</span> Users</button>
+      <button class="admin-nav-item" data-panel="withdrawals"><span class="ni-icon">💸</span> Withdrawals <span class="ni-badge" id="nav-withdrawals-badge" style="display:none">0</span></button>
+      <button class="admin-nav-item" data-panel="verifications"><span class="ni-icon">✅</span> Verifications</button>
+      <button class="admin-nav-item" data-panel="reports"><span class="ni-icon">🚩</span> Reports</button>
+      <button class="admin-nav-item" data-panel="gifts"><span class="ni-icon">🎁</span> Gifts</button>
+      <button class="admin-nav-item" data-panel="liverooms"><span class="ni-icon">🎥</span> Live Rooms</button>
+      <button class="admin-nav-item" data-panel="settings"><span class="ni-icon">⚙️</span> Settings</button>
+    </nav>
+    <div class="admin-sidebar-footer">
+      <button id="admin-logout-btn">🚪 Logout</button>
+    </div>
+  </div>
+
+  <div class="admin-main">
+    <div class="admin-topbar">
+      <h1 id="admin-panel-title">Overview</h1>
+      <div class="admin-who" id="admin-who">—</div>
+    </div>
+
+    <div class="admin-content">
+
+      <!-- ══ OVERVIEW ══ -->
+      <div class="admin-panel active" id="panel-overview">
+        <div class="stat-cards" id="overview-stats">
+          <div class="stat-card"><div class="sc-label">Total Users</div><div class="sc-val">—</div></div>
+          <div class="stat-card"><div class="sc-label">Active Live Rooms</div><div class="sc-val">—</div></div>
+          <div class="stat-card"><div class="sc-label">Total Gifts</div><div class="sc-val">—</div></div>
+          <div class="stat-card gold"><div class="sc-label">Total Revenue</div><div class="sc-val">—</div></div>
+          <div class="stat-card accent"><div class="sc-label">Pending Withdrawals</div><div class="sc-val">—</div></div>
+        </div>
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Platform analytics</h3></div>
+          <div class="gift-form-grid" id="analytics-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+            <div class="loading-row">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ SELLER APPLICATIONS ══ -->
+      <div class="admin-panel" id="panel-sellers">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <h3>Seller applications</h3>
+            <div class="subtabs" id="sellers-subtabs">
+              <div class="subtab active" data-status="pending">Pending</div>
+              <div class="subtab" data-status="approved">Approved</div>
+              <div class="subtab" data-status="rejected">Rejected</div>
+            </div>
+          </div>
+          <table class="admin-table">
+            <thead><tr><th>Applicant</th><th>Reason</th><th>Contact</th><th>Applied</th><th>Status</th><th></th></tr></thead>
+            <tbody id="sellers-tbody"><tr><td colspan="6" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ USERS ══ -->
+      <div class="admin-panel" id="panel-users">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>All users</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Coins</th><th>Earnings</th><th></th></tr></thead>
+            <tbody id="users-tbody"><tr><td colspan="7" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ WITHDRAWALS ══ -->
+      <div class="admin-panel" id="panel-withdrawals">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Withdrawal requests</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>User</th><th>Coins</th><th>Cash</th><th>Bank</th><th>Status</th><th></th></tr></thead>
+            <tbody id="withdrawals-tbody"><tr><td colspan="6" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ VERIFICATIONS ══ -->
+      <div class="admin-panel" id="panel-verifications">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Identity verification requests</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>User</th><th>Document</th><th>Status</th><th></th></tr></thead>
+            <tbody id="verifications-tbody"><tr><td colspan="4" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ REPORTS ══ -->
+      <div class="admin-panel" id="panel-reports">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Moderation reports</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>Reporter</th><th>Reported</th><th>Reason</th><th>Context</th><th>Status</th></tr></thead>
+            <tbody id="reports-tbody"><tr><td colspan="5" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ GIFTS ══ -->
+      <div class="admin-panel" id="panel-gifts">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Add a gift</h3></div>
+          <div class="gift-form-grid">
+            <input type="text" id="new-gift-name" placeholder="Gift name">
+            <input type="text" id="new-gift-emoji" placeholder="Emoji e.g. 🌹" maxlength="4">
+            <input type="number" id="new-gift-price" placeholder="Price (coins)" min="1">
+            <button id="add-gift-btn">Add gift</button>
+          </div>
+        </div>
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Gift catalog</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>Gift</th><th>Category</th><th>Price</th><th>Golden Love</th><th>Active</th><th></th></tr></thead>
+            <tbody id="gifts-tbody"><tr><td colspan="6" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ LIVE ROOMS ══ -->
+      <div class="admin-panel" id="panel-liverooms">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>Live rooms</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>Host</th><th>Title</th><th>Status</th><th>Viewers</th><th>Coins earned</th><th>Started</th></tr></thead>
+            <tbody id="liverooms-tbody"><tr><td colspan="6" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ SETTINGS ══ -->
+      <div class="admin-panel" id="panel-settings">
+        <div class="panel-section">
+          <div class="panel-section-header"><h3>System settings</h3></div>
+          <table class="admin-table">
+            <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+            <tbody id="settings-tbody"><tr><td colspan="3" class="loading-row">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import "./js/api.js";
+import "./js/app.js";
+
+/* ══════════════════════════════════════════
+   GUARD: must be logged in AND role === admin
+══════════════════════════════════════════ */
+if (!requireAuthOrRedirect()) { throw new Error("auth required"); }
+
+const me = window.CURRENT_USER || {};
+if (me.role !== "admin") {
+  showToast("Admins only");
+  setTimeout(() => { window.location.href = "home.html"; }, 700);
+  throw new Error("not admin");
+}
+
+document.getElementById("admin-who").textContent = `${me.displayName || me.username || "Admin"} · @${me.username || "admin"}`;
+document.getElementById("admin-logout-btn").addEventListener("click", () => { if (confirm("Log out?")) logout(); });
+
+/* ══════════════════════════════════════════
+   NAV
+══════════════════════════════════════════ */
+const PANEL_TITLES = {
+  overview: "Overview", sellers: "Seller Applications", users: "Users",
+  withdrawals: "Withdrawals", verifications: "Verifications", reports: "Reports",
+  gifts: "Gifts", liverooms: "Live Rooms", settings: "Settings",
+};
+const loadedOnce = new Set();
+
+document.getElementById("admin-nav").addEventListener("click", (e) => {
+  const btn = e.target.closest(".admin-nav-item");
+  if (!btn) return;
+  const panel = btn.dataset.panel;
+  document.querySelectorAll(".admin-nav-item").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".admin-panel").forEach(p => p.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById(`panel-${panel}`).classList.add("active");
+  document.getElementById("admin-panel-title").textContent = PANEL_TITLES[panel] || panel;
+  loadPanel(panel);
+});
+
+function loadPanel(panel, force = false) {
+  if (loadedOnce.has(panel) && !force) return;
+  loadedOnce.add(panel);
+  const loaders = {
+    overview: loadOverview, sellers: () => loadSellers(currentSellerStatus),
+    users: loadUsers, withdrawals: loadWithdrawals, verifications: loadVerifications,
+    reports: loadReports, gifts: loadGifts, liverooms: loadLiveRooms, settings: loadSettings,
+  };
+  loaders[panel]?.();
+}
+
+/* ══════════════════════════════════════════
+   OVERVIEW
+══════════════════════════════════════════ */
+async function loadOverview() {
+  try {
+    const res = await api.request("/admin/dashboard");
+    const d = res.data || {};
+    document.getElementById("overview-stats").innerHTML = `
+      <div class="stat-card"><div class="sc-label">Total Users</div><div class="sc-val">${formatCoins(d.totalUsers)}</div></div>
+      <div class="stat-card"><div class="sc-label">Active Live Rooms</div><div class="sc-val">${formatCoins(d.activeLiveRooms)}</div></div>
+      <div class="stat-card"><div class="sc-label">Total Gifts</div><div class="sc-val">${formatCoins(d.totalGifts)}</div></div>
+      <div class="stat-card gold"><div class="sc-label">Total Revenue</div><div class="sc-val">₦${formatCoins(d.totalRevenue)}</div></div>
+      <div class="stat-card accent"><div class="sc-label">Pending Withdrawals</div><div class="sc-val">${formatCoins(d.pendingWithdrawals)}</div></div>`;
+    if (d.pendingWithdrawals > 0) setNavBadge("nav-withdrawals-badge", d.pendingWithdrawals);
+  } catch (err) {
+    showToast(err.message || "Could not load dashboard");
+  }
+  try {
+    const res = await api.request("/admin/analytics");
+    const a = res.data || {};
+    document.getElementById("analytics-grid").innerHTML = Object.entries(a).map(([k, v]) => `
+      <div class="stat-card"><div class="sc-label">${escapeHtml(k)}</div><div class="sc-val">${formatCoins(v)}</div></div>`).join("");
+  } catch (err) {
+    document.getElementById("analytics-grid").innerHTML = `<div class="empty-row">Could not load analytics</div>`;
+  }
+  // Also peek pending seller applications count for the nav badge
+  try {
+    const res = await api.request("/sellers/applications?status=pending");
+    setNavBadge("nav-sellers-badge", (res.data || []).length);
+  } catch {}
+}
+
+function setNavBadge(id, count) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (count > 0) { el.textContent = count > 99 ? "99+" : count; el.style.display = "inline-block"; }
+  else el.style.display = "none";
+}
+
+/* ══════════════════════════════════════════
+   SELLER APPLICATIONS
+   (this is the approval step that unlocks the
+   product-upload form on the user's profile /
+   marketplace — see requireApprovedSeller
+   middleware + marketplace.html's checkSellerStatus)
+══════════════════════════════════════════ */
+let currentSellerStatus = "pending";
+document.getElementById("sellers-subtabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".subtab");
+  if (!tab) return;
+  document.querySelectorAll("#sellers-subtabs .subtab").forEach(t => t.classList.remove("active"));
+  tab.classList.add("active");
+  currentSellerStatus = tab.dataset.status;
+  loadSellers(currentSellerStatus);
+});
+
+async function loadSellers(status = "pending") {
+  const tbody = document.getElementById("sellers-tbody");
+  tbody.innerHTML = `<tr><td colspan="6" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request(`/sellers/applications?status=${status}&limit=100`);
+    const apps = res.data || [];
+    if (status === "pending") setNavBadge("nav-sellers-badge", apps.length);
+    if (!apps.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No ${escapeHtml(status)} applications</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = apps.map(a => {
+      const avatar = a.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(a.display_name||a.username)}&size=64`;
+      return `<tr data-id="${a.id}">
+        <td><div class="cell-user"><img src="${escapeHtml(avatar)}" onerror="this.src='https://i.pravatar.cc/64'"><div><div>${escapeHtml(a.display_name||a.username)}</div><div class="cell-sub">@${escapeHtml(a.username)} · ${escapeHtml(a.email||"")}</div></div></div></td>
+        <td>${escapeHtml(a.reason || a.business_name || "—")}</td>
+        <td>${escapeHtml(a.contact_info || "—")}</td>
+        <td>${timeAgo(a.created_at)} ago</td>
+        <td><span class="pill pill-${a.status}">${escapeHtml(a.status)}</span></td>
+        <td>${status === "pending" ? `
+          <div class="row-actions">
+            <button class="approve" data-action="approve">Approve</button>
+            <button class="reject" data-action="reject">Reject</button>
+          </div>` : ""}</td>
+      </tr>`;
+    }).join("");
+
+    tbody.querySelectorAll("[data-action]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.closest("tr").dataset.id;
+        if (btn.dataset.action === "approve") reviewApplication(id, true);
+        else {
+          const reason = prompt("Rejection reason (optional):") || undefined;
+          reviewApplication(id, false, reason);
+        }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">${escapeHtml(err.message || "Could not load applications")}</td></tr>`;
+  }
+}
+
+async function reviewApplication(id, approve, rejectionReason) {
+  try {
+    await api.request(`/sellers/applications/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approve, rejectionReason }),
+    });
+    showToast(approve ? "Seller approved — their upload form is now unlocked ✓" : "Application rejected");
+    loadSellers(currentSellerStatus);
+  } catch (err) {
+    showToast(err.message || "Action failed");
+  }
+}
+
+/* ══════════════════════════════════════════
+   USERS
+══════════════════════════════════════════ */
+async function loadUsers() {
+  const tbody = document.getElementById("users-tbody");
+  tbody.innerHTML = `<tr><td colspan="7" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/users");
+    const users = res.data || [];
+    if (!users.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No users</td></tr>`; return; }
+    tbody.innerHTML = users.map(u => `
+      <tr data-id="${u.id}">
+        <td><div class="cell-user"><img src="https://ui-avatars.com/api/?name=${encodeURIComponent(u.username)}&size=64"><div><div>${escapeHtml(u.display_name||u.username)}</div><div class="cell-sub">@${escapeHtml(u.username)} ${u.is_verified ? "✅" : ""}</div></div></div></td>
+        <td>${escapeHtml(u.email)}</td>
+        <td>
+          <select class="inline-select role-select">
+            ${["user","streamer","qualified_host","moderator","admin"].map(r => `<option value="${r}" ${u.role===r?"selected":""}>${r}</option>`).join("")}
+          </select>
+        </td>
+        <td>
+          <select class="inline-select status-select">
+            ${["active","suspended","banned"].map(s => `<option value="${s}" ${u.status===s?"selected":""}>${s}</option>`).join("")}
+          </select>
+        </td>
+        <td>${formatCoins(u.coin_balance)}</td>
+        <td>${formatCoins(u.earnings_balance)}</td>
+        <td><div class="row-actions"><button class="danger" data-action="delete">Delete</button></div></td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll("tr").forEach(row => {
+      const id = row.dataset.id;
+      row.querySelector(".role-select").addEventListener("change", async (e) => {
+        try { await api.request(`/admin/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role: e.target.value }) }); showToast("Role updated"); }
+        catch (err) { showToast(err.message || "Update failed"); }
+      });
+      row.querySelector(".status-select").addEventListener("change", async (e) => {
+        try { await api.request(`/admin/users/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: e.target.value }) }); showToast("Status updated"); }
+        catch (err) { showToast(err.message || "Update failed"); }
+      });
+      row.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+        if (!confirm("Delete this user permanently?")) return;
+        try { await api.request(`/admin/users/${id}`, { method: "DELETE" }); row.remove(); showToast("User deleted"); }
+        catch (err) { showToast(err.message || "Delete failed"); }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-row">${escapeHtml(err.message || "Could not load users")}</td></tr>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   WITHDRAWALS
+══════════════════════════════════════════ */
+async function loadWithdrawals() {
+  const tbody = document.getElementById("withdrawals-tbody");
+  tbody.innerHTML = `<tr><td colspan="6" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/withdrawals");
+    const rows = res.data || [];
+    setNavBadge("nav-withdrawals-badge", rows.filter(w => w.status === "pending").length);
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No withdrawal requests</td></tr>`; return; }
+    tbody.innerHTML = rows.map(w => `
+      <tr data-id="${w.id}">
+        <td>${escapeHtml(w.display_name||w.username)}<div class="cell-sub">${escapeHtml(w.email||"")}</div></td>
+        <td>${formatCoins(w.coins_requested)}</td>
+        <td>${w.currency||"NGN"} ${formatCoins(w.cash_amount)}</td>
+        <td>${escapeHtml(w.bank_name||"—")}<div class="cell-sub">${escapeHtml(w.bank_account_name||"")} · ${escapeHtml(w.bank_account_number||"")}</div></td>
+        <td><span class="pill pill-${w.status}">${escapeHtml(w.status)}</span></td>
+        <td>${w.status === "pending" ? `
+          <div class="row-actions">
+            <button class="approve" data-action="approved">Approve</button>
+            <button class="approve" data-action="paid">Mark paid</button>
+            <button class="reject" data-action="rejected">Reject</button>
+          </div>` : ""}</td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll("[data-action]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.closest("tr").dataset.id;
+        const adminNote = btn.dataset.action === "rejected" ? (prompt("Reason (optional):") || "") : "";
+        try {
+          await api.request(`/admin/withdrawals/${id}`, { method: "PATCH", body: JSON.stringify({ status: btn.dataset.action, adminNote }) });
+          showToast("Withdrawal updated");
+          loadWithdrawals();
+        } catch (err) { showToast(err.message || "Update failed"); }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">${escapeHtml(err.message || "Could not load withdrawals")}</td></tr>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   VERIFICATIONS
+══════════════════════════════════════════ */
+async function loadVerifications() {
+  const tbody = document.getElementById("verifications-tbody");
+  tbody.innerHTML = `<tr><td colspan="4" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/verifications");
+    const rows = res.data || [];
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty-row">No verification requests</td></tr>`; return; }
+    tbody.innerHTML = rows.map(v => `
+      <tr data-id="${v.id}">
+        <td>${escapeHtml(v.username)}<div class="cell-sub">${escapeHtml(v.email||"")}</div></td>
+        <td>${v.document_url ? `<a href="${escapeHtml(v.document_url)}" target="_blank" style="color:var(--magenta)">View document</a>` : "—"}</td>
+        <td><span class="pill pill-${v.status}">${escapeHtml(v.status)}</span></td>
+        <td>${v.status === "pending" ? `
+          <div class="row-actions">
+            <button class="approve" data-action="approved">Approve</button>
+            <button class="reject" data-action="rejected">Reject</button>
+          </div>` : ""}</td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll("[data-action]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.closest("tr").dataset.id;
+        try {
+          await api.request(`/admin/verifications/${id}`, { method: "PATCH", body: JSON.stringify({ status: btn.dataset.action }) });
+          showToast("Verification updated");
+          loadVerifications();
+        } catch (err) { showToast(err.message || "Update failed"); }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-row">${escapeHtml(err.message || "Could not load verifications")}</td></tr>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   REPORTS
+══════════════════════════════════════════ */
+async function loadReports() {
+  const tbody = document.getElementById("reports-tbody");
+  tbody.innerHTML = `<tr><td colspan="5" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/reports");
+    const rows = res.data || [];
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No reports</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.reporter_username||"—")}</td>
+        <td>${escapeHtml(r.reported_username||"—")}</td>
+        <td>${escapeHtml(r.reason)}</td>
+        <td>${escapeHtml(r.context_type||"—")}</td>
+        <td><span class="pill pill-${r.status}">${escapeHtml(r.status)}</span></td>
+      </tr>`).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">${escapeHtml(err.message || "Could not load reports")}</td></tr>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   GIFTS
+══════════════════════════════════════════ */
+async function loadGifts() {
+  const tbody = document.getElementById("gifts-tbody");
+  tbody.innerHTML = `<tr><td colspan="6" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/gifts");
+    const rows = res.data || [];
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No gifts yet</td></tr>`; return; }
+    tbody.innerHTML = rows.map(g => `
+      <tr data-id="${g.id}">
+        <td>${g.emoji||"🎁"} ${escapeHtml(g.name)}</td>
+        <td>${escapeHtml(g.category||"—")}</td>
+        <td>${formatCoins(g.price_coins)} 🪙</td>
+        <td>${g.is_golden_love ? "✅" : "—"}</td>
+        <td>${g.is_active ? "✅" : "—"}</td>
+        <td><div class="row-actions"><button class="danger" data-action="delete">Delete</button></div></td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.closest("tr").dataset.id;
+        if (!confirm("Delete this gift?")) return;
+        try { await api.request(`/admin/gifts/${id}`, { method: "DELETE" }); loadGifts(); showToast("Gift deleted"); }
+        catch (err) { showToast(err.message || "Delete failed"); }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">${escapeHtml(err.message || "Could not load gifts")}</td></tr>`;
+  }
+}
+
+document.getElementById("add-gift-btn").addEventListener("click", async () => {
+  const name = document.getElementById("new-gift-name").value.trim();
+  const emoji = document.getElementById("new-gift-emoji").value.trim();
+  const price = Number(document.getElementById("new-gift-price").value);
+  if (!name || !price) { showToast("Name and price are required"); return; }
+  try {
+    await api.request("/admin/gifts", { method: "POST", body: JSON.stringify({ name, price_coins: price }) });
+    if (emoji) { /* emoji column not in createGift's INSERT — leave to a follow-up PATCH if needed */ }
+    document.getElementById("new-gift-name").value = "";
+    document.getElementById("new-gift-emoji").value = "";
+    document.getElementById("new-gift-price").value = "";
+    showToast("Gift added ✓");
+    loadGifts();
+  } catch (err) {
+    showToast(err.message || "Could not add gift");
+  }
+});
+
+/* ══════════════════════════════════════════
+   LIVE ROOMS
+══════════════════════════════════════════ */
+async function loadLiveRooms() {
+  const tbody = document.getElementById("liverooms-tbody");
+  tbody.innerHTML = `<tr><td colspan="6" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/live-rooms");
+    const rows = res.data || [];
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No live rooms</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.username)}</td>
+        <td>${escapeHtml(r.title)}</td>
+        <td><span class="pill pill-${r.status}">${escapeHtml(r.status)}</span></td>
+        <td>${formatCoins(r.viewer_count)}</td>
+        <td>${formatCoins(r.total_coins_earned)} 🪙</td>
+        <td>${timeAgo(r.started_at)} ago</td>
+      </tr>`).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">${escapeHtml(err.message || "Could not load live rooms")}</td></tr>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   SETTINGS
+══════════════════════════════════════════ */
+async function loadSettings() {
+  const tbody = document.getElementById("settings-tbody");
+  tbody.innerHTML = `<tr><td colspan="3" class="loading-row">Loading…</td></tr>`;
+  try {
+    const res = await api.request("/admin/settings");
+    const rows = res.data || [];
+    if (!rows.length) { tbody.innerHTML = `<tr><td colspan="3" class="empty-row">No settings configured</td></tr>`; return; }
+    tbody.innerHTML = rows.map(s => `
+      <tr data-key="${escapeHtml(s.setting_key)}">
+        <td>${escapeHtml(s.setting_key)}</td>
+        <td><input type="text" class="inline-input setting-value" value="${escapeHtml(s.setting_value||"")}" style="width:100%"></td>
+        <td><div class="row-actions"><button class="approve" data-action="save">Save</button></div></td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll('[data-action="save"]').forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const row = btn.closest("tr");
+        const key = row.dataset.key;
+        const value = row.querySelector(".setting-value").value;
+        try { await api.request(`/admin/settings/${key}`, { method: "PATCH", body: JSON.stringify({ value }) }); showToast("Setting saved"); }
+        catch (err) { showToast(err.message || "Save failed"); }
+      });
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-row">${escapeHtml(err.message || "Could not load settings")}</td></tr>`;
+  }
+}
+
+/* ══════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════ */
+loadPanel("overview");
+</script>
+</body>
+</html>
