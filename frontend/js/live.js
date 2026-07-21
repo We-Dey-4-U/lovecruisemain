@@ -1762,26 +1762,3 @@ window.hostMuteSeat = (seatIndex) => {
     if (res?.error) window.showToast(res.error);
   });
 };
-window.hostKickGuest = (slot) => {
-  socket.emit("hostKickGuest", { roomId, slot }, (res) => {
-    if (res?.error) window.showToast(res.error);
-  });
-};
-window.hostMuteGuest = (slot) => {
-  socket.emit("hostMuteGuest", { roomId, slot }, (res) => {
-    if (res?.error) window.showToast(res.error);
-  });
-};
-
-window.requestGuestSeat = claimGuestSeat;
-window.leaveGuestSeat   = releaseGuestSeatLocal;
-window.toggleMyGuestMic = toggleMyGuestMic;
-
-window.claimMicSeat    = claimMicSeat;
-window.releaseMicSeat  = releaseMicSeat;
-window.toggleMySeatMic = toggleMySeatMic;
-
-// ── Participants / viewers modal (host-only) ──
-window.openParticipantsModal  = openParticipantsModal;
-window.closeParticipantsModal = closeParticipantsModal;
-window.hostKickUserFromRoom    = hostKickUserFromRoom;

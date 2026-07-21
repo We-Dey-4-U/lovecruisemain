@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  media1:
+    build:
+      context: .
+      dockerfile: Dockerfile.media
+    env_file: .env
+    environment:
+      MEDIA_NODE_ID: media1
+      MEDIA_REGION: us-east
+      MEDIA_PUBLIC_URL: https://media1.lovecruz.fun
+      MEDIA_PORT: 4000
+      RTC_MIN_PORT: 40000
+      RTC_MAX_PORT: 40999
+      MEDIASOUP_ANNOUNCED_IP: "" # set to this host's real public IP
+    ports:
+      - "4000:4000"
+      - "40000-40999:40000-40999/udp"
+      - "40000-40999:40000-40999/tcp"

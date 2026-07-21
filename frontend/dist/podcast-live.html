@@ -7,47 +7,19 @@
 <style>
 /* ============================================================
    vConnect Podcast Live Arena — FIXED, canonical layout
-   ------------------------------------------------------------
-   THIS FILE IS THE FIX for the "seat placeholders render as bare
-   numbers instead of proper seat frames" bug reported for
-   viewers joining an already-live stream.
 
-   Root cause of that bug: js/live-mic-ring.js always creates the
-   8 seat-slot DOM elements the same way for every client (host or
-   viewer) — a .seat-slot > .seat-slot-frame > .seat-plus, plus a
-   .seat-slot-num. That part was never the problem; the backend
-   sync (guestSeatsUpdated / micSeatsUpdated, sent immediately on
-   join per stream.socket.js) was never the problem either.
-
-   The problem was a STALE copy of this HTML file that had no CSS
-   rules at all for .seat-slot / .seat-slot-frame / .seat-plus /
-   .seat-slot-num. With no matching styles, those elements have no
-   border, no background, no sizing — so only the raw text (the
-   seat number, plus a small "+") was visible. That reads exactly
-   like "just seat numbers with no proper placeholder." It was a
-   missing-stylesheet problem, not a host-vs-viewer logic problem.
-
-   This file restores full styling for every seat element AND
-   fixes host/guest frame sizing so nothing overlaps on any screen:
-     1. Host card / guest frames use clamp() so they shrink
-        continuously with viewport width instead of a fixed size
-        that a small screen can't accommodate.
-     2. The 8 mic seats are NOT positioned in a circle around the
-        host. They live in their own flex-wrap row pinned to the
-        bottom of the arena (#participants-strip), entirely
-        separate from the host and guest frames above. On narrow
-        phones the row wraps to two lines of smaller circles; on
-        wide screens it's one loose row. Overlap is structurally
-        impossible regardless of screen size — js/live-mic-ring.js
-        never computes seat x/y, CSS flexbox does it.
-
-   Palette:
-     --arena-bg-1     #08050F  (near-black violet, base)
-     --arena-bg-2     #170B2E  (deep violet, mid gradient)
-     --arena-bg-3     #2A0D4E  (royal violet, glow source)
-     --arena-accent   #A05AFF  (podcast violet — aura / lines / particles)
-     --arena-accent-2 #6A1ADF  (deep violet — aura / lines gradient end)
-     --arena-gold     #C890FF  (value / highlight accent, podcast-tinted)
+   ── THIS PASS: CONTRAST + CAMERA-SHARPEN (mirrors live.html) ──
+   - Low-alpha white text (.pod-show-name, .viewer-badge,
+     .gift-target-row, .viewers-empty, .comment-bar
+     input::placeholder, .top-gifters .label, .host-chip .sub)
+     brightened for readability, same values as live.html.
+   - Added the #camSharpen SVG feConvolveMatrix sharpen kernel
+     (injected once, right after <body>) and applied it via CSS
+     to #stage-video (host), #local-video (your own preview), and
+     .participant-tile video (the tile docked into
+     #guest-frame-male / #guest-frame-female for guest seats) —
+     so both the host feed and both guest-frame feeds get the
+     sharpen pass.
    ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -59,6 +31,18 @@ body, .app-shell, .live-screen {
   position: relative; width: 100%; max-width: 480px; margin: 0 auto;
   display: flex; flex-direction: column; height: 100dvh;
   background: #08050F;
+}
+
+/* ══════════════════════════
+   CAMERA SHARPEN — host stage, local preview, guest-frame tiles.
+   #camSharpen is defined once in the injected <svg> right after
+   <body> below.
+══════════════════════════ */
+#stage-video,
+#local-video,
+.participant-tile video {
+  filter: url(#camSharpen) contrast(1.08) saturate(1.12);
+  -webkit-filter: url(#camSharpen) contrast(1.08) saturate(1.12);
 }
 
 /* ══════════════════════════
@@ -129,7 +113,8 @@ body, .app-shell, .live-screen {
   display: block; font-size: 12px; font-weight: 800; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.host-chip .sub { font-size: 10px; color: rgba(255,255,255,.65); }
+/* CONTRAST FIX: .65 → .82 */
+.host-chip .sub { font-size: 10px; color: rgba(255,255,255,.82); }
 
 .follow-btn {
   flex: none; background: linear-gradient(135deg,#A05AFF,#6A1ADF); color: #fff; border: none;
@@ -187,7 +172,8 @@ body, .app-shell, .live-screen {
   border: 2px solid rgba(0,0,0,.5); object-fit: cover; margin-left: -5px;
 }
 .top-gifters img:first-child { margin-left: 0; }
-.top-gifters .label { font-size: 10px; color: rgba(255,255,255,.65); margin-left: 7px; font-weight: 700; }
+/* CONTRAST FIX: .65 → .8 */
+.top-gifters .label { font-size: 10px; color: rgba(255,255,255,.8); margin-left: 7px; font-weight: 700; }
 
 #host-controls {
   display: none; position: absolute; top: 54px; right: 12px;
@@ -215,9 +201,7 @@ body, .app-shell, .live-screen {
 }
 
 /* ══════════════════════════
-   HOST CARD — clamp()-sized, scales continuously with viewport
-   width so it never crowds the guest frames / seat row on a
-   small screen.
+   HOST CARD
 ══════════════════════════ */
 .host-card-wrap {
   position: absolute; z-index: 5;
@@ -293,8 +277,6 @@ body, .app-shell, .live-screen {
   box-shadow: 0 6px 18px rgba(160,90,255,.3);
 }
 
-
-
 .pod-cover-fallback {
   width: clamp(44px, 15vw, 72px); height: clamp(44px, 15vw, 72px);
   border-radius: 15px;
@@ -313,8 +295,7 @@ body, .app-shell, .live-screen {
 @keyframes sw-anim { from{height:2px} to{height:12px} }
 
 /* ══════════════════════════
-   MATCHMAKING GUEST FRAMES — clamp()-sized, shrink in step with
-   the host card rather than staying a fixed size.
+   MATCHMAKING GUEST FRAMES
 ══════════════════════════ */
 .guest-frames {
   position: absolute; z-index: 5;
@@ -356,14 +337,7 @@ body, .app-shell, .live-screen {
 }
 
 /* ══════════════════════════
-   MIC SEAT ROW — the 8 permanent seat slots, created dynamically
-   by js/live-mic-ring.js, live in their own flex-wrap row pinned
-   to the bottom of the arena instead of a circle wrapped around
-   the host. This is what actually fixes small-screen crowding
-   AND is the CSS that was missing from the stale copy of this
-   file — .seat-slot / .seat-slot-frame / .seat-plus /
-   .seat-slot-num MUST be styled here or the elements
-   live-mic-ring.js creates render as bare text.
+   MIC SEAT ROW
 ══════════════════════════ */
 #participants-strip {
   position: absolute;
@@ -373,9 +347,6 @@ body, .app-shell, .live-screen {
 }
 #participants-strip > * { pointer-events: auto; }
 
-/* Left / right seat columns (seats 1-2 and 3-4) — flank the arena
-   instead of stacking, so they can never get clipped by the
-   overflow:hidden arena container. */
 .seat-wing {
   position: absolute;
   top: 50%;
@@ -388,7 +359,6 @@ body, .app-shell, .live-screen {
 .seat-wing-left  { left: 4px; }
 .seat-wing-right { right: 4px; }
 
-/* Bottom seat row (seats 5-8) — pinned to the bottom edge, centered. */
 .seat-row {
   position: absolute;
   left: 50%;
@@ -402,7 +372,6 @@ body, .app-shell, .live-screen {
   max-width: calc(100% - 12px);
   z-index: 4;
 }
-
 
 #local-tile, .participant-tile {
   display: none;
@@ -427,9 +396,7 @@ body, .app-shell, .live-screen {
   width: 100%; height: 100%;
 }
 
-#local-tile.seat-docked, .participant-tile.seat-docked {
-  /* intentionally no overrides — flow layout handles it */
-}
+#local-tile.seat-docked, .participant-tile.seat-docked { }
 
 .seat-frame {
   position: relative;
@@ -501,16 +468,12 @@ body, .app-shell, .live-screen {
 .strip-empty-hint { display: none; }
 
 /* ══════════════════════════
-   SEAT SLOTS — the 8 permanent mic-seat placeholders. Vacant
-   slots are dashed and tappable ("+" + seat number); once
-   occupied, the placeholder hides and the real tile fills the
-   same flex slot. THIS is the block that must exist for every
-   copy of this page — without it, seats render as plain numbers.
+   SEAT SLOTS
 ══════════════════════════ */
 .seat-slot {
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  width: clamp(36px, 10.5vw, 54px);
+  width: clamp(40px,12vw,58px);
   flex: 0 0 auto;
 }
 .seat-slot-frame {
@@ -553,8 +516,9 @@ body, .app-shell, .live-screen {
   font-size: 14px; font-weight: 900; color: #fff; line-height: 1.25;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* CONTRAST FIX: .55 → .8 */
 .pod-show-name {
-  font-size: 11px; color: rgba(255,255,255,.55); font-weight: 600;
+  font-size: 11px; color: rgba(255,255,255,.8); font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -633,7 +597,8 @@ body, .app-shell, .live-screen {
   flex: 1; background: none; border: none; outline: none;
   color: #fff; font-size: 13px;
 }
-.comment-bar input::placeholder { color: rgba(255,255,255,.38); }
+/* CONTRAST FIX: .38 → .55 */
+.comment-bar input::placeholder { color: rgba(255,255,255,.55); }
 .comment-send {
   background: none; border: none; color: #A05AFF;
   font-size: 12px; font-weight: 800; cursor: pointer; flex: none;
@@ -664,7 +629,11 @@ body, .app-shell, .live-screen {
 .sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; margin: 12px auto 0; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 4px; }
 .sheet-head h3 { font-size: 15px; font-weight: 800; color: #fff; }
-.gift-target-row { padding: 0 18px 10px; font-size: 11.5px; color: rgba(255,255,255,.5); }
+.gift-target-row {
+  padding: 0 18px 10px; font-size: 11.5px;
+  /* CONTRAST FIX: .5 → .72 */
+  color: rgba(255,255,255,.72);
+}
 #gift-target-name { color: #A05AFF; font-weight: 700; }
 .coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(160,90,255,.12); border: 1px solid rgba(160,90,255,.25); border-radius: 18px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #C890FF; }
 .gift-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; padding: 0 14px 14px; max-height: 240px; overflow-y: auto; scrollbar-width: none; }
@@ -690,12 +659,8 @@ body, .app-shell, .live-screen {
   .stage-label .pulse-dot, .live-badge .dot, .sw-bar, .guest-link { animation: none !important; }
 }
 
-
-
-
-/* seat-slot needs a positioning context for the host-control overlay */
 .seat-slot{
-    position:relative;      /* ADD THIS */
+    position:relative;
     display:flex;
     flex-direction:column;
     align-items:center;
@@ -704,22 +669,19 @@ body, .app-shell, .live-screen {
     flex:0 0 auto;
 }
 /* ══════════════════════════
-   HOST CONTROL OVERLAY — kick (✕) / mute (🔇) buttons that
-   live-mic-ring.js injects into every occupied seat-slot and
-   guest-frame. Only visible to the host (body.host-mode) and
-   never on the host's own tile (.hidden-self).
+   HOST CONTROL OVERLAY
 ══════════════════════════ */
 .host-ctrl-overlay {
   position: absolute; inset: 0; z-index: 8;
-  display: none;          /* hidden unless host-mode + occupied, below */
-  pointer-events: none;   /* only the buttons themselves are clickable */
+  display: none;
+  pointer-events: none;
 }
 .host-mode .seat-slot.occupied .host-ctrl-overlay,
 .host-mode .guest-frame.occupied .host-ctrl-overlay {
   display: block;
 }
 .host-ctrl-overlay.hidden-self {
-  display: none !important; /* never show kick/mute on your own seat */
+  display: none !important;
 }
 
 .host-ctrl-btn {
@@ -747,23 +709,15 @@ body, .app-shell, .live-screen {
   border-color: rgba(255,61,127,.6);
 }
 
-/* guest-frame is bigger, give the buttons a bit more room */
 .guest-frame .host-ctrl-btn {
   width: 20px; height: 20px; font-size: 10px;
 }
 .guest-frame .host-ctrl-mute { top: -6px; left: -6px; }
 .guest-frame .host-ctrl-kick { top: -6px; right: -6px; }
 
-
 /* ══════════════════════════
-   SEAT/GUEST AVATAR + SELF-CONTROLS — the pieces
-   live-mic-ring.js's createSeatSlots()/ensureGuestOverlays()
-   create but that had no styling yet.
+   SEAT/GUEST AVATAR + SELF-CONTROLS
 ══════════════════════════ */
-
-/* FIX: occupied seats must keep their frame visible so the avatar
-   photo (painted into it by applyMicSeats) actually shows — only
-   the seat number badge hides on occupancy now. */
 .seat-slot.occupied .seat-slot-frame {
   display: flex;
   border-style: solid;
@@ -784,7 +738,7 @@ body, .app-shell, .live-screen {
   width: 100%; height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  display: none; /* toggled to block by applyMicSeats when occupied */
+  display: none;
 }
 
 .seat-mute-indicator {
@@ -812,7 +766,6 @@ body, .app-shell, .live-screen {
 .seat-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
 .seat-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
 
-/* Guest-frame equivalents — same idea, bigger (frame is bigger) */
 .guest-frame.guest-muted { border-color: rgba(255,61,127,.5); }
 .guest-frame.guest-host-muted {
   border-color: rgba(255,61,127,.8);
@@ -842,12 +795,8 @@ body, .app-shell, .live-screen {
 .guest-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
 .guest-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
 
-
 /* ══════════════════════════
-   VIEWERS / PARTICIPANTS MODAL — host-only roster with full-room
-   kick. Regular viewers never see a trigger for this; #viewers-btn
-   only renders inside #host-controls, which itself is only ever
-   shown when body has .host-mode.
+   VIEWERS / PARTICIPANTS MODAL
 ══════════════════════════ */
 .viewers-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
@@ -887,9 +836,10 @@ body, .app-shell, .live-screen {
 }
 .viewers-list::-webkit-scrollbar { display: none; }
 
+/* CONTRAST FIX: .4 → .62 */
 .viewers-empty {
   padding: 34px 10px; text-align: center;
-  color: rgba(255,255,255,.4); font-size: 12.5px;
+  color: rgba(255,255,255,.62); font-size: 12.5px;
 }
 
 .viewer-row {
@@ -902,7 +852,8 @@ body, .app-shell, .live-screen {
   font-size: 12.5px; font-weight: 700; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.viewer-badge { font-size: 10.5px; color: rgba(255,255,255,.5); font-weight: 600; margin-top: 1px; }
+/* CONTRAST FIX: .5 → .75 */
+.viewer-badge { font-size: 10.5px; color: rgba(255,255,255,.75); font-weight: 600; margin-top: 1px; }
 .viewer-kick-btn {
   flex: none; background: rgba(255,61,127,.85); color: #fff; border: none;
   border-radius: 10px; padding: 6px 10px; font-size: 11px; font-weight: 800; cursor: pointer;
@@ -910,13 +861,27 @@ body, .app-shell, .live-screen {
 }
 .viewer-kick-btn:active { transform: scale(.92); }
 </style>
-  <script type="module" crossorigin src="/assets/podcast-live-CSY4UEc-.js"></script>
+  <script type="module" crossorigin src="/assets/podcast-live-ByajwPhW.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-C4Jn-lfK.js">
-  <link rel="modulepreload" crossorigin href="/assets/live-mic-ring-eJJcNqKn.js">
+  <link rel="modulepreload" crossorigin href="/assets/live-mic-ring-DL7zWBEA.js">
   <link rel="modulepreload" crossorigin href="/assets/GiftAnimationManager-B9jrBWX1.js">
-  <link rel="stylesheet" crossorigin href="/assets/style-Ch_tpJ14.css">
+  <link rel="stylesheet" crossorigin href="/assets/style-Dxa647XG.css">
 </head>
 <body>
+
+<!-- CAMERA SHARPEN FILTER: same #camSharpen kernel as live.html,
+     applied to #stage-video, #local-video, .participant-tile video. -->
+<svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="camSharpen" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feConvolveMatrix order="3" preserveAlpha="true"
+        kernelMatrix="0 -1 0
+                      -1 5 -1
+                      0 -1 0" />
+    </filter>
+  </defs>
+</svg>
+
 <div class="app-shell">
 <div class="live-screen">
 

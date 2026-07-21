@@ -1,0 +1,379 @@
+# Lovecruz — Complete VPS Deployment Guide
+
+Everything from first login to a working HTTPS production setup, in the order you actually run it. Replace anything in `<...>` with your real values. Run everything as `root` (or with `sudo`) from Windows Command Prompt using `ssh`.
+
+---
+
+## PHASE 0 — Before you touch the terminal
+
+1. Buy the Hostinger VPS.
+2. Note the VPS **public IP address** (shown in the Hostinger panel).
+3. In **Hostinger → Domain → DNS Records**, point these A records to that IP:
+
+| Type | Name  | Points to        |
+|------|-------|------------------|
+| A    | @     | `<YOUR_VPS_IP>`  |
+| A    | api   | `<YOUR_VPS_IP>`  |
+| A    | media | `<YOUR_VPS_IP>`  |
+| A    | radio | `<YOUR_VPS_IP>`  |
+| A    | turn  | `<YOUR_VPS_IP>`  |
+| A    | ws    | `<YOUR_VPS_IP>`  |
+
+DNS can take anywhere from a few minutes to a few hours to propagate. You can start the server setup immediately — you don't need to wait for DNS before Phase 1.
+
+---
+
+## PHASE 1 — Connect to the VPS
+
+From Windows Command Prompt:
+
+```
+ssh root@<YOUR_VPS_IP>
+```
+
+Example (do not use literally):
+
+```
+ssh root@185.xxx.xxx.xxx
+```
+
+- Type `yes` the first time you connect.
+- Enter your VPS root password when prompted.
+
+Everything from here on runs **inside the SSH session** (i.e., on the VPS), not in Command Prompt directly.
+
+---
+
+## PHASE 2 — Base system setup
+
+### Step 1. Update Ubuntu
+```
+apt update && apt upgrade -y
+```
+
+### Step 2. Install required base packages
+```
+apt install -y git curl wget unzip build-essential software-properties-common
+```
+
+### Step 3. Install Node.js 24
+```
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+
+This adds the official NodeSource repository for Node.js 24 to your Ubuntu system.
+Wait until it finishes and returns you to the prompt, for example:
+
+Then run the second command:
+apt install -y nodejs
+```
+
+Verify:
+```
+node -v
+npm -v
+```
+
+### Step 4. Install PM2 (process manager)
+```
+npm install -g pm2
+```
+
+Verify:
+```
+pm2 -v
+```
+
+### Step 5. Install Nginx
+```
+apt install nginx -y
+systemctl enable nginx
+systemctl start nginx
+```
+
+### Step 6. Install PostgreSQL
+```
+apt install postgresql postgresql-contrib -y
+systemctl enable postgresql
+systemctl start postgresql
+```
+
+### Step 7. Install Redis
+```
+apt install redis-server -y
+systemctl enable redis-server
+systemctl start redis-server
+```
+
+### Step 8. Install Coturn (TURN server — don't configure yet)
+```
+apt install coturn -y
+```
+
+### Step 9. Install FFmpeg
+```
+apt install ffmpeg -y
+```
+
+### Step 10. Confirm Git is installed
+```
+git --version
+```
+
+---
+
+## PHASE 3 — Deploy your backend
+
+### Step 11. Clone your repository
+```
+cd /home
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+```
+
+Exa]mple:
+```
+git clone https://github.com/<YOUR_USERNAME>/<YOUR_REPOSITORY>.git
+```
+
+### Step 12. Enter the backend folder
+```
+cd <YOUR_REPOSITORY>/backend
+```
+
+### Step 13. Install npm packages
+```
+npm install
+```
+
+### Step 14. Create your `.env` file
+```
+nano .env
+```
+
+Paste your environment variables, replacing placeholders:
+```
+MEDIASOUP_ANNOUNCED_IP=<YOUR_VPS_PUBLIC_IP>
+DATABASE_URL=<YOUR_DATABASE_URL>
+REDIS_URL=<YOUR_REDIS_URL>
+TURN_PASSWORD=<YOUR_TURN_PASSWORD>
+```
+
+Save and exit nano:
+```
+Ctrl + O   (write)
+Enter
+Ctrl + X   (exit)
+```
+
+### Step 15. Run database migrations
+```
+npm run migrate
+```
+or, depending on your project structure:
+```
+node scripts/migrate.js
+```
+
+### Step 16. Start the backend with PM2
+```
+pm2 start server.js --name lovecruz-api
+```
+or:
+```
+pm2 start src/server.js --name lovecruz-api
+```
+(use whichever entry file matches your project)
+
+### Step 17. Persist PM2 across reboots
+```
+pm2 save
+pm2 startup
+```
+`pm2 startup` will print a second command — copy that exact line, paste it, and run it. Then run:
+```
+pm2 save
+```
+again.
+
+### Step 18. Verify the backend is running
+```
+pm2 status
+```
+or
+```
+pm2 logs
+```
+You should see `lovecruz-api` with status `online`.
+
+---
+
+## PHASE 4 — Nginx reverse proxy (now that the app is actually running)
+
+### Step 19. Create the Nginx site config
+```
+nano /etc/nginx/sites-available/lovecruz
+```
+
+Paste the following, adjusting domains/ports to match your actual services:
+
+```nginx
+server {
+    server_name api.lovecruz.fun;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+    server_name media.lovecruz.fun;
+
+    location / {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+
+server {
+    server_name radio.lovecruz.fun;
+
+    location / {
+        proxy_pass http://localhost:8000;
+    }
+}
+```
+
+Save and exit (`Ctrl + O`, `Enter`, `Ctrl + X`).
+
+This tells Nginx:
+- `api.lovecruz.fun` → Node API on port 3000
+- `media.lovecruz.fun` → Mediasoup/media service on port 4000
+- `radio.lovecruz.fun` → radio service on port 8000
+
+### Step 20. Enable the site
+```
+ln -s /etc/nginx/sites-available/lovecruz /etc/nginx/sites-enabled/
+```
+
+### Step 21. Test the config
+```
+nginx -t
+```
+
+### Step 22. Restart Nginx if the test passed
+```
+systemctl restart nginx
+```
+
+At this point, confirm DNS has actually propagated:
+```
+ping api.lovecruz.fun
+```
+(Ctrl+C to stop). It should resolve to your VPS IP. If it doesn't yet, wait before moving to SSL.
+
+---
+
+## PHASE 5 — SSL with Let's Encrypt
+
+### Step 23. Install Certbot
+```
+apt install certbot python3-certbot-nginx -y
+```
+
+### Step 24. Request certificates
+```
+certbot --nginx
+```
+
+Certbot will detect your Nginx config and prompt you to choose which domains to secure, e.g.:
+```
+lovecruz.fun
+api.lovecruz.fun
+media.lovecruz.fun
+radio.lovecruz.fun
+```
+
+It will automatically obtain certificates, configure HTTPS, offer to redirect HTTP → HTTPS, and set up auto-renewal.
+
+### Step 25. Verify auto-renewal works
+```
+certbot renew --dry-run
+```
+
+---
+
+## PHASE 6 — Firewall (UFW)
+
+### Step 26. Allow required ports
+```
+ufw allow OpenSSH
+ufw allow 80
+ufw allow 443
+ufw allow 3478
+ufw allow 5349
+ufw allow 3000
+ufw allow 4000
+```
+
+### Step 27. Open the Mediasoup UDP port range
+```
+ufw allow 40000:49999/udp
+```
+
+### Step 28. Enable the firewall
+```
+ufw enable
+```
+
+Confirm with:
+```
+ufw status
+```
+
+---
+
+## PHASE 7 — Final checks
+
+### Step 29. Confirm backend is alive
+```
+pm2 status
+curl http://localhost:3000
+```
+
+### Step 30. Confirm Nginx is proxying correctly
+```
+curl -I https://api.lovecruz.fun
+```
+
+### Step 31. Confirm Postgres/Redis are running
+```
+systemctl status postgresql
+systemctl status redis-server
+```
+
+### Step 32. Test from a browser
+Visit:
+- `https://lovecruz.fun`
+- `https://api.lovecruz.fun`
+- `https://media.lovecruz.fun`
+- `https://radio.lovecruz.fun`
+
+All should load over HTTPS with a valid certificate (padlock icon, no warnings).
+
+---
+
+## What's intentionally NOT included here
+
+Two pieces depend entirely on your specific project code/config, so they can't be generic copy-paste commands:
+
+- **Coturn configuration** (`/etc/turnserver.conf`) — needs your actual TURN realm, external IP, and credentials.
+- **Mediasoup worker/router config and the radio (RTMP/HLS) service setup** — these live inside your application code, not the OS.
+
+If you share your `turnserver.conf` requirements or your Mediasoup/radio service entry points, I can write those configs out fully in the same step-by-step style.

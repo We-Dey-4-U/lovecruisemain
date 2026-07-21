@@ -1,5 +1,5 @@
 /* ============================================================
-   vConnect — Design Tokens
+   vConnect — Design Tokens (contrast pass)
    ============================================================ */
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
@@ -13,8 +13,11 @@
   --gold:      #FFC857;
   --teal:      #00D9B5;
   --text:      #F4F0FA;
-  --text-dim:  #8D84A6;
-  --text-faint:#5C5273;
+  /* CONTRAST FIX: both of these were too dark against --bg (#120D1A)
+     to read comfortably — bumped up while keeping the same hue so
+     the visual hierarchy (text > text-dim > text-faint) is unchanged. */
+  --text-dim:  #ACA3C9;   /* was #8D84A6 */
+  --text-faint:#8B81A8;   /* was #5C5273 */
   --danger:    #FF5C5C;
 
   --font-display: 'Sora', sans-serif;
@@ -55,9 +58,12 @@
 html,body{ height:100%; }
 body{
   margin:0;
+  /* CONTRAST FIX: glow overlays toned down slightly (0.18→0.14,
+     0.10→0.08) so they add mood without washing out text near the
+     top of the screen. */
   background:
-    radial-gradient(circle at 12% -10%, rgba(255,61,127,0.18), transparent 45%),
-    radial-gradient(circle at 90% 0%, rgba(0,217,181,0.10), transparent 40%),
+    radial-gradient(circle at 12% -10%, rgba(255,61,127,0.14), transparent 45%),
+    radial-gradient(circle at 90% 0%, rgba(0,217,181,0.08), transparent 40%),
     var(--bg);
   color:var(--text);
   font-family:var(--font-body);

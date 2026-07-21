@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lovecruz
+      POSTGRES_USER: lovecruz
+      POSTGRES_PASSWORD: lovecruz_dev_password
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lovecruz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://lovecruz:lovecruz_dev_password@postgres:5432/lovecruz
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    deploy:
+      replicas: 3 # demonstrates horizontal scaling locally
+    expose: ["3000"]
+
+  worker:
+    build: .
+    command: node src/queues/worker.js
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://lovecruz:lovecruz_dev_password@postgres:5432/lovecruz
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    deploy:
+      replicas: 2
+
+  nginx:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes: ["./deploy/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    depends_on: ["api"]
+
+volumes:
+  pgdata:

@@ -1,0 +1,22 @@
+FROM node:20-slim AS deps
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+FROM node:20-slim AS runtime
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m appuser
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+USER appuser
+ENV NODE_ENV=production
+EXPOSE 4000
+# NOTE: this container needs the RTC_MIN_PORT-RTC_MAX_PORT UDP/TCP
+# range exposed too (see docker-compose.media.yml) — WebRTC media
+# traffic does not go through the HTTP port.
+CMD ["node", "media-server.js"]
