@@ -6,7 +6,8 @@
 <title>vConnect — Live</title>
 <style>
 /* ============================================================
-   vConnect Social Live — SECTIONED REDESIGN (v8: labels overlaid, block pushed up)
+   vConnect Social Live — SECTIONED REDESIGN (v9: seat-grid overflow fix,
+   bigger self-controls, sharper edges)
    ------------------------------------------------------------
    Pure UI/UX redesign. No WebRTC / mediasoup / Socket.IO / room /
    seat-assignment / mute-kick logic lives here or was changed.
@@ -47,6 +48,47 @@
    .stage stays flex:0 0 auto so none of this is undone by chat
    content — host/guest/seats always get their exact fixed height;
    only chat scrolls.
+
+   ------------------------------------------------------------
+   v9 CHANGES (this pass — 3 fixes, all CSS-only, no DOM/JS contract
+   touched):
+
+   1) SEAT GRID OVERFLOWING PAST THE RIGHT EDGE ON SMALL SCREENS
+      ROOT CAUSE: .seat-slot-frame used `width: auto; height: 100%;
+      aspect-ratio: 1/1; max-width: 100%`. Because HEIGHT was the
+      definite side, aspect-ratio computed WIDTH from it — and that
+      computed width could be wider than the seat's actual grid
+      column (1/6 of a narrow phone width minus gaps). max-width:100%
+      only clamps against the *frame's own* box, not the column, so
+      on narrow screens every seat became slightly too wide and the
+      last column(s) got pushed clean off the right edge of the
+      screen instead of just looking a bit stretched.
+      FIX: flipped which side is definite. Now `width: 100%; height:
+      auto; aspect-ratio: 1/1; max-height: 100%`. Width is always
+      exactly the grid column's width (can never exceed it, so
+      nothing can push past the right edge), and aspect-ratio derives
+      height from that, clamped by max-height so it can't blow out
+      the row either. Also switched the grid's columns/rows from
+      `repeat(6, 1fr)` to `repeat(6, minmax(0, 1fr))` (and added
+      `min-width: 0` to .seat-slot) — a standard grid-blowout
+      safeguard so a track can never grow past its fair share because
+      of a child's intrinsic size, belt-and-braces with the fix above.
+
+   2) MUTE / LEAVE BUTTONS TOO SMALL & TOO CLOSE ON SEATS
+      They were 15x15px with only 2px between them — an easy
+      mis-tap that leaves the seat when the user only meant to mute.
+      Bumped to 21x21px with 7px gap, larger icons, and moved the
+      row down slightly so it still clears the avatar circle. Also
+      grew the seat-mute-indicator dot to match.
+
+   3) EDGES LOOKED DULL — SHARPENED
+      Border alpha values across host frame / guest frames / seat
+      circles were quite low (.25–.4), reading as soft/hazy at small
+      sizes. Raised the base + occupied border opacity, thickened
+      seat borders from 2px to 2.5px, and added a crisp 1px inner
+      highlight (inset box-shadow) alongside the outer glow so edges
+      read as bright, defined lines instead of a soft haze — done
+      purely via border-color/box-shadow, no layout impact.
    ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -212,13 +254,13 @@ body, .app-shell, .live-screen {
   width: 80%; max-width: 80%;
   border-radius: var(--radius-lg); overflow: hidden;
   background: #120a1f;
-  border: 2px solid rgba(157,92,255,.25);
-  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  border: 2px solid rgba(157,92,255,.5);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.05) inset, 0 4px 16px rgba(0,0,0,.4), 0 0 14px rgba(157,92,255,.12);
   transition: border-color .25s, box-shadow .25s;
 }
 .host-card-wrap.speaking .host-frame {
-  border-color: rgba(255,61,127,.7);
-  box-shadow: 0 0 0 3px rgba(255,61,127,.25), 0 4px 20px rgba(255,61,127,.25);
+  border-color: rgba(255,61,127,.85);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 0 3px rgba(255,61,127,.3), 0 4px 20px rgba(255,61,127,.32);
 }
 #stage-video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .stage-offline {
@@ -315,13 +357,13 @@ body.host-mode #host-controls { display: block; }
   border-radius: var(--radius-md);
   display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, rgba(157,92,255,.16), rgba(255,255,255,.04));
-  border: 2px dashed rgba(157,92,255,.4);
+  border: 2px dashed rgba(157,92,255,.55);
   cursor: pointer; overflow: hidden;
   transition: border-color .2s, background .2s, transform .15s;
 }
 .guest-frame:active { transform: scale(.98); }
-.guest-frame.occupied { border-style: solid; border-color: rgba(157,92,255,.5); background: #120a1f; }
-.guest-frame.occupied.speaking { border-color: #FF3D7F; box-shadow: 0 0 0 3px rgba(255,61,127,.25); }
+.guest-frame.occupied { border-style: solid; border-color: rgba(157,92,255,.75); background: #120a1f; box-shadow: 0 0 0 1px rgba(255,255,255,.05) inset; }
+.guest-frame.occupied.speaking { border-color: #FF3D7F; box-shadow: 0 0 0 1px rgba(255,255,255,.05) inset, 0 0 0 3px rgba(255,61,127,.3); }
 .guest-placeholder { font-size: clamp(20px, 6vw, 30px); color: rgba(255,255,255,.32); pointer-events: none; }
 .guest-frame.occupied .guest-placeholder { display: none; }
 .guest-tag {
@@ -375,62 +417,80 @@ body.host-mode #host-controls { display: block; }
 .guest-frame.guest-host-muted { border-color: rgba(255,61,127,.8); box-shadow: 0 0 0 3px rgba(255,61,127,.25); }
 
 /* ── SECTION 4 — 12 MIC SEATS ───────────────────────────
-   UNCHANGED in this pass — 6x2 grid, circular avatars, even
-   spacing, equal sizing, same 23dvh height as before. */
+   6x2 grid, circular avatars, even spacing, equal sizing.
+
+   v9 OVERFLOW FIX: the grid's own columns/rows now use
+   minmax(0, 1fr) instead of a bare 1fr, and .seat-slot gets
+   min-width: 0 — standard grid-blowout guards so a track can never
+   be forced wider than its fair share by a child's intrinsic size.
+   The real fix, though, is on .seat-slot-frame below: width is now
+   the definite (100%-of-column) side and height derives from it via
+   aspect-ratio, clamped by max-height — see that rule's comment. */
 .seats-section { height: 18dvh; }
 #participants-strip { flex: 1; min-height: 0; width: 100%; display: flex; }
 .seats-grid {
   flex: 1; width: 100%; min-height: 0;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  grid-template-rows: repeat(2, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 2px calc(var(--gap) * .6);
 }
 .seat-slot {
-  position: relative; min-height: 0;
+  position: relative; min-width: 0; min-height: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 .seat-slot-frame {
   position: relative;
-  width: auto; height: 100%; aspect-ratio: 1 / 1;
-  max-width: 100%;
+  /* width is the DEFINITE side (always exactly the grid column's
+     width, so it can never exceed it and push the seat off-screen);
+     height derives from width via aspect-ratio and is capped by
+     max-height so it also can't blow out the row. See v9 comment
+     above the .seats-grid rule for the full root-cause writeup. */
+  width: 100%; height: auto;
+  aspect-ratio: 1 / 1;
+  max-height: 100%;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  border: 2px dashed rgba(157,92,255,.35);
+  border: 2.5px dashed rgba(157,92,255,.55);
   background: rgba(255,255,255,.04);
   cursor: pointer; overflow: hidden;
   transition: border-color .2s, background .2s, transform .15s;
 }
 .seat-slot:active .seat-slot-frame { transform: scale(.92); }
-.seat-slot:not(.occupied) .seat-slot-frame:hover { border-color: rgba(157,92,255,.7); background: rgba(157,92,255,.08); }
+.seat-slot:not(.occupied) .seat-slot-frame:hover { border-color: rgba(157,92,255,.85); background: rgba(157,92,255,.08); }
 .seat-plus { font-size: 14px; font-weight: 300; color: rgba(255,255,255,.32); pointer-events: none; }
 .seat-slot-num { font-size: 7.5px; font-weight: 800; color: rgba(255,255,255,.4); flex: 0 0 auto; }
-.seat-slot.occupied .seat-slot-frame { border-style: solid; border-color: rgba(157,92,255,.55); background: transparent; }
+.seat-slot.occupied .seat-slot-frame { border-style: solid; border-color: rgba(157,92,255,.8); background: transparent; box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset; }
 .seat-slot.occupied .seat-slot-num, .seat-slot.occupied .seat-plus { display: none; }
-.seat-slot.speaking .seat-slot-frame { border-color: #FF3D7F; box-shadow: 0 0 0 3px rgba(255,61,127,.28); }
-.seat-slot.seat-muted .seat-slot-frame { border-color: rgba(255,61,127,.5); }
-.seat-slot.seat-host-muted .seat-slot-frame { border-color: rgba(255,61,127,.8); box-shadow: 0 0 0 2px rgba(255,61,127,.25); }
+.seat-slot.speaking .seat-slot-frame { border-color: #FF3D7F; box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 0 3px rgba(255,61,127,.32); }
+.seat-slot.seat-muted .seat-slot-frame { border-color: rgba(255,61,127,.55); }
+.seat-slot.seat-host-muted .seat-slot-frame { border-color: rgba(255,61,127,.85); box-shadow: 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 0 2px rgba(255,61,127,.28); }
 .seat-avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: none; }
 
 .seat-mute-indicator {
   position: absolute; bottom: -2px; right: -2px; z-index: 3;
-  width: 13px; height: 13px; border-radius: 50%;
+  width: 16px; height: 16px; border-radius: 50%;
   background: #170B2E; border: 1.5px solid var(--bg-0);
-  display: none; align-items: center; justify-content: center; font-size: 7px;
+  display: none; align-items: center; justify-content: center; font-size: 8px;
 }
+/* v9: self-controls (mute / leave) bumped from 15px to 21px with a
+   wider 7px gap so the two buttons are no longer close enough to
+   mis-tap "leave" while reaching for "mute". Nudged down slightly
+   (-9px instead of -6px) to keep clearing the avatar circle at the
+   new size. */
 .seat-self-controls {
-  position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-  display: none; align-items: center; justify-content: center; gap: 2px; z-index: 5;
+  position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
+  display: none; align-items: center; justify-content: center; gap: 7px; z-index: 5;
 }
 .seat-self-btn {
-  width: 15px; height: 15px; border-radius: 50%;
-  background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.2);
+  width: 21px; height: 21px; border-radius: 50%;
+  background: rgba(0,0,0,.85); border: 1.5px solid rgba(255,255,255,.25);
   display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; font-size: 7px; padding: 0; line-height: 1;
+  color: #fff; cursor: pointer; font-size: 10px; padding: 0; line-height: 1;
 }
 .seat-self-btn:active { transform: scale(.85); }
 .seat-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
-.seat-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
+.seat-leave-btn { background: rgba(255,61,127,.8); border-color: rgba(255,61,127,.6); }
 
 .host-ctrl-overlay { position: absolute; inset: 0; z-index: 6; display: none; pointer-events: none; }
 body.host-mode .seat-slot.occupied .host-ctrl-overlay,
