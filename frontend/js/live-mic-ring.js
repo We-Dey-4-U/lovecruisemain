@@ -1,5 +1,5 @@
 /* ============================================================
-   live-mic-ring.js
+   live-mic-ring.js  —  SECTIONED-LAYOUT REDESIGN
    ------------------------------------------------------------
    Visual-only enhancement layer, shared by live.html AND
    podcast-live.html. It never touches WebRTC/socket state
@@ -30,105 +30,69 @@
    which just emit socket events — no transport/producer/consumer
    logic lives here.
 
-   NOTE: this file is unchanged by the LoveCruise CSS/UI redesign
-   pass — the redesign only restyles podcast-live.html/live.html
-   (rectangular host/guest cards, small rectangular empty-seat
-   placeholders instead of circles). Every id/class this module
-   creates or reads for still exists under the same name in both
-   pages, so no JS changes were required and no seat, control, or
-   event was removed or renamed.
-
-   ══════════════════════════════════════════════════════════
-   12 SEATS (4 LEFT WING / 4 RIGHT WING / 4 BOTTOM)
+   WHAT CHANGED IN THIS REDESIGN (UI/UX ONLY)
    ------------------------------------------------------------
-   Backend (stream.socket.js) raised MIC_SEAT_COUNT from 8 → 12
-   and distributes seats as 4 left wing, 4 right wing, 4 bottom
-   row. This file must match that distribution exactly —
-   micSeatsUpdated now arrives as a 12-element array, and index
-   math below (which four indices go in which wing/row) has to
-   line up with what the server assigns, or seat N on one client
-   won't visually match seat N on another.
+   The page is no longer a single floating "arena" with a particle
+   canvas and orbiting SVG connection-lines linking the host to
+   every occupied seat/guest. It is now six stacked, non-overlapping
+   sections (header / host / guests / seats / chat / bottom bar).
+   Concretely, that means:
 
-   SEATS ARE VOICE-ONLY, PROFILE-PHOTO SLOTS
-   ------------------------------------------------------------
-   Product decision: the only two places video ever renders are
-   the host frame and the two guest frames (matchmaker male/
-   female). The 12 circular mic seats never show a camera feed —
-   occupied, they show the occupant's profile photo (from the
-   server's seat snapshot), a mute/unmute button, and a leave-seat
-   button. This is a structural change, not a CSS trick: seats no
-   longer dock a <video> tile at all. applyMicSeats() below reads
-   occupant.avatarUrl/username straight off the server snapshot
-   and paints the seat directly — there is no tileForSocket/
-   dockSeatTile path for seats any more.
+     1. Seats are no longer split into left-wing / right-wing /
+        bottom-row to visually orbit the host. All 12 seats now
+        render as one flat 6x2 grid (createSeatSlots), in plain
+        index order 0-11, matching the backend's flat
+        micSeatsUpdated array 1:1. No wing math, no absolute
+        positioning.
 
-   Guest frames are unchanged in that respect — they still dock
-   the real participant <video> tile (dockTile/undockTile), since
-   guest frames are one of the two places video is allowed.
+     2. The particle canvas (#arena-particles) and the animated
+        SVG "energy lines" from host to seats (#connection-lines)
+        have been removed — they only made sense around an
+        orbiting/floating layout, and the redesign explicitly
+        requires the host frame to never move, rotate, or have
+        anything arranged around it. Removing them is a visual
+        simplification only; nothing that reads game/room state
+        depended on them.
 
-   MUTE ≠ LEAVE
-   ------------------------------------------------------------
-   Previously, tapping your own occupied seat called
-   releaseMicSeat() — mute and leave were the same click. That's
-   fixed here: the seat now renders two small, separate buttons
-   for its own occupant — a mic toggle (🎤/🔇, calls
-   toggleMySeatMic()) and a leave button (⏏, calls
-   releaseMicSeat()). Tapping the seat's dashed frame itself only
-   ever *claims* a vacant seat; it does nothing when the seat is
-   occupied (by self or anyone else) — occupied seats are managed
-   exclusively through their buttons/overlay.
+     3. Gift-landed feedback, previously a pulse on the connection
+        lines, is now a brief glow pulse directly on the host
+        frame's own border/shadow (still purely a CSS class toggle,
+        still triggered by the same `giftLanded` event).
 
-   HOST CONTROLS (unchanged in spirit, now toggle-aware)
-   ------------------------------------------------------------
-   When document.body has the "host-mode" class, every OCCUPIED
-   seat slot and guest frame still gets the ✕ (kick) / 🔇 (mute)
-   overlay. The mute icon now reflects the occupant's actual
-   `mutedByHost` state (🔒 while host-muted) so the host can see
-   at a glance who they've silenced, and clicking it again lifts
-   the mute (hostMuteSeat/hostMuteGuest toggle server-side).
+     4. The local video tile's "home" when it is not docked into a
+        guest frame is now a dedicated hidden holding bay
+        (#tile-holding-bay) instead of the old free-floating arena
+        surface — same undock/redock logic, just a different, inert
+        parking spot.
+
+   Every DOM id/class this module creates or reads (.seat-slot,
+   .seat-slot-frame, .seat-avatar, .seat-mute-indicator,
+   .seat-self-controls, .host-ctrl-overlay, .guest-frame,
+   .guest-self-controls, .guest-mute-indicator, "occupied",
+   "vacant", "speaking", "seat-muted", "seat-host-muted",
+   "guest-muted", "guest-host-muted", "docked", "seated") is
+   unchanged, so no other script needs to change to keep working.
    ============================================================ */
 
 (() => {
-  const arena        = document.getElementById("arena");
-  const hostCardWrap  = document.getElementById("host-card-wrap");
-  const strip         = document.getElementById("participants-strip");
-  const canvas        = document.getElementById("arena-particles");
-  const svg           = document.getElementById("connection-lines");
-  const localTile     = document.getElementById("local-tile");
+  const arena         = document.getElementById("arena");
+  const hostCardWrap   = document.getElementById("host-card-wrap");
+  const strip          = document.getElementById("participants-strip");
+  const localTile      = document.getElementById("local-tile");
+  const holdingBay     = document.getElementById("tile-holding-bay");
   const guestFrameMale   = document.getElementById("guest-frame-male");
   const guestFrameFemale = document.getElementById("guest-frame-female");
-  const stripHint     = document.getElementById("strip-hint");
 
-  // Nothing to enhance on a page that doesn't use the arena layout.
+  // Nothing to enhance on a page that doesn't use the sectioned
+  // stage layout.
   if (!arena || !hostCardWrap || !strip) return;
 
-  // Raised 8 → 12 to match backend's MIC_SEAT_COUNT
-  // (stream.socket.js): 4 left wing, 4 right wing, 4 bottom row.
+  // Matches backend's MIC_SEAT_COUNT (stream.socket.js): 12 seats,
+  // now rendered as one flat 6x2 grid instead of wings/rows.
   const MIC_SEAT_COUNT = 12;
-
-  const prefersReducedMotion =
-    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  // Seat slots are superseded-by-design: the old "nobody here yet"
-  // hint text no longer applies since all 12 seats are always visible.
-  if (stripHint) stripHint.style.display = "none";
 
   function isHostMode() {
     return document.body.classList.contains("host-mode");
-  }
-
-  /* Reads the page's own accent colors so live.html (violet/magenta)
-     and podcast-live.html (violet/purple) each get their own tone
-     without any branching here. */
-  function getAccent(varName, fallback) {
-    const v = getComputedStyle(arena).getPropertyValue(varName).trim();
-    return v || fallback;
-  }
-  function accentColors() {
-    return {
-      a: getAccent("--arena-accent", "#9D5CFF"),
-      b: getAccent("--arena-accent-2", "#FF3D7F")
-    };
   }
 
   function cssEscape(str) {
@@ -141,94 +105,23 @@
   }
 
   /* ============================================================
-     PARTICLE BACKGROUND
+     HOST CONTROL OVERLAY BUTTONS (Kick / Mute)
+     ------------------------------------------------------------
+     Small overlay injected into an occupied guest seat. Visible
+     only when `body.host-mode` is active.
+
+     These controls never modify the UI directly. Instead, they
+     call the `window.hostKick*` / `window.hostMute*` helpers
+     exposed by `live.js`, which emit the appropriate Socket.IO
+     events to the server.
+
+     The server is the single source of truth. After processing
+     the request, it broadcasts the resulting state changes via
+     events such as `micSeatsUpdated`, `guestSeatsUpdated`,
+     `removedFromSeat`, and `hostMutedYou`. The client updates the
+     interface only after receiving those events, ensuring all
+     participants remain synchronized.
      ============================================================ */
-  let particles = [];
-  let ctx = null;
-  let dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-  function initParticles() {
-    if (!canvas) return;
-    ctx = canvas.getContext("2d");
-    const count = prefersReducedMotion ? 0 : 26;
-    particles = Array.from({ length: count }, () => spawnParticle());
-  }
-
-  function spawnParticle() {
-    const rect = arena.getBoundingClientRect();
-    return {
-      x: Math.random() * rect.width,
-      y: Math.random() * rect.height,
-      r: 0.6 + Math.random() * 1.8,
-      vy: -(0.08 + Math.random() * 0.18),
-      vx: (Math.random() - 0.5) * 0.06,
-      alpha: 0.12 + Math.random() * 0.28,
-      twinkleSpeed: 0.4 + Math.random() * 0.8,
-      twinklePhase: Math.random() * Math.PI * 2
-    };
-  }
-
-  function resizeCanvas() {
-    if (!canvas) return;
-    const rect = arena.getBoundingClientRect();
-    canvas.width  = Math.max(1, Math.round(rect.width * dpr));
-    canvas.height = Math.max(1, Math.round(rect.height * dpr));
-    canvas.style.width  = rect.width + "px";
-    canvas.style.height = rect.height + "px";
-  }
-
-  function drawParticles(tSec) {
-    if (!ctx || !canvas) return;
-    const rect = arena.getBoundingClientRect();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    const { a } = accentColors();
-    const rgb = hexToRgb(a) || { r: 157, g: 92, b: 255 };
-
-    for (const p of particles) {
-      if (!prefersReducedMotion) {
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.y < -4) { p.y = rect.height + 4; p.x = Math.random() * rect.width; }
-        if (p.x < -4) p.x = rect.width + 4;
-        if (p.x > rect.width + 4) p.x = -4;
-      }
-      const twinkle = prefersReducedMotion
-        ? p.alpha
-        : p.alpha * (0.7 + 0.3 * Math.sin(tSec * p.twinkleSpeed + p.twinklePhase));
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${twinkle.toFixed(3)})`;
-      ctx.fill();
-    }
-  }
-
-  function hexToRgb(hex) {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    if (!m) return null;
-    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-  }
-
- /* ============================================================
-   HOST CONTROL OVERLAY BUTTONS (Kick / Mute)
-   ------------------------------------------------------------
-   Small overlay injected into an occupied guest seat. Visible
-   only when `body.host-mode` is active.
-
-   These controls never modify the UI directly. Instead, they
-   call the `window.hostKick*` / `window.hostMute*` helpers
-   exposed by `live.js`, which emit the appropriate Socket.IO
-   events to the server.
-
-   The server is the single source of truth. After processing
-   the request, it broadcasts the resulting state changes via
-   events such as `micSeatsUpdated`, `guestSeatsUpdated`,
-   `removedFromSeat`, and `hostMutedYou`. The client updates the
-   interface only after receiving those events, ensuring all
-   participants remain synchronized.
-   ============================================================ */
   function buildHostControlOverlay(onKick, onMute) {
     const overlay = document.createElement("div");
     overlay.className = "host-ctrl-overlay";
@@ -253,17 +146,13 @@
   }
 
   /* ============================================================
-     SEAT SLOTS — 12 permanent slots, laid out by plain CSS
-     flex-wrap in the page's own #participants-strip styling
-     (left/right wings + bottom row, all clamp()-sized so they
-     shrink together and can't overlap the host card or guest
-     frames on a small screen). Occupied seats render the
-     occupant's profile photo — never video — plus their own
-     mute/leave controls.
-
-     Distribution MUST match the backend's seat-index assignment
-     (stream.socket.js): indices 0-3 → left wing, 4-7 → right
-     wing, 8-11 → bottom row.
+     SEAT SLOTS — 12 permanent slots in one flat 6x2 CSS grid
+     (.seats-grid, styled entirely in CSS via
+     grid-template-columns: repeat(6, 1fr)). Occupied seats render
+     the occupant's profile photo — never video — plus their own
+     mute/leave controls. Index order 0-11 matches the backend's
+     flat micSeatsUpdated array exactly; there is no wing/row
+     remapping any more.
      ============================================================ */
   const seatSlotEls = [];
   let micSeatsState = Array(MIC_SEAT_COUNT).fill(null);
@@ -272,14 +161,8 @@
     strip.innerHTML = "";
     seatSlotEls.length = 0;
 
-    const leftWing = document.createElement("div");
-    leftWing.className = "seat-wing seat-wing-left";
-
-    const rightWing = document.createElement("div");
-    rightWing.className = "seat-wing seat-wing-right";
-
-    const bottomRow = document.createElement("div");
-    bottomRow.className = "seat-row seat-row-bottom";
+    const grid = document.createElement("div");
+    grid.className = "seats-grid";
 
     for (let i = 0; i < MIC_SEAT_COUNT; i++) {
       const slot = document.createElement("div");
@@ -322,18 +205,11 @@
       );
       slot.appendChild(overlay);
 
-      // 4 left wing (0-3), 4 right wing (4-7), 4 bottom row (8-11) —
-      // mirrors the backend's 12-seat layout exactly.
-      if (i < 4) leftWing.appendChild(slot);
-      else if (i < 8) rightWing.appendChild(slot);
-      else bottomRow.appendChild(slot);
-
+      grid.appendChild(slot);
       seatSlotEls.push(slot);
     }
 
-    strip.appendChild(leftWing);
-    strip.appendChild(rightWing);
-    strip.appendChild(bottomRow);
+    strip.appendChild(grid);
   }
 
   function applyMicSeats(seats) {
@@ -393,111 +269,18 @@
         }
       }
     });
-
-    refreshConnectionLines();
   }
 
   window.addEventListener("micSeatsChanged", (e) => applyMicSeats(e.detail));
 
   /* ============================================================
-     CONNECTION LINES (host ↔ occupied seats / guest frames)
-     ------------------------------------------------------------
-     Positions are read directly from the real, already-laid-out
-     DOM (getBoundingClientRect), not computed — so they stay
-     correct no matter how the flex-wrap seat row reflows at any
-     screen size.
-     ============================================================ */
-  let pulseBoostUntil = 0;
-
-  function pointOf(el) {
-    const arenaRect = arena.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    return {
-      x: r.left + r.width / 2 - arenaRect.left,
-      y: r.top + r.height / 2 - arenaRect.top
-    };
-  }
-
-  function occupiedSeatPoints() {
-    return seatSlotEls
-      .filter((slot) => slot.classList.contains("occupied"))
-      .map((slot) => pointOf(slot.querySelector(".seat-slot-frame")));
-  }
-
-  function occupiedGuestPoints() {
-    const pts = [];
-    [guestFrameMale, guestFrameFemale].forEach((el) => {
-      if (el && el.classList.contains("occupied")) pts.push(pointOf(el));
-    });
-    return pts;
-  }
-
-  function refreshConnectionLines() {
-    const points = occupiedSeatPoints().concat(occupiedGuestPoints());
-    drawConnectionLines(points);
-  }
-
-  function drawConnectionLines(points) {
-    if (!svg) return;
-    const rect = arena.getBoundingClientRect();
-    svg.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
-
-    if (!points.length) {
-      svg.innerHTML = "";
-      return;
-    }
-
-    const { a, b } = accentColors();
-    const host = pointOf(hostCardWrap);
-
-    const lines = points
-      .map(
-        (p, i) => `<line class="energy-line" data-i="${i}"
-            x1="${host.x}" y1="${host.y}" x2="${p.x}" y2="${p.y}"
-            stroke="url(#energyGrad)" stroke-linecap="round" />`
-      )
-      .join("");
-
-    svg.innerHTML = `
-      <defs>
-        <linearGradient id="energyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="${a}"></stop>
-          <stop offset="100%" stop-color="${b}"></stop>
-        </linearGradient>
-      </defs>
-      ${lines}
-    `;
-  }
-
-  function pulseConnectionLines() {
-    pulseBoostUntil = performance.now() + 900;
-  }
-
-  function tickConnectionLines(now) {
-    if (!svg) return;
-    const lines = svg.querySelectorAll(".energy-line");
-    if (!lines.length) return;
-
-    const boosted = now < pulseBoostUntil;
-    const boostFactor = boosted ? 1 - (pulseBoostUntil - now) / 900 : 0;
-
-    lines.forEach((line, i) => {
-      const base = prefersReducedMotion
-        ? 0.45
-        : 0.35 + 0.18 * Math.sin(now / 900 + i);
-      const opacity = boosted ? Math.min(1, base + 0.5 * (1 - boostFactor)) : base;
-      const width = boosted ? 1.4 + 1.8 * (1 - boostFactor) : 1.3;
-      line.setAttribute("opacity", opacity.toFixed(2));
-      line.setAttribute("stroke-width", width.toFixed(2));
-    });
-  }
-
-  /* ============================================================
      SPEAKING GLOW
      ------------------------------------------------------------
-     Seats no longer host a docked video tile, so seat speaking
-     glow is driven purely off socketId → seat lookup rather than
-     "find the tile this socket's video lives in."
+     Seats don't host a docked video tile, so seat speaking glow is
+     driven purely off socketId → seat lookup. The glow itself is
+     CSS-only (border-color + box-shadow via the "speaking" class) —
+     nothing here ever animates position, rotation, or layout, per
+     the redesign's "host/guests never move" requirement.
      ============================================================ */
   window.addEventListener("speakingChanged", (e) => {
     const { socketId, isHost: hostFlag, active } = e.detail || {};
@@ -535,9 +318,28 @@
   });
 
   /* ============================================================
-     GIFT LANDED — brief connection-line pulse
+     GIFT LANDED — brief glow pulse directly on the host frame.
+     Replaces the old connection-line pulse (which no longer exists
+     now that the orbiting arena/lines have been removed). Still a
+     pure CSS class toggle, still triggered by the same event.
      ============================================================ */
-  window.addEventListener("giftLanded", pulseConnectionLines);
+  let giftPulseTimer = null;
+  window.addEventListener("giftLanded", () => {
+    hostCardWrap.classList.add("speaking");
+    clearTimeout(giftPulseTimer);
+    giftPulseTimer = setTimeout(() => {
+      // Only clear the glow if the host isn't genuinely speaking —
+      // speakingChanged is the source of truth for that state, this
+      // is just a courtesy timeout for the gift-triggered flash.
+      if (!hostCardWrap.dataset.reallySpeaking) {
+        hostCardWrap.classList.remove("speaking");
+      }
+    }, 900);
+  });
+  window.addEventListener("speakingChanged", (e) => {
+    const { isHost: hostFlag, active } = e.detail || {};
+    if (hostFlag) hostCardWrap.dataset.reallySpeaking = active ? "1" : "";
+  });
 
   /* ============================================================
      GUEST SEATS (matchmaker male/female slots)
@@ -598,7 +400,10 @@
   function undockTile(tile) {
     if (!tile) return;
     tile.classList.remove("docked", "seated");
-    const home = tile === localTile ? arena : strip;
+    // Local tile parks in the hidden holding bay; any stray
+    // participant tile parks back in the seat strip container
+    // (it stays invisible there since seats never dock video).
+    const home = tile === localTile ? (holdingBay || arena) : strip;
     home.appendChild(tile);
   }
 
@@ -659,8 +464,6 @@
       const muteDot = frameEl.querySelector(".guest-mute-indicator");
       if (muteDot) muteDot.style.display = (occupant && occupant.muted && !isSelf) ? "flex" : "none";
     });
-
-    refreshConnectionLines();
   }
 
   window.addEventListener("guestSeatsChanged", (e) => applyGuestSeats(e.detail));
@@ -697,38 +500,16 @@
   });
   stripObserver.observe(strip, { childList: true, subtree: true });
 
-  // Re-draw connection lines on resize / orientation change — the
-  // flex-wrap seat row reflows on its own via CSS, we just need to
-  // recompute line endpoints against the new positions.
-  let resizeRaf = null;
-  function scheduleResize() {
-    if (resizeRaf) cancelAnimationFrame(resizeRaf);
-    resizeRaf = requestAnimationFrame(() => {
-      resizeCanvas();
-      refreshConnectionLines();
-    });
-  }
-
-  if (window.ResizeObserver) {
-    new ResizeObserver(scheduleResize).observe(arena);
-  } else {
-    window.addEventListener("resize", scheduleResize);
-  }
-
   /* ============================================================
-     MAIN LOOP
+     INIT
+     ------------------------------------------------------------
+     No particle canvas, no connection-line SVG, no per-frame
+     animation loop any more — the sectioned layout is static
+     document flow, so there's nothing to redraw on resize besides
+     what CSS (grid/flex/clamp) already handles on its own.
      ============================================================ */
-  function loop(tMs) {
-    const tSec = tMs / 1000;
-    drawParticles(tSec);
-    tickConnectionLines(tMs);
-    requestAnimationFrame(loop);
-  }
-
   function init() {
     createSeatSlots();
-    resizeCanvas();
-    initParticles();
 
     // Apply any seat snapshot that live.js already received and
     // cached on window before this module's own listeners were
@@ -736,9 +517,6 @@
     // populated seat/guest layout on first paint.
     if (window.__lastMicSeats)   applyMicSeats(window.__lastMicSeats);
     if (window.__lastGuestSeats) applyGuestSeats(window.__lastGuestSeats);
-
-    refreshConnectionLines();
-    requestAnimationFrame(loop);
   }
 
   if (document.readyState === "loading") {

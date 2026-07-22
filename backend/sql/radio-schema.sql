@@ -259,7 +259,49 @@ DROP TRIGGER IF EXISTS trg_radio_shows_updated ON radio_shows;
 CREATE TRIGGER trg_radio_shows_updated BEFORE UPDATE ON radio_shows
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+
+  -- ============================================================
+-- 📻 Lovecruise Radio — Phase 4: Guest Invite support
+-- ------------------------------------------------------------
+-- The Studio redesign adds a host-initiated "Invite Guest" flow
+-- (host invites a specific user to the guest booth) alongside the
+-- existing listener-initiated "Request to Speak" flow. Both are
+-- stored in radio_cohosts, distinguished by `status`.
+--
+-- radio_cohosts.status values now in use:
+--   'invited'          - host invited this user, awaiting their response
+--   'pending'          - listener requested to speak, awaiting host
+--   'approved'         - live in the guest booth (mic may be on/off)
+--   'declined_invite'  - user declined a host invite
+--   'rejected'         - host rejected a listener request
+--   'left'             - guest left / was removed
+--
+-- Safe to re-run (IF NOT EXISTS everywhere).
+-- Run with: psql "$DATABASE_URL" -f migrations/radio_phase4_guest_invites.sql
+-- ============================================================
+
+BEGIN;
+
+ALTER TABLE radio_cohosts
+  ADD COLUMN IF NOT EXISTS status        VARCHAR(20) NOT NULL DEFAULT 'approved',
+  ADD COLUMN IF NOT EXISTS invited_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS requested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS approved_at   TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS mic_muted     BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS mic_volume    INT NOT NULL DEFAULT 100 CHECK (mic_volume BETWEEN 0 AND 100),
+  ADD COLUMN IF NOT EXISTS mic_locked    BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_radio_cohosts_status ON radio_cohosts(broadcast_id, status);
+
 COMMIT;
+
+COMMIT;
+
+
+
+
+
+
 
 
 

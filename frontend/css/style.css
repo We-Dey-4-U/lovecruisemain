@@ -1,5 +1,63 @@
 /* ============================================================
-   vConnect — Design Tokens (contrast pass)
+   vConnect — Design Tokens (VISION-COMFORT / CONTRAST PASS v2)
+   ------------------------------------------------------------
+   This app is dark-themed and uses this ONE global stylesheet
+   everywhere, so every token change here affects the whole app
+   at once — worth getting right for people who strain their eyes
+   reading light text on dark backgrounds.
+
+   WHAT WAS CHECKED: actual contrast ratio of every text/border
+   token against every background it's really used on (--bg,
+   --surface, --surface-2), using the standard WCAG relative-
+   luminance formula, not just "does it look okay."
+
+   WHAT WAS WRONG:
+   - --text-faint (used for input placeholders and field hints —
+     exactly the text people with weaker vision most need to
+     read) measured ONLY ~4.5:1 to ~5.3:1 depending on which
+     background it sat on. That's barely at the legal minimum
+     (WCAG AA = 4.5:1) and on --surface-2 it was rounding right
+     on the edge — too close to comfortable for anyone with any
+     vision impairment.
+   - --border (input outlines, card edges, dividers) measured
+     only ~1.3:1 against --surface — so faint it was borderline
+     invisible, meaning input fields and cards had almost no
+     visible boundary for low-vision users relying on edges/
+     outlines to parse the layout.
+
+   WHAT CHANGED:
+   - --text-faint lightened so it now measures ~6.4–7.5:1 across
+     all three backgrounds (was ~4.5–5.3:1) — comfortably past
+     WCAG AAA (7:1) for normal text on the darkest background and
+     solidly above AA everywhere else.
+   - --text-dim lightened a touch too, so the three-tier text
+     hierarchy (text > text-dim > text-faint) stays visually
+     distinct instead of the gap collapsing once text-faint got
+     brighter.
+   - --border lightened so outlines/dividers are actually visible
+     against every surface instead of nearly disappearing.
+   - Decorative glow shadows (brand dot, buttons, background
+     radial glows) toned down slightly further — a strong glow
+     right next to small text is its own source of eye strain
+     (it competes with the text for attention / causes halation),
+     so mood is kept but the bloom is dialed back.
+   - font-smoothing extended to Firefox/mac (-moz-osx-font-
+     smoothing) alongside the existing -webkit rule, and
+     text-rendering:optimizeLegibility added, so small text
+     renders crisper across browsers, not just Chrome/Safari.
+   - Explicit line-height:1.5 added to body copy (the WCAG-
+     recommended minimum for comfortable reading), since none was
+     set before and browsers default lower than that.
+   - A prefers-contrast:more block bumps the same tokens even
+     further for anyone whose OS-level "increase contrast"
+     setting is on, without changing anything for people who
+     haven't asked for it.
+   - Focus outline widened 2px → 3px for easier-to-spot keyboard
+     focus.
+
+   Nothing structural changed — same variable names, same classes,
+   same layout. Every other page keeps working exactly as before;
+   only the actual pixel values of these tokens moved.
    ============================================================ */
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
@@ -7,17 +65,27 @@
   --bg:        #120D1A;
   --surface:   #1C1426;
   --surface-2: #251A33;
-  --border:    #342848;
+  /* CONTRAST FIX: was #342848 — measured only ~1.3:1 against
+     --surface (practically invisible). Lightened so input/card
+     outlines and dividers are actually visible without glowing. */
+  --border:    #4A3E66;
   --magenta:   #FF3D7F;
   --magenta-dim: #B82C5C;
   --gold:      #FFC857;
   --teal:      #00D9B5;
   --text:      #F4F0FA;
-  /* CONTRAST FIX: both of these were too dark against --bg (#120D1A)
-     to read comfortably — bumped up while keeping the same hue so
-     the visual hierarchy (text > text-dim > text-faint) is unchanged. */
-  --text-dim:  #ACA3C9;   /* was #8D84A6 */
-  --text-faint:#8B81A8;   /* was #5C5273 */
+  /* CONTRAST FIX: was #ACA3C9. Lightened a touch so the 3-tier
+     text hierarchy (text > text-dim > text-faint) stays clearly
+     distinct now that text-faint (below) has been brightened too. */
+  --text-dim:  #C2BADD;
+  /* CONTRAST FIX: was #8B81A8 — measured only ~4.5–5.3:1 depending
+     on background (right at/near the legal AA minimum), and this
+     is the color used for input placeholders and field hints,
+     i.e. exactly the small, low-emphasis text people with weaker
+     vision most need to read clearly. Now ~6.4–7.5:1 across every
+     background it's actually used on — comfortably past AA, at or
+     past AAA on the darkest surfaces. */
+  --text-faint:#A79CC4;
   --danger:    #FF5C5C;
 
   --font-display: 'Sora', sans-serif;
@@ -30,7 +98,22 @@
   --radius-pill: 999px;
 
   --shadow-card: 0 8px 24px rgba(0,0,0,0.35);
-  --shadow-pop:  0 12px 40px rgba(255,61,127,0.25);
+  /* CONTRAST FIX: alpha eased 0.25 → 0.20 — a strong glow right
+     next to small text/buttons adds visual noise that competes
+     with the text itself; mood is kept, bloom is dialed back. */
+  --shadow-pop:  0 12px 40px rgba(255,61,127,0.20);
+}
+
+/* Anyone with the OS-level "increase contrast" preference on gets
+   these same tokens pushed further still, with zero effect on
+   everyone else. */
+@media (prefers-contrast: more){
+  :root{
+    --border:     #6C5C92;
+    --text-dim:   #D6D0E8;
+    --text-faint: #BEB5D6;
+    --border-alt: #7A6AA0;
+  }
 }
 
 .post-thumb {
@@ -58,19 +141,26 @@
 html,body{ height:100%; }
 body{
   margin:0;
-  /* CONTRAST FIX: glow overlays toned down slightly (0.18→0.14,
-     0.10→0.08) so they add mood without washing out text near the
-     top of the screen. */
+  /* CONTRAST FIX: glow overlays toned down a little further
+     (0.14→0.11, 0.08→0.06) so they add mood without washing out
+     or competing with text near the top of the screen. */
   background:
-    radial-gradient(circle at 12% -10%, rgba(255,61,127,0.14), transparent 45%),
-    radial-gradient(circle at 90% 0%, rgba(0,217,181,0.08), transparent 40%),
+    radial-gradient(circle at 12% -10%, rgba(255,61,127,0.11), transparent 45%),
+    radial-gradient(circle at 90% 0%, rgba(0,217,181,0.06), transparent 40%),
     var(--bg);
   color:var(--text);
   font-family:var(--font-body);
+  /* READABILITY FIX: explicit comfortable line-height (WCAG's own
+     recommended minimum for body copy) — nothing was set before,
+     so lines were rendering at the browser default, which reads
+     tighter than is comfortable for sustained reading. */
+  line-height: 1.5;
   -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   min-height:100vh;
 }
-h1,h2,h3,h4{ font-family:var(--font-display); margin:0; letter-spacing:-0.01em; }
+h1,h2,h3,h4{ font-family:var(--font-display); margin:0; letter-spacing:-0.01em; line-height:1.25; }
 p{ margin:0; }
 a{ color:inherit; text-decoration:none; }
 button{ font-family:inherit; cursor:pointer; }
@@ -79,7 +169,9 @@ input,select,textarea{ font-family:inherit; }
 
 /* Focus visibility */
 a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible{
-  outline:2px solid var(--gold);
+  /* FIX: widened 2px → 3px so the keyboard-focus ring is easier
+     to spot at a glance, especially against busy backgrounds. */
+  outline:3px solid var(--gold);
   outline-offset:2px;
 }
 
@@ -135,7 +227,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 .brand .dot{
   width:9px; height:9px; border-radius:50%;
   background:var(--magenta);
-  box-shadow:0 0 12px var(--magenta);
+  /* CONTRAST FIX: glow blur/spread eased slightly (12px solid →
+     softer falloff) so the dot reads as a clean accent rather
+     than a small bright flare next to the brand text. */
+  box-shadow:0 0 10px rgba(255,61,127,0.85);
 }
 .icon-btn{
   width:38px; height:38px;
@@ -180,7 +275,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
   color:#1A0B12;
   box-shadow:var(--shadow-pop);
 }
-.btn-primary:hover{ box-shadow:0 14px 44px rgba(255,61,127,0.38); }
+.btn-primary:hover{ box-shadow:0 14px 44px rgba(255,61,127,0.30); }
 .btn-ghost{
   background:var(--surface);
   border:1px solid var(--border);
@@ -258,7 +353,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
   align-self:center;
   margin-top:-26px;
   color:#1A0B12;
-  box-shadow:0 10px 26px rgba(255,61,127,0.45);
+  box-shadow:0 10px 26px rgba(255,61,127,0.40);
 }
 .tabbar .tab.fab svg{ width:22px; height:22px; }
 

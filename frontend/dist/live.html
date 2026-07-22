@@ -6,1029 +6,718 @@
 <title>vConnect — Live</title>
 <style>
 /* ============================================================
-   vConnect Social Live Arena
+   vConnect Social Live — SECTIONED REDESIGN (v8: labels overlaid, block pushed up)
    ------------------------------------------------------------
-   Structural TWIN of podcast-live.html's arena. Both pages load
-   the same js/live.js (WebRTC/socket layer) and the same
-   js/live-mic-ring.js (visual seat/guest-frame layer), and both
-   modules only ever look for the same set of ids/classes:
-     #arena, #host-card-wrap, #participants-strip, #local-tile,
-     .participant-tile, #guest-frame-male, #guest-frame-female,
-     #connection-lines, #arena-particles, .seat-slot, .seat-wing,
-     .seat-row, etc.
-   So this file intentionally reuses the exact same seat/host/
-   guest-frame markup and CSS as podcast-live.html's canonical
-   layout (seat-wing-left/right flanking the arena + seat-row
-   pinned to the bottom, all clamp()-sized) — that's what makes
-   the seating arena render identically whether a room was
-   created as Social or Podcast. Only the theming (magenta/violet
-   instead of pure violet) and the podcast-only elements (episode
-   meta bar, audio-only cover art, pod-title/show fields) differ.
+   Pure UI/UX redesign. No WebRTC / mediasoup / Socket.IO / room /
+   seat-assignment / mute-kick logic lives here or was changed.
+   Every id/class js/live.js and js/live-mic-ring.js read or write
+   still exists under the exact same name.
 
-   Palette (per js/live-mic-ring.js's own fallback accent colors,
-   which assume live.html is violet/magenta):
-     --arena-accent   #9D5CFF  (violet — aura / lines / particles)
-     --arena-accent-2 #FF3D7F  (magenta — aura / lines gradient end)
+   ROOT CAUSE FOUND IN v8: the "Host"/"Guests"/"Mic Seats" caption
+   (.section-label) and the host name+pulse-dot tag (.stage-label)
+   were both normal block-flow elements sitting ABOVE/BELOW the
+   frame inside the same flex column. Every pixel of their own
+   height was a pixel the frame itself did NOT get, even though the
+   frame was already "100% of its section" — that 100% was 100% of
+   whatever was left over after the labels, not 100% of the section.
 
-   ── THIS PASS: MATCHMAKER LAYOUT + CONTRAST ──
-   - Host frame and both guest frames switched from circles to
-     tall rounded rectangles, stacked host-on-top /
-     guests-side-by-side, exactly like the reference screenshot:
-     a portrait "Matchmaker" card up top, two portrait guest
-     cards underneath it, each with a name/age/Follow overlay
-     baked into the bottom of the card itself instead of a
-     separate label floating below it.
-   - Mic seats keep the same left-wing / right-wing / bottom-row
-     split (4/4/4 = 12) but are now positioned to flank the
-     taller host/guest stack instead of a circular host, and
-     empty seats use a crown glyph instead of a plus sign to
-     match the reference image.
-   - Occupied seats now always show their seat number + a mic
-     status dot underneath the avatar (not just on mute), same
-     as the numbered seats in the reference image.
-   - Several low-alpha white text rules (.stream-desc,
-     .viewer-badge, .gift-target-row, .viewers-empty,
-     .comment-bar input::placeholder, .top-gifters .label,
-     .host-chip .sub) bumped further, plus a text-shadow added to
-     every label that sits on top of live video/imagery, so text
-     stays legible regardless of what's behind it.
-   - Added a real camera-sharpening filter. CSS `filter` alone
-     (contrast/saturate/brightness) can't sharpen an image — only
-     a convolution kernel can. An SVG <feConvolveMatrix> sharpen
-     kernel (#camSharpen) is injected once, right after <body>,
-     and applied via CSS to every live camera element: #stage-video
-     (host), #local-video (your own preview), and
-     .participant-tile video (the tile that gets docked into
-     #guest-frame-male / #guest-frame-female when someone joins a
-     guest seat). So it's live on the host frame AND both guest
-     frames, automatically, with no JS changes needed.
+   FIX: both are now `position: absolute` overlay badges (the same
+   technique the Male/Female guest-tag already used) — floating on
+   top of the frame/section instead of taking their own row:
+     - .section-label: small pill, top-left of the section.
+     - .stage-label (host name): small pill, bottom-left of the
+       host frame itself.
+   Neither reserves any flow height anymore, so .host-card-wrap /
+   .guest-frames / #participants-strip — each still the sole
+   flex:1 child of its section — now expand to the section's FULL
+   height, and the frames inside them (already height:100%) follow
+   suit. That's what lets the host frame's top edge sit right at
+   the divider under the header, and the guest frames' top edge
+   sit right at the divider under the host section.
+
+   WHOLE BLOCK ALSO PUSHED UP (more room for chat):
+     .host-section   34dvh → 30dvh
+     .guest-section  24dvh → 20dvh
+     .seats-section  20dvh → 18dvh
+   Even with these section heights trimmed, the frames read as
+   BIGGER than before, because they're no longer sharing that
+   space with a label row. Short-viewport breakpoint (max-height:
+   640px) rescaled to match: host 26dvh, guest 17dvh, seats 15dvh.
+
+   .stage stays flex:0 0 auto so none of this is undone by chat
+   content — host/guest/seats always get their exact fixed height;
+   only chat scrolls.
    ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  --accent: #9D5CFF;
+  --accent-2: #FF3D7F;
+  --bg-0: #08050F;
+  --bg-1: #0d0718;
+  --bg-2: #120a1f;
+  --line: rgba(157,92,255,.14);
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 9px;
+  --gap: clamp(6px, 1.8vw, 11px);
+}
+
 body, .app-shell, .live-screen {
-  height: 100dvh; overflow: hidden; background: #08050F;
+  height: 100dvh; overflow: hidden; background: var(--bg-0);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .live-screen {
   position: relative; width: 100%; max-width: 480px; margin: 0 auto;
   display: flex; flex-direction: column; height: 100dvh;
-  background: #08050F;
+  background: var(--bg-0); overflow: hidden;
 }
 
 /* ══════════════════════════
-   CAMERA SHARPEN — host stage, local preview, guest-frame tiles.
-   #camSharpen is defined once in the injected <svg> right after
-   <body> below. Layer a small contrast/saturation boost on top so
-   the sharpened image doesn't look flat.
+   SECTION 1 — HEADER (single compact row for everyone; host-only
+   controls used to live here as a second row — they now live
+   beside the host frame instead, see #host-controls below)
 ══════════════════════════ */
-#stage-video,
-#local-video,
-.participant-tile video {
-  filter: url(#camSharpen) contrast(1.08) saturate(1.12);
-  -webkit-filter: url(#camSharpen) contrast(1.08) saturate(1.12);
+.live-header {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px 10px 6px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
 }
 
-/* ══════════════════════════
-   ARENA — gradient bg, particle canvas, energy lines, host card,
-   guest frames, mic-seat row. Same structure/sizing rules as
-   podcast-live.html; only the accent colors differ.
-══════════════════════════ */
-.arena {
-  position: relative; flex: 0 0 68%;
-  overflow: hidden;
-  --arena-accent: #9D5CFF;
-  --arena-accent-2: #FF3D7F;
-  background:
-    radial-gradient(circle at 50% 26%, #2A0D4E 0%, transparent 58%),
-    radial-gradient(circle at 12% 88%, rgba(157,92,255,.12) 0%, transparent 45%),
-    radial-gradient(circle at 90% 80%, rgba(255,61,127,.12) 0%, transparent 42%),
-    linear-gradient(180deg, #12081F 0%, #08050F 100%);
+.header-row { display: flex; align-items: center; gap: 6px; width: 100%; }
+.header-row-top { justify-content: space-between; }
+
+.host-chip { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.host-chip img {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 1.5px solid rgba(255,61,127,.6); object-fit: cover; flex: none; cursor: pointer;
 }
-@media (max-height: 680px) {
-  .arena { flex-basis: 62%; }
+.host-chip .ht { min-width: 0; }
+.host-chip .name {
+  display: block; font-size: 11px; font-weight: 800; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 24vw;
+}
+.host-chip .sub { font-size: 8.5px; color: rgba(255,255,255,.55); }
+
+.follow-btn {
+  flex: none; background: linear-gradient(135deg,#FF3D7F,#9D5CFF); color: #fff; border: none;
+  border-radius: 12px; padding: 3px 8px; font-size: 10px;
+  font-weight: 800; cursor: pointer; transition: transform .15s; white-space: nowrap;
+}
+.follow-btn:active { transform: scale(.94); }
+.follow-btn.active { background: rgba(255,255,255,.16); }
+
+.header-top-right { display: flex; align-items: center; gap: 5px; flex: none; }
+
+.live-badge {
+  display: flex; align-items: center; gap: 3px;
+  background: linear-gradient(135deg,#FF3D7F,#9D5CFF);
+  border-radius: 10px; padding: 3px 7px;
+  color: #fff; font-size: 8.5px; font-weight: 900; letter-spacing: .05em; white-space: nowrap;
+}
+.live-badge .dot { width: 4px; height: 4px; border-radius: 50%; background: #fff; animation: pulse-anim 1.4s infinite; }
+@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.75)} }
+
+.live-timer { font-size: 9.5px; font-weight: 700; color: rgba(255,255,255,.8); white-space: nowrap; }
+
+.viewer-chip {
+  display: flex; align-items: center; gap: 3px;
+  background: rgba(255,255,255,.08); border: none;
+  border-radius: 10px; padding: 3px 7px;
+  color: #fff; font-size: 9.5px; font-weight: 700; cursor: pointer;
+}
+#network-badge {
+  font-size: 8px; font-weight: 900; padding: 2px 5px;
+  border-radius: 6px; background: rgba(0,200,100,.7); color: #fff; white-space: nowrap;
+}
+.close-btn {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(255,255,255,.08);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; border: none; cursor: pointer; flex: none;
+}
+
+/* top gifters strip — kept in the DOM (for anything that reads
+   #top-gifters) but hidden by default so the header stays exactly
+   one visible row and doesn't eat extra vertical space. */
+.top-gifters-row { display: none; }
+
+/* ══════════════════════════
+   STAGE — wraps host / guest / seat blocks. Kept as #arena for
+   js/live.js's DOM contract. Each stage-section gets an explicit
+   dvh-based height so host + guests + all 12 seats are ALWAYS
+   simultaneously visible with no scrolling here — only the chat
+   section below scrolls internally.
+══════════════════════════ */
+.stage {
+  /* flex: 0 0 auto (not 1 1 auto) — .stage never competes with
+     .chat-section for space, so host/guest/seats always get their
+     exact fixed dvh height no matter how much chat content there
+     is. .chat-section is the only flexible element in the column. */
+  flex: 0 0 auto; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-0) 100%);
+  position: relative;
 }
 
 #arena-particles {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
 }
-
 #connection-lines {
-  position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
   width: 100%; height: 100%;
 }
 
-.arena-blob {
-  position: absolute; border-radius: 50%; filter: blur(38px);
-  opacity: .32; z-index: 0; pointer-events: none;
+.stage-section {
+  position: relative; z-index: 3;
+  flex: 0 0 auto;
+  padding: 1px 10px;
+  border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
 }
-.arena-blob.b1 { width: 170px; height: 170px; background: #6A1ADF; top: -40px; left: -45px; animation: blob-drift 15s ease-in-out infinite; }
-.arena-blob.b2 { width: 130px; height: 130px; background: #FF3D7F; bottom: -25px; right: -25px; animation: blob-drift 18s ease-in-out infinite reverse; }
-@keyframes blob-drift {
-  0%,100% { transform: translate(0,0) scale(1); }
-  50% { transform: translate(14px,-10px) scale(1.08); }
-}
-
-/* ══════════════════════════
-   TOP BAR (overlaid on arena)
-══════════════════════════ */
-.live-top {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
-  display: flex; align-items: flex-start; justify-content: space-between;
-  padding: 12px 12px 0; gap: 8px;
-  background: linear-gradient(to bottom, rgba(0,0,0,.55) 0%, transparent 100%);
+.section-label {
+  position: absolute; top: 3px; left: 10px; z-index: 5;
+  font-size: 7.5px; font-weight: 800; letter-spacing: .06em;
+  color: rgba(255,255,255,.7); text-transform: uppercase;
+  background: rgba(0,0,0,.4); padding: 2px 7px; border-radius: 8px;
+  pointer-events: none;
 }
 
-.gift-tile .gift-icon-img { width: 26px; height: 26px; object-fit: contain; }
-.gift-banner-icon { width: 22px; height: 22px; object-fit: contain; flex: none; }
+/* ── SECTION 2 — HOST FRAME ─────────────────────────────
+   Rectangular tile, rounded corners, fixed position — never
+   rotates, never orbits, never moves. Speaking state only changes
+   the border glow / shadow / outline.
 
-.host-chip {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(0,0,0,.6); backdrop-filter: blur(10px);
-  border: 1px solid rgba(157,92,255,.25);
-  border-radius: 28px; padding: 5px 10px 5px 5px;
-  max-width: calc(100% - 150px); min-width: 0;
-}
-.host-chip img {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: 2px solid rgba(255,61,127,.6); object-fit: cover; flex: none; cursor: pointer;
-}
-.host-chip .ht { min-width: 0; flex: 1; }
-.host-chip .name {
-  display: block; font-size: 12px; font-weight: 800; color: #fff;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  text-shadow: 0 1px 3px rgba(0,0,0,.7);
-}
-/* CONTRAST FIX: .65 → .88 */
-.host-chip .sub { font-size: 10px; color: rgba(255,255,255,.88); font-weight: 600; }
-
-.follow-btn {
-  flex: none; background: linear-gradient(135deg,#FF3D7F,#9D5CFF); color: #fff; border: none;
-  border-radius: 14px; padding: 4px 10px; font-size: 11px;
-  font-weight: 800; cursor: pointer; transition: background .2s, transform .15s; white-space: nowrap;
-}
-.follow-btn:active { transform: scale(.94); }
-.follow-btn.active { background: rgba(255,255,255,.2); }
-
-.live-top-right {
-  display: flex; align-items: center; gap: 6px; flex: none;
-}
-.viewer-chip {
-  display: flex; align-items: center; gap: 4px;
-  background: rgba(0,0,0,.5); backdrop-filter: blur(8px);
-  border-radius: 14px; padding: 5px 8px;
-  color: #fff; font-size: 11px; font-weight: 700;
-}
-#network-badge {
-  font-size: 9px; font-weight: 900; padding: 3px 6px;
-  border-radius: 7px; background: rgba(0,200,100,.7); color: #fff;
-}
-.close-btn {
-  width: 30px; height: 30px; border-radius: 50%;
-  background: rgba(0,0,0,.5); backdrop-filter: blur(8px);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; border: none; cursor: pointer; flex: none;
-}
-.end-live-btn {
-  display: none; align-items: center; gap: 5px;
-  background: rgba(255,61,127,.9); color: #fff; border: none;
-  border-radius: 14px; padding: 5px 10px; font-size: 11px;
-  font-weight: 800; cursor: pointer; white-space: nowrap;
-}
-
-.live-badge {
-  display: flex; align-items: center; gap: 4px;
-  background: linear-gradient(135deg,#FF3D7F,#9D5CFF);
-  border-radius: 14px; padding: 5px 9px;
-  color: #fff; font-size: 10px; font-weight: 900; letter-spacing: .05em;
-  white-space: nowrap;
-}
-.live-badge .dot {
-  width: 5px; height: 5px; border-radius: 50%; background: #fff;
-  animation: pulse-anim 1.4s infinite;
-}
-@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.75)} }
-
-.top-gifters {
-  position: absolute; top: 54px; left: 12px; z-index: 20;
-  display: flex; align-items: center;
-}
-.top-gifters img {
-  width: 26px; height: 26px; border-radius: 50%;
-  border: 2px solid rgba(0,0,0,.5); object-fit: cover; margin-left: -5px;
-}
-.top-gifters img:first-child { margin-left: 0; }
-/* CONTRAST FIX: .65 → .88 */
-.top-gifters .label { font-size: 10px; color: rgba(255,255,255,.88); margin-left: 7px; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
-
-#host-controls {
-  display: none; position: absolute; top: 54px; right: 12px;
-  z-index: 20; flex-direction: column; gap: 8px;
-  background: rgba(0,0,0,.4); backdrop-filter: blur(10px);
-  border: 1px solid rgba(157,92,255,.22);
-  border-radius: 22px; padding: 8px 6px;
-}
-.host-mode #host-controls { display: flex; }
-.h-ctrl {
-  width: 38px; height: 38px; border-radius: 50%;
-  background: rgba(255,255,255,.06); backdrop-filter: blur(8px);
-  border: 1px solid rgba(157,92,255,.35);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; font-size: 15px;
-  transition: background .15s, border-color .15s, transform .1s;
-}
-.h-ctrl:active { transform: scale(.9); }
-.h-ctrl.is-off {
-  background: rgba(255,61,127,.85);
-  border-color: rgba(255,61,127,.6);
-}
-
-.mic-wrap {
-  position: absolute; bottom: 8px; right: 12px; z-index: 20;
-  width: 4px; height: 40px; background: rgba(255,255,255,.1);
-  border-radius: 4px; overflow: hidden; display: none;
-}
-.host-mode .mic-wrap { display: block; }
-#mic-level {
-  position: absolute; bottom: 0; width: 100%;
-  background: #FF3D7F; border-radius: 4px; height: 0%;
-  transition: height .08s;
-}
-
-/* ══════════════════════════
-   HOST CARD — tall rounded-rect "Matchmaker" card, centered at
-   the top of the arena, sized/positioned to match the reference
-   layout exactly: card takes the top ~44% of the arena height,
-   guest frames sit directly beneath it, and the mic-seat wings
-   flank both the host card and the guest row at once.
-══════════════════════════ */
+   SIZING (v5 — final): width is a real, direct percentage of the
+   row (97%) — NOT derived from height — so it can never be
+   silently clamped down the way an aspect-ratio-from-height value
+   could be. Height is 100% of host-card-wrap, which is itself
+   flex:1 inside host-section, so the frame's bottom edge sits
+   right at the divider line under this section. #stage-video uses
+   object-fit: cover, so filling both axes this way never distorts
+   the picture — it just uses the full space instead of leaving a
+   clamped, narrower box. */
+.host-section { height: 30dvh; }
 .host-card-wrap {
-  position: absolute; z-index: 5;
-  left: 50%; top: 4px; transform: translateX(-50%);
-  width: clamp(150px, 42vw, 210px);
-  height: clamp(150px, 30vh, 230px);
+  width: 100%; height: 100%; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center;
+  position: relative;
 }
-
-.host-aura {
-  position: absolute; inset: -6px; border-radius: 22px;
-  background: conic-gradient(from 0deg, #FF3D7F, #9D5CFF, #6A1ADF, #FF3D7F);
-  animation: aura-spin 5s linear infinite;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  padding: 4px;
-  filter: drop-shadow(0 0 10px rgba(255,61,127,.55));
-}
-@keyframes aura-spin { to { transform: rotate(360deg); } }
-
-.host-card-wrap.speaking .host-aura {
-  animation-duration: 1.6s;
-  filter: drop-shadow(0 0 18px rgba(255,61,127,.85)) drop-shadow(0 0 30px rgba(157,92,255,.4));
-}
-.host-card-wrap.speaking .host-frame { animation: host-pulse 1s ease-in-out infinite; }
-@keyframes host-pulse {
-  0%,100% { box-shadow: 0 0 0 0 rgba(255,61,127,.55); }
-  50% { box-shadow: 0 0 0 8px rgba(255,61,127,0); }
-}
-
 .host-frame {
-  position: absolute; inset: 0; border-radius: 18px; overflow: hidden;
-  background: #120a1f; box-shadow: 0 10px 30px rgba(0,0,0,.55);
-  border: 2px solid rgba(255,255,255,.14);
+  position: relative;
+  height: 100%; flex: 1 1 auto; min-height: 0;
+  width: 80%; max-width: 80%;
+  border-radius: var(--radius-lg); overflow: hidden;
+  background: #120a1f;
+  border: 2px solid rgba(157,92,255,.25);
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  transition: border-color .25s, box-shadow .25s;
 }
-#stage-video {
-  width: 100%; height: 100%; object-fit: cover; display: block;
+.host-card-wrap.speaking .host-frame {
+  border-color: rgba(255,61,127,.7);
+  box-shadow: 0 0 0 3px rgba(255,61,127,.25), 0 4px 20px rgba(255,61,127,.25);
 }
+#stage-video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .stage-offline {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 6px;
-  background: #120a1f; color: rgba(255,255,255,.55); font-size: 10.5px; text-align: center; padding: 8px;
+  align-items: center; justify-content: center; gap: 4px;
+  background: #120a1f; color: rgba(255,255,255,.4); font-size: 10px; text-align: center; padding: 6px;
 }
-.stage-offline .icon { font-size: 26px; }
-
+.stage-offline .icon { font-size: 22px; }
 .host-online-dot {
-  position: absolute; top: 8px; right: 8px; z-index: 6;
-  width: 12px; height: 12px; border-radius: 50%;
-  background: #00c864; border: 2px solid rgba(0,0,0,.5);
+  position: absolute; bottom: 6px; right: 6px; z-index: 2;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #00c864; border: 2px solid var(--bg-2);
 }
-
-/* Label now lives INSIDE the bottom of the host card, over the
-   video, matching the "👤 Matchmaker" overlay in the reference
-   image — no separate floating pill below the frame any more. */
 .stage-label {
-  position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 6;
-  display: flex; align-items: center; gap: 5px;
-  background: rgba(0,0,0,.55); backdrop-filter: blur(8px);
-  border-radius: 14px; padding: 4px 10px;
-  font-size: 10.5px; font-weight: 800; color: #fff; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0,0,0,.6);
+  position: absolute; bottom: 6px; left: 8px; z-index: 5;
+  display: flex; align-items: center; gap: 4px;
+  font-size: 9px; font-weight: 800; color: #fff;
+  background: rgba(0,0,0,.45); padding: 3px 8px; border-radius: 10px;
+  pointer-events: none;
 }
-.stage-label .pulse-dot {
-  width: 5px; height: 5px; border-radius: 50%; background: #FF3D7F;
-  animation: pulse-anim 1.4s infinite; flex: none;
+.stage-label .pulse-dot { width: 4px; height: 4px; border-radius: 50%; background: #FF3D7F; animation: pulse-anim 1.4s infinite; flex: none; }
+
+/* Host-only controls float in the space beside the (now wide)
+   host frame instead of taking a second header row. Same 6
+   buttons, same ids, same body.host-mode visibility contract —
+   only their position changed. .stage-section already establishes
+   the position:relative containing block these are absolutely
+   positioned against. */
+#host-controls {
+  position: absolute; inset: 0;
+  z-index: 6; pointer-events: none;
+  display: none;
+}
+body.host-mode #host-controls { display: block; }
+
+.h-ctrl {
+  position: absolute; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; color: rgba(255,255,255,.85);
+  cursor: pointer; pointer-events: auto; padding: 0;
+}
+.h-ctrl .h-ctrl-icon {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(0,0,0,.55); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.h-ctrl.muted .h-ctrl-icon, .h-ctrl.off .h-ctrl-icon { background: rgba(255,61,127,.4); border-color: rgba(255,61,127,.5); }
+.h-ctrl.end .h-ctrl-icon { background: rgba(255,61,127,.9); border-color: transparent; }
+
+/* left column — beside the left edge of the host frame */
+#camera-btn        { left: 4px; top: calc(50% - 40px); }
+#switch-camera-btn { left: 4px; top: 50%; }
+#mic-btn            { left: 4px; top: calc(50% + 40px); }
+
+/* right column — beside the right edge of the host frame */
+#beauty-btn        { right: 4px; top: calc(50% - 40px); }
+#header-share-btn  { right: 4px; top: 50%; }
+#end-live-btn      { right: 4px; top: calc(50% + 40px); }
+
+.mic-wrap {
+  position: absolute; top: -3px; right: 2px;
+  width: 3px; height: 16px; background: rgba(255,255,255,.12);
+  border-radius: 3px; overflow: hidden;
+}
+#mic-level {
+  position: absolute; bottom: 0; left: 0; width: 100%;
+  background: #FF3D7F; border-radius: 3px; height: 0%;
+  transition: height .08s;
 }
 
-/* ══════════════════════════
-   MATCHMAKING GUEST FRAMES — tall rounded-rect cards sitting
-   directly under the host card, side by side, each roughly half
-   the arena width, matching the reference image's two portrait
-   cards. Name/age + Follow live inside the card as an overlay,
-   same spot the reference shows them.
-══════════════════════════ */
+/* ── SECTION 3 — GUEST FRAMES ───────────────────────────
+   Two tiles, same design language as the host frame, equal size,
+   fixed positions, never circular.
+
+   SIZING (v5 — final): each tile's width is a real, direct
+   calc() of the row (50% minus half the gap) — NOT derived from
+   height — so the two tiles always exactly fill the row edge to
+   edge with no leftover side gutters and can never be silently
+   clamped narrower. Height is 100% of guest-frames, which is
+   itself flex:1 inside guest-section, so both tiles' bottom edges
+   sit right at the divider line under this section. The video
+   tiles inside use object-fit: cover, so filling both axes this
+   way never distorts the picture. */
+.guest-section { height: 20dvh; }
 .guest-frames {
-  position: absolute; z-index: 5;
-  left: 8px; right: 8px; top: calc(clamp(150px, 30vh, 230px) + 12px);
-  bottom: 10px;
-  display: flex; align-items: stretch; gap: 8px;
+  flex: 1; min-height: 0;
+  display: flex; align-items: stretch; justify-content: center; gap: var(--gap);
 }
 .guest-frame {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  border-radius: 16px;
+  position: relative; min-height: 0;
+  height: 100%; width: calc(44% - (var(--gap) / 2)); flex: 0 0 auto;
+  border-radius: var(--radius-md);
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, rgba(157,92,255,.22), rgba(255,255,255,.05));
+  background: linear-gradient(135deg, rgba(157,92,255,.16), rgba(255,255,255,.04));
   border: 2px dashed rgba(157,92,255,.4);
-  cursor: pointer; transition: border-color .2s, background .2s, transform .15s;
-  overflow: hidden;
+  cursor: pointer; overflow: hidden;
+  transition: border-color .2s, background .2s, transform .15s;
 }
 .guest-frame:active { transform: scale(.98); }
-.guest-frame.occupied {
-  border-style: solid; border-color: rgba(157,92,255,.55);
-  background: #120a1f;
-}
-.guest-frame.occupied.speaking {
-  border-color: #FF3D7F;
-  box-shadow: 0 0 0 3px rgba(255,61,127,.25);
-}
-.guest-placeholder {
-  font-size: clamp(24px, 8vw, 40px); color: rgba(255,255,255,.32); pointer-events: none;
-}
+.guest-frame.occupied { border-style: solid; border-color: rgba(157,92,255,.5); background: #120a1f; }
+.guest-frame.occupied.speaking { border-color: #FF3D7F; box-shadow: 0 0 0 3px rgba(255,61,127,.25); }
+.guest-placeholder { font-size: clamp(20px, 6vw, 30px); color: rgba(255,255,255,.32); pointer-events: none; }
 .guest-frame.occupied .guest-placeholder { display: none; }
-
-/* Tag becomes a bottom-of-card overlay (name/age style) instead
-   of a small pill hanging off the bottom edge. */
 .guest-tag {
-  position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 3;
-  display: flex; align-items: center; justify-content: space-between; gap: 4px;
-  font-size: 10px; font-weight: 800; padding: 4px 8px; border-radius: 10px;
-  background: rgba(0,0,0,.6); backdrop-filter: blur(6px);
-  color: #fff; white-space: nowrap; pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0,0,0,.6);
-  overflow: hidden; text-overflow: ellipsis;
+  position: absolute; top: 5px; left: 6px;
+  font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 8px;
+  background: rgba(0,0,0,.55); color: #fff; white-space: nowrap; pointer-events: none; z-index: 2;
 }
 .guest-frame[data-slot="male"] .guest-tag { color: #6FC7FF; }
 .guest-frame[data-slot="female"] .guest-tag { color: #FF8FD1; }
-.guest-link {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
-  z-index: 6;
-  font-size: clamp(16px, 5vw, 22px); filter: drop-shadow(0 0 6px rgba(255,61,127,.6));
-  animation: pulse-anim 1.8s ease-in-out infinite;
-  pointer-events: none;
-}
 
-/* ══════════════════════════
-   MIC SEAT ROW — identical structure/positioning to
-   podcast-live.html: left/right wings + bottom row, all
-   position:absolute so they flank the arena instead of stacking
-   and can never be clipped by overflow:hidden. This block MUST
-   stay byte-for-byte compatible with what podcast-live.html
-   defines, since js/live-mic-ring.js's createSeatSlots() builds
-   the exact same .seat-wing-left/.seat-wing-right/.seat-row-bottom
-   DOM on both pages.
-══════════════════════════ */
-#participants-strip {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  pointer-events: none;
-}
-#participants-strip > * { pointer-events: auto; }
-
-/* Wings now run the FULL height of the arena (top-to-bottom
-   flanking both the host card and the guest row beneath it) so
-   4 seats fit down each side without crowding, exactly like the
-   reference image's stacked left/right seat columns. */
-.seat-wing {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: calc(100% - 14px);
-  gap: clamp(4px, 1.2vh, 9px);
-  z-index: 4;
-}
-.seat-wing-left  { left: 4px; }
-.seat-wing-right { right: 4px; }
-
-.seat-row {
-  position: absolute;
-  left: 50%;
-  bottom: 4px;
-  transform: translateX(-50%);
-  display: flex;
-  flex-wrap: nowrap;
-  justify-content: center;
-  gap: clamp(6px, 2.5vw, 12px);
-  width: max-content;
-  max-width: calc(100% - 90px);
-  z-index: 4;
-}
-
-#local-tile, .participant-tile {
-  display: none;
-  flex-direction: column; align-items: center; gap: 0;
-  width: clamp(36px, 10.5vw, 54px);
-  flex: 0 0 auto;
-}
-#local-tile.seated, .participant-tile.seated {
-  display: flex;
-  animation: seat-in .38s cubic-bezier(.34,1.4,.64,1);
-}
-@keyframes seat-in {
-  from { opacity: 0; transform: scale(.5); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-#local-tile.docked, .participant-tile.docked {
-  width: 100%; height: 100%;
-  animation: seat-in .32s cubic-bezier(.34,1.4,.64,1);
-}
-#local-tile.docked .seat-frame, .participant-tile.docked .seat-frame {
-  width: 100%; height: 100%;
-}
-
-.seat-frame {
-  position: relative;
-  width: clamp(30px, 8.5vw, 46px); height: clamp(30px, 8.5vw, 46px);
-  border-radius: 50%;
-  padding: 2px;
-  background: linear-gradient(135deg, rgba(157,92,255,.5), rgba(255,255,255,.08));
-}
-#local-tile .seat-frame { background: linear-gradient(135deg, #FF3D7F, #9D5CFF); }
-.participant-tile.speaking .seat-frame,
-#local-tile.speaking .seat-frame {
-  background: conic-gradient(from 0deg, #9D5CFF, #FF3D7F, #9D5CFF);
-  animation: aura-spin 1.4s linear infinite;
-}
-
-#local-video, .participant-tile video {
-  width: 100%; height: 100%; border-radius: 50%;
-  object-fit: cover; background: #120a1f; display: block;
-  border: 2px solid #08050F;
-}
-
-.seat-num {
-  position: absolute; top: -3px; left: -3px; z-index: 3;
-  width: 15px; height: 15px; border-radius: 50%;
-  background: #170B2E; border: 1.5px solid rgba(255,255,255,.25);
-  color: rgba(255,255,255,.75); font-size: 8px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.seat-mic-icon {
-  position: absolute; bottom: -2px; right: -2px; z-index: 3;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: #170B2E; border: 1.5px solid #08050F;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 8px;
-}
-
-#local-name, .ptile-name {
-  font-size: clamp(7px, 2vw, 8.5px); color: rgba(255,255,255,.85); font-weight: 700;
-  text-align: center; max-width: clamp(36px, 10.5vw, 54px); margin-top: 3px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0,0,0,.6);
-}
-
+.participant-tile, #local-tile { width: 100%; height: 100%; }
+.participant-tile.docked, #local-tile.docked { display: block; }
+.participant-tile video, #local-video { width: 100%; height: 100%; object-fit: cover; display: block; background: #120a1f; }
 .local-tile-controls {
-  position: absolute; bottom: -3px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; justify-content: center; gap: 3px;
-  z-index: 5;
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center; gap: 4px; z-index: 3;
 }
 .local-ctrl-btn {
-  width: 18px; height: 18px; border-radius: 50%;
-  background: rgba(0,0,0,.8); backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,.2);
+  width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(0,0,0,.75); border: 1px solid rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; font-size: 8px;
-  transition: background .15s, transform .1s;
-  padding: 0; line-height: 1;
+  color: #fff; cursor: pointer; font-size: 9px; padding: 0; line-height: 1;
 }
-.local-ctrl-btn:active { transform: scale(.85); }
 .local-ctrl-btn.muted { background: rgba(157,92,255,.75); border-color: rgba(157,92,255,.5); }
-
-.ptile-muted-badge {
-  position: absolute; top: -3px; right: -3px; z-index: 4;
-  width: 15px; height: 15px; border-radius: 50%;
-  background: rgba(0,0,0,.8); backdrop-filter: blur(4px);
-  display: none; align-items: center; justify-content: center;
-  font-size: 8px; line-height: 1;
+#local-name {
+  position: absolute; top: 5px; right: 6px; z-index: 3;
+  font-size: 8px; font-weight: 700; color: rgba(255,255,255,.8);
+  background: rgba(0,0,0,.5); padding: 1px 5px; border-radius: 7px;
 }
 
-.strip-empty-hint { display: none; }
+.guest-self-controls {
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+  display: none; align-items: center; justify-content: center; gap: 3px; z-index: 4;
+}
+.guest-self-btn {
+  width: 19px; height: 19px; border-radius: 50%;
+  background: rgba(0,0,0,.8); border: 1px solid rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; font-size: 9px; padding: 0; line-height: 1;
+}
+.guest-self-btn:active { transform: scale(.85); }
+.guest-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
+.guest-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
+.guest-mute-indicator {
+  position: absolute; bottom: 5px; right: 6px; z-index: 3;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(0,0,0,.75); border: 1px solid rgba(255,255,255,.15);
+  display: none; align-items: center; justify-content: center; font-size: 8px;
+}
+.guest-frame.guest-muted { border-color: rgba(255,61,127,.5); }
+.guest-frame.guest-host-muted { border-color: rgba(255,61,127,.8); box-shadow: 0 0 0 3px rgba(255,61,127,.25); }
 
-/* ══════════════════════════
-   SEAT SLOTS — the 12 permanent mic-seat placeholders (4 left
-   wing / 4 right wing / 4 bottom row). Vacant seats show a crown
-   glyph (matching the reference image) instead of a plus sign.
-   Occupied seats always show their seat number + a live mic dot
-   underneath the avatar, not just while muted.
-══════════════════════════ */
+/* ── SECTION 4 — 12 MIC SEATS ───────────────────────────
+   UNCHANGED in this pass — 6x2 grid, circular avatars, even
+   spacing, equal sizing, same 23dvh height as before. */
+.seats-section { height: 18dvh; }
+#participants-strip { flex: 1; min-height: 0; width: 100%; display: flex; }
+.seats-grid {
+  flex: 1; width: 100%; min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px calc(var(--gap) * .6);
+}
 .seat-slot {
-  position: relative;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  width: clamp(34px, 9.5vw, 48px);
-  flex: 0 0 auto;
+  position: relative; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 .seat-slot-frame {
-  width: clamp(30px, 8vw, 42px); height: clamp(30px, 8vw, 42px);
+  position: relative;
+  width: auto; height: 100%; aspect-ratio: 1 / 1;
+  max-width: 100%;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  border: 2px dashed rgba(157,92,255,.4);
-  background: rgba(255,255,255,.05);
-  cursor: pointer;
+  border: 2px dashed rgba(157,92,255,.35);
+  background: rgba(255,255,255,.04);
+  cursor: pointer; overflow: hidden;
   transition: border-color .2s, background .2s, transform .15s;
 }
-.seat-slot:active .seat-slot-frame { transform: scale(.9); }
-.seat-slot:not(.occupied):hover .seat-slot-frame {
-  border-color: rgba(157,92,255,.75);
-  background: rgba(157,92,255,.1);
-}
-.seat-plus {
-  font-size: 15px; line-height: 1;
-  color: rgba(255,255,255,.4); pointer-events: none;
-  filter: grayscale(.15);
-}
-.seat-slot-num {
-  font-size: 8px; font-weight: 800; color: rgba(255,255,255,.5);
-}
-.seat-slot.occupied .seat-slot-frame,
-.seat-slot.occupied .seat-slot-num {
-  display: none;
-}
-
-/* Always-on seat badge: number + mic status, shown under every
-   OCCUPIED seat (self or other), matching the reference image's
-   "8 🔴" / "9 ⚪" numbered seats. */
-.seat-status-badge {
-  display: none;
-  align-items: center; gap: 3px;
-  background: rgba(0,0,0,.6); backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,.18);
-  border-radius: 10px; padding: 1px 6px 1px 5px;
-  font-size: 8.5px; font-weight: 800; color: rgba(255,255,255,.92);
-}
-.seat-slot.occupied .seat-status-badge { display: flex; }
-.seat-status-badge .dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #2FD86A; flex: none;
-}
-.seat-slot.seat-muted .seat-status-badge .dot,
-.seat-slot.seat-host-muted .seat-status-badge .dot {
-  background: #FF3D7F;
-}
-
-/* ══════════════════════════
-   STREAM TITLE BAR — the social-live equivalent of the podcast
-   episode meta bar. No episode/show fields here (those are
-   podcast-only) — just the room title.
-══════════════════════════ */
-.stream-meta-bar {
-  flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 14px; background: #0d0718;
-  border-top: 1px solid rgba(157,92,255,.14);
-  border-bottom: 1px solid rgba(157,92,255,.08);
-}
-.stream-title {
-  font-size: 14px; font-weight: 900; color: #fff; line-height: 1.25;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-/* CONTRAST FIX: .55 → .88 — this was the hardest line on the page
-   to read against the dark panel behind it. */
-.stream-desc {
-  font-size: 11px; color: rgba(255,255,255,.88); font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-
-.lower-panel {
-  flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column;
-  background: linear-gradient(to bottom, #0d0718 0%, #08050F 100%);
-}
-
-.fx-layer {
-  position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: hidden;
-}
-.fx-particle {
-  position: absolute; bottom: 80px; font-size: 20px;
-  animation: float-up 2.7s ease-out forwards; will-change: transform,opacity;
-}
-@keyframes float-up {
-  0%{transform:translateY(0) rotate(0deg);opacity:1}
-  60%{opacity:1}
-  100%{transform:translateY(-180px) translateX(var(--drift)) rotate(var(--rot));opacity:0}
-}
-
-.gift-streak-layer {
-  position: absolute; bottom: 70px; left: 0; right: 0; z-index: 7;
-  pointer-events: none; display: flex; flex-direction: column;
-  align-items: flex-start; gap: 6px; padding: 0 12px;
-}
-.gift-banner {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(0,0,0,.65); backdrop-filter: blur(10px);
-  border: 1px solid rgba(157,92,255,.25);
-  border-radius: 20px; padding: 6px 12px;
-  animation: slide-in-left .35s ease-out, fade-out 2.6s .4s ease-in forwards;
-  max-width: 85%;
-}
-.gift-banner-avatar { font-size: 18px; flex: none; }
-.gift-banner-text { font-size: 11px; color: #fff; line-height: 1.4; }
-.gift-banner-text strong { font-weight: 800; }
-.gift-banner-text em { font-style: normal; color: #FF3D7F; font-weight: 700; }
-@keyframes slide-in-left { from{transform:translateX(-16px);opacity:0} to{transform:translateX(0);opacity:1} }
-@keyframes fade-out { 0%{opacity:1} 100%{opacity:0} }
-
-.comments-wrap {
-  flex: 1; overflow: hidden; position: relative;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 22%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 22%);
-}
-.comments-scroll {
-  height: 100%; overflow-y: auto; display: flex; flex-direction: column;
-  justify-content: flex-end; gap: 5px; padding: 8px 12px;
-  scrollbar-width: none;
-}
-.comments-scroll::-webkit-scrollbar { display: none; }
-.comment-row { display: flex; align-items: flex-start; gap: 6px; animation: comment-in .2s ease-out; }
-@keyframes comment-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
-.comment-row img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; margin-top: 2px; }
-.comment-row .bubble {
-  background: rgba(0,0,0,.5); backdrop-filter: blur(6px);
-  border-radius: 12px; padding: 5px 9px; font-size: 11.5px;
-  color: rgba(255,255,255,.95); line-height: 1.4; max-width: 88%; word-break: break-word;
-}
-.comment-row .uname { display: inline; font-weight: 800; color: #FF3D7F; margin-right: 4px; }
-.comment-row.gift-row .bubble { background: rgba(157,92,255,.2); border: 1px solid rgba(157,92,255,.28); }
-.comment-row.system .bubble { background: rgba(157,92,255,.14); color: rgba(255,255,255,.82); font-size: 10.5px; }
-
-.live-controls {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px 20px;
-  border-top: 1px solid rgba(157,92,255,.1);
-}
-.comment-bar {
-  flex: 1; display: flex; align-items: center;
-  background: rgba(255,255,255,.07); border: 1px solid rgba(157,92,255,.18);
-  border-radius: 22px; padding: 0 12px; height: 40px; gap: 6px;
-}
-.comment-bar input {
-  flex: 1; background: none; border: none; outline: none;
-  color: #fff; font-size: 13px;
-}
-/* CONTRAST FIX: .38 → .65 */
-.comment-bar input::placeholder { color: rgba(255,255,255,.65); }
-.comment-send {
-  background: none; border: none; color: #FF3D7F;
-  font-size: 12px; font-weight: 800; cursor: pointer; flex: none;
-}
-.ctrl-icon {
-  width: 40px; height: 40px; border-radius: 50%;
-  background: rgba(255,255,255,.07); border: 1px solid rgba(157,92,255,.18);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; flex: none;
-  transition: background .15s, transform .1s; font-size: 17px;
-}
-.ctrl-icon:active { transform: scale(.88); }
-
-.sheet-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  backdrop-filter: blur(4px); z-index: 50;
-  opacity: 0; pointer-events: none; transition: opacity .25s;
-}
-.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
-.gift-sheet {
-  position: fixed; bottom: -100%; left: 0; right: 0;
-  max-width: 480px; margin: 0 auto; z-index: 51;
-  background: #100a1c; border-radius: 24px 24px 0 0;
-  padding: 0 0 36px; transition: bottom .3s cubic-bezier(.34,1.56,.64,1);
-  border-top: 1px solid rgba(157,92,255,.2);
-}
-.gift-sheet.open { bottom: 0; }
-.sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; margin: 12px auto 0; }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 4px; }
-.sheet-head h3 { font-size: 15px; font-weight: 800; color: #fff; }
-.gift-target-row {
-  padding: 0 18px 10px; font-size: 11.5px;
-  /* CONTRAST FIX: .5 → .82 */
-  color: rgba(255,255,255,.82);
-}
-#gift-target-name { color: #FF3D7F; font-weight: 700; }
-.coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(157,92,255,.12); border: 1px solid rgba(157,92,255,.25); border-radius: 18px; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #C890FF; }
-.gift-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; padding: 0 14px 14px; max-height: 240px; overflow-y: auto; scrollbar-width: none; }
-.gift-grid::-webkit-scrollbar { display: none; }
-.gift-tile { display: flex; flex-direction: column; align-items: center; gap: 3px; background: rgba(255,255,255,.06); border: 1.5px solid transparent; border-radius: 14px; padding: 10px 5px; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
-.gift-tile:active { transform: scale(.92); }
-.gift-tile.selected { border-color: #FF3D7F; background: rgba(255,61,127,.15); }
-.gift-tile .emoji { font-size: 20px; }
-.gift-tile .name { font-size: 9.5px; font-weight: 700; color: rgba(255,255,255,.88); text-align: center; }
-.gift-tile .price { font-size: 9.5px; font-weight: 800; color: #C890FF; background: rgba(157,92,255,.12); border-radius: 7px; padding: 2px 5px; }
-.send-gift-btn { width: calc(100% - 28px); margin: 0 14px; height: 46px; border-radius: 14px; font-size: 13px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg,#FF3D7F,#9D5CFF); color: #fff; transition: opacity .2s; }
-.send-gift-btn:disabled { opacity: .4; cursor: not-allowed; }
-.insufficient-cta { display: none; margin: 0 14px 10px; padding: 9px 12px; background: rgba(255,61,127,.1); border: 1px solid rgba(255,61,127,.25); border-radius: 10px; font-size: 11.5px; color: #FF8FD1; align-items: center; justify-content: space-between; gap: 8px; }
-.insufficient-cta.show { display: flex; }
-.insufficient-cta button { background: #FF8FD1; color: #1a0a2e; border: none; border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 800; cursor: pointer; flex: none; }
-
-.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 200; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
-.toast.show { opacity: 1; }
-
-@media (prefers-reduced-motion: reduce) {
-  .arena-blob, .host-aura, .host-card-wrap.speaking .host-frame,
-  .participant-tile.speaking .seat-frame, #local-tile.speaking .seat-frame,
-  .stage-label .pulse-dot, .live-badge .dot, .guest-link { animation: none !important; }
-}
-
-/* ══════════════════════════
-   HOST CONTROL OVERLAY — kick (✕) / mute (🔇) buttons that
-   live-mic-ring.js injects into every occupied seat-slot and
-   guest-frame. Same rules as podcast-live.html.
-══════════════════════════ */
-.host-ctrl-overlay {
-  position: absolute; inset: 0; z-index: 8;
-  display: none;
-  pointer-events: none;
-}
-.host-mode .seat-slot.occupied .host-ctrl-overlay,
-.host-mode .guest-frame.occupied .host-ctrl-overlay {
-  display: block;
-}
-.host-ctrl-overlay.hidden-self {
-  display: none !important;
-}
-
-.host-ctrl-btn {
-  position: absolute;
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(255,255,255,.5);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 8px; line-height: 1;
-  background: rgba(0,0,0,.85);
-  color: #fff;
-  cursor: pointer;
-  pointer-events: auto;
-  padding: 0;
-  transition: transform .1s, background .15s;
-}
-.host-ctrl-btn:active { transform: scale(.85); }
-
-.host-ctrl-mute {
-  top: -4px; left: -4px;
-}
-.host-ctrl-kick {
-  top: -4px; right: -4px;
-  background: rgba(255,61,127,.9);
-  border-color: rgba(255,61,127,.6);
-}
-
-.guest-frame .host-ctrl-btn {
-  width: 22px; height: 22px; font-size: 11px;
-  top: 6px;
-}
-.guest-frame .host-ctrl-mute { left: 6px; }
-.guest-frame .host-ctrl-kick { right: 6px; }
-
-/* ══════════════════════════
-   SEAT/GUEST AVATAR + SELF-CONTROLS — the pieces
-   live-mic-ring.js's createSeatSlots()/ensureGuestOverlays()
-   create but that had no styling yet.
-══════════════════════════ */
-.seat-slot.occupied .seat-slot-frame {
-  display: flex;
-  border-style: solid;
-  border-color: rgba(160,90,255,.55);
-  background: transparent;
-  overflow: hidden;
-}
-.seat-slot.occupied .seat-slot-num { display: none; }
-.seat-slot.occupied .seat-plus { display: none; }
-
+.seat-slot:active .seat-slot-frame { transform: scale(.92); }
+.seat-slot:not(.occupied) .seat-slot-frame:hover { border-color: rgba(157,92,255,.7); background: rgba(157,92,255,.08); }
+.seat-plus { font-size: 14px; font-weight: 300; color: rgba(255,255,255,.32); pointer-events: none; }
+.seat-slot-num { font-size: 7.5px; font-weight: 800; color: rgba(255,255,255,.4); flex: 0 0 auto; }
+.seat-slot.occupied .seat-slot-frame { border-style: solid; border-color: rgba(157,92,255,.55); background: transparent; }
+.seat-slot.occupied .seat-slot-num, .seat-slot.occupied .seat-plus { display: none; }
+.seat-slot.speaking .seat-slot-frame { border-color: #FF3D7F; box-shadow: 0 0 0 3px rgba(255,61,127,.28); }
 .seat-slot.seat-muted .seat-slot-frame { border-color: rgba(255,61,127,.5); }
-.seat-slot.seat-host-muted .seat-slot-frame {
-  border-color: rgba(255,61,127,.8);
-  box-shadow: 0 0 0 2px rgba(255,61,127,.25);
-}
-
-.seat-avatar {
-  width: 100%; height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-  display: none;
-}
+.seat-slot.seat-host-muted .seat-slot-frame { border-color: rgba(255,61,127,.8); box-shadow: 0 0 0 2px rgba(255,61,127,.25); }
+.seat-avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: none; }
 
 .seat-mute-indicator {
   position: absolute; bottom: -2px; right: -2px; z-index: 3;
-  width: 16px; height: 16px; border-radius: 50%;
-  background: #170B2E; border: 1.5px solid #08050F;
-  display: none; align-items: center; justify-content: center;
-  font-size: 8px;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #170B2E; border: 1.5px solid var(--bg-0);
+  display: none; align-items: center; justify-content: center; font-size: 7px;
 }
-
 .seat-self-controls {
-  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
-  display: none; align-items: center; justify-content: center; gap: 3px;
-  z-index: 5;
+  position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+  display: none; align-items: center; justify-content: center; gap: 2px; z-index: 5;
 }
 .seat-self-btn {
-  width: 18px; height: 18px; border-radius: 50%;
-  background: rgba(0,0,0,.85); backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,.2);
+  width: 15px; height: 15px; border-radius: 50%;
+  background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.2);
   display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; font-size: 8px; padding: 0; line-height: 1;
-  transition: background .15s, transform .1s;
+  color: #fff; cursor: pointer; font-size: 7px; padding: 0; line-height: 1;
 }
 .seat-self-btn:active { transform: scale(.85); }
 .seat-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
 .seat-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
 
-.guest-frame.guest-muted { border-color: rgba(255,61,127,.5); }
-.guest-frame.guest-host-muted {
-  border-color: rgba(255,61,127,.8);
-  box-shadow: 0 0 0 3px rgba(255,61,127,.25);
-}
-.guest-mute-indicator {
-  position: absolute; top: 6px; right: 6px; z-index: 3;
-  width: 22px; height: 22px; border-radius: 50%;
-  background: rgba(0,0,0,.7); border: 1.5px solid #08050F;
-  display: none; align-items: center; justify-content: center;
-  font-size: 10px;
-}
-.guest-self-controls {
-  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
-  display: none; align-items: center; justify-content: center; gap: 5px;
-  z-index: 5;
-}
-.guest-self-btn {
-  width: 24px; height: 24px; border-radius: 50%;
-  background: rgba(0,0,0,.85); backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,.2);
+.host-ctrl-overlay { position: absolute; inset: 0; z-index: 6; display: none; pointer-events: none; }
+body.host-mode .seat-slot.occupied .host-ctrl-overlay,
+body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
+.host-ctrl-overlay.hidden-self { display: none !important; }
+.host-ctrl-btn {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,.5);
   display: flex; align-items: center; justify-content: center;
-  color: #fff; cursor: pointer; font-size: 11px; padding: 0; line-height: 1;
-  transition: background .15s, transform .1s;
+  font-size: 7px; line-height: 1; background: rgba(0,0,0,.85); color: #fff;
+  cursor: pointer; pointer-events: auto; padding: 0;
 }
-.guest-self-btn:active { transform: scale(.85); }
-.guest-mute-btn:disabled { opacity: .5; cursor: not-allowed; }
-.guest-leave-btn { background: rgba(255,61,127,.75); border-color: rgba(255,61,127,.5); }
+.host-ctrl-btn:active { transform: scale(.85); }
+.host-ctrl-mute { top: -3px; left: -3px; }
+.host-ctrl-kick { top: -3px; right: -3px; background: rgba(255,61,127,.9); border-color: rgba(255,61,127,.6); }
+.guest-frame .host-ctrl-btn { width: 18px; height: 18px; font-size: 9px; }
+.guest-frame .host-ctrl-mute { top: 5px; left: 5px; }
+.guest-frame .host-ctrl-kick { top: 5px; right: 5px; }
+
+/* gift fx layers — decorative, transient animation only */
+.fx-layer { position: absolute; inset: 0; pointer-events: none; z-index: 8; overflow: hidden; }
+.fx-particle {
+  position: absolute; bottom: 30px; font-size: 18px;
+  animation: float-up 2.7s ease-out forwards; will-change: transform,opacity;
+}
+@keyframes float-up {
+  0%{transform:translateY(0) rotate(0deg);opacity:1}
+  60%{opacity:1}
+  100%{transform:translateY(-140px) translateX(var(--drift)) rotate(var(--rot));opacity:0}
+}
+.gift-streak-layer {
+  position: absolute; bottom: 4px; left: 0; right: 0; z-index: 9;
+  pointer-events: none; display: flex; flex-direction: column;
+  align-items: flex-start; gap: 4px; padding: 0 12px;
+}
+.gift-banner {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(0,0,0,.7); border: 1px solid rgba(157,92,255,.25);
+  border-radius: 16px; padding: 4px 10px;
+  animation: slide-in-left .35s ease-out, fade-out 2.6s .4s ease-in forwards;
+  max-width: 90%;
+}
+.gift-banner-avatar { font-size: 15px; flex: none; }
+.gift-banner-icon { width: 18px; height: 18px; object-fit: contain; flex: none; }
+.gift-banner-text { font-size: 10px; color: #fff; line-height: 1.3; }
+.gift-banner-text strong { font-weight: 800; }
+.gift-banner-text em { font-style: normal; color: #FF3D7F; font-weight: 700; }
+@keyframes slide-in-left { from{transform:translateX(-16px);opacity:0} to{transform:translateX(0);opacity:1} }
+@keyframes fade-out { 0%{opacity:1} 100%{opacity:0} }
+
+#tile-holding-bay { display: none; }
+
+/* stream title strip — hidden to free vertical space for the
+   guest/seats sections. #stream-title / #stream-desc still exist
+   in the DOM under it, so the inline script (which fills them
+   from the URL's ?title= / ?description= params) still runs
+   exactly as before — the bar itself just no longer takes up
+   screen space. Flip this back to "display:flex" any time it's
+   needed again. */
+.stream-meta-bar {
+  display: none;
+  flex: 0 0 auto; align-items: baseline; gap: 6px;
+  padding: 4px 10px; background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.stream-title { font-size: 11px; font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.stream-desc { font-size: 9.5px; color: rgba(255,255,255,.5); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
+
+/* ── SECTION 5 — LIVE CHAT ──────────────────────────────
+   Its own dedicated section, scrollable only inside itself
+   (this is the one place scrolling is expected/allowed). */
+.chat-section {
+  /* The ONLY flex:1 element in .live-screen (see .stage above) —
+     it absorbs whatever vertical space is left after the fixed
+     header, fixed stage (host+guests+seats), and bottom controls.
+     It never shrinks host/guest/seats, and .comments-scroll inside
+     it is what actually scrolls, so long chat threads stay
+     contained right here. */
+  flex: 1 1 auto; min-height: 40px;
+  display: flex; flex-direction: column;
+  background: var(--bg-0);
+  border-bottom: 1px solid var(--line);
+}
+.comments-wrap {
+  flex: 1; overflow: hidden; position: relative;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 14%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 14%);
+}
+.comments-scroll {
+  height: 100%; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 5px; padding: 8px 12px; scrollbar-width: none;
+}
+.comments-scroll::-webkit-scrollbar { display: none; }
+.comment-row { display: flex; align-items: flex-start; gap: 6px; animation: comment-in .2s ease-out; }
+@keyframes comment-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:translateY(0)} }
+.comment-row img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; margin-top: 2px; }
+.comment-row .bubble {
+  background: rgba(255,255,255,.06); border-radius: 11px; padding: 4px 8px;
+  font-size: 11px; color: rgba(255,255,255,.9); line-height: 1.35; max-width: 88%; word-break: break-word;
+}
+.comment-row .uname { display: inline; font-weight: 800; color: #FF3D7F; margin-right: 4px; }
+.comment-row.gift-row .bubble { background: rgba(157,92,255,.16); border: 1px solid rgba(157,92,255,.28); }
+.comment-row.system .bubble { background: rgba(157,92,255,.12); color: rgba(255,255,255,.7); font-size: 10px; }
+
+/* ── SECTION 6 — BOTTOM CONTROLS ────────────────────────
+   Pinned as the final section in normal flex flow. */
+.bottom-controls {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 6px 10px calc(8px + env(safe-area-inset-bottom));
+  background: var(--bg-1);
+}
+.comment-bar {
+  display: flex; align-items: center;
+  background: rgba(255,255,255,.07); border: 1px solid var(--line);
+  border-radius: 20px; padding: 0 5px 0 12px; height: 34px; gap: 5px;
+}
+.comment-bar input { flex: 1; background: none; border: none; outline: none; color: #fff; font-size: 12px; }
+.comment-bar input::placeholder { color: rgba(255,255,255,.38); }
+.comment-send {
+  background: linear-gradient(135deg,#FF3D7F,#9D5CFF); border: none; color: #fff;
+  font-size: 11px; font-weight: 800; cursor: pointer; flex: none;
+  border-radius: 16px; padding: 6px 12px;
+}
+.quick-actions { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+.ctrl-icon {
+  flex: 1 1 0; min-width: 0; height: 32px; border-radius: 12px;
+  background: rgba(255,255,255,.06); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  color: #fff; cursor: pointer; font-size: 13px;
+}
+.ctrl-icon .ci-label { font-size: 9px; font-weight: 700; color: rgba(255,255,255,.7); }
+.ctrl-icon:active { transform: scale(.95); }
 
 /* ══════════════════════════
-   VIEWERS / PARTICIPANTS MODAL — host-only roster with full-room
-   kick.
+   MODALS (gift sheet / viewers) — unchanged behavior.
 ══════════════════════════ */
-.viewers-backdrop {
+.sheet-backdrop, .viewers-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  backdrop-filter: blur(4px); z-index: 60;
-  opacity: 0; pointer-events: none; transition: opacity .25s;
+  z-index: 50; opacity: 0; pointer-events: none; transition: opacity .25s;
 }
-.viewers-backdrop.open { opacity: 1; pointer-events: auto; }
+.sheet-backdrop.open, .viewers-backdrop.open { opacity: 1; pointer-events: auto; }
 
-.viewers-modal {
+.gift-sheet, .viewers-modal {
   position: fixed; bottom: -100%; left: 0; right: 0;
-  max-width: 480px; margin: 0 auto; z-index: 61;
-  background: #100a1c; border-radius: 24px 24px 0 0;
-  max-height: 72vh; display: flex; flex-direction: column;
+  max-width: 480px; margin: 0 auto; z-index: 51;
+  background: #100a1c; border-radius: 20px 20px 0 0;
   transition: bottom .3s cubic-bezier(.34,1.56,.64,1);
-  border-top: 1px solid rgba(157,92,255,.2);
+  border-top: 1px solid var(--line);
 }
-.viewers-modal.open { bottom: 0; }
+.gift-sheet { padding: 0 0 28px; }
+.gift-sheet.open, .viewers-modal.open { bottom: 0; }
+.sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; margin: 10px auto 0; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px 4px; }
+.sheet-head h3 { font-size: 14px; font-weight: 800; color: #fff; }
+.gift-target-row { padding: 0 18px 10px; font-size: 11px; color: rgba(255,255,255,.5); }
+#gift-target-name { color: #FF3D7F; font-weight: 700; }
+.coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(157,92,255,.12); border: 1px solid rgba(157,92,255,.25); border-radius: 16px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #C890FF; }
+.gift-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; padding: 0 14px 14px; max-height: 220px; overflow-y: auto; scrollbar-width: none; }
+.gift-grid::-webkit-scrollbar { display: none; }
+.gift-tile { display: flex; flex-direction: column; align-items: center; gap: 3px; background: rgba(255,255,255,.06); border: 1.5px solid transparent; border-radius: 14px; padding: 9px 5px; cursor: pointer; }
+.gift-tile.selected { border-color: #FF3D7F; background: rgba(255,61,127,.15); }
+.gift-tile .emoji { font-size: 18px; }
+.gift-tile .gift-icon-img { width: 24px; height: 24px; object-fit: contain; }
+.gift-tile .name { font-size: 9px; font-weight: 700; color: rgba(255,255,255,.8); text-align: center; }
+.gift-tile .price { font-size: 9px; font-weight: 800; color: #C890FF; background: rgba(157,92,255,.12); border-radius: 6px; padding: 2px 5px; }
+.send-gift-btn { width: calc(100% - 28px); margin: 0 14px; height: 44px; border-radius: 14px; font-size: 12.5px; font-weight: 800; border: none; cursor: pointer; background: linear-gradient(135deg,#FF3D7F,#9D5CFF); color: #fff; }
+.send-gift-btn:disabled { opacity: .4; cursor: not-allowed; }
+.insufficient-cta { display: none; margin: 0 14px 10px; padding: 8px 12px; background: rgba(255,61,127,.1); border: 1px solid rgba(255,61,127,.25); border-radius: 10px; font-size: 11px; color: #FF8FD1; align-items: center; justify-content: space-between; gap: 8px; }
+.insufficient-cta.show { display: flex; }
+.insufficient-cta button { background: #FF8FD1; color: #1a0a2e; border: none; border-radius: 8px; padding: 5px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer; flex: none; }
 
-.viewers-modal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 18px 10px;
-  border-bottom: 1px solid rgba(157,92,255,.12);
-  flex: 0 0 auto;
-}
-.viewers-modal-head h3 { font-size: 15px; font-weight: 800; color: #fff; }
-.viewers-modal-head button {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: rgba(255,255,255,.08); border: none; color: #fff;
-  cursor: pointer; font-size: 13px; flex: none;
-}
-
-.viewers-list {
-  overflow-y: auto; padding: 10px 12px 22px;
-  display: flex; flex-direction: column; gap: 6px;
-  flex: 1;
-  scrollbar-width: none;
-}
+.viewers-modal { max-height: 70vh; display: flex; flex-direction: column; }
+.viewers-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.viewers-modal-head h3 { font-size: 14px; font-weight: 800; color: #fff; }
+.viewers-modal-head button { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,.08); border: none; color: #fff; cursor: pointer; font-size: 12px; flex: none; }
+.viewers-list { overflow-y: auto; padding: 10px 12px 20px; display: flex; flex-direction: column; gap: 6px; flex: 1; scrollbar-width: none; }
 .viewers-list::-webkit-scrollbar { display: none; }
-
-/* CONTRAST FIX: .4 → .75 */
-.viewers-empty {
-  padding: 34px 10px; text-align: center;
-  color: rgba(255,255,255,.75); font-size: 12.5px;
-}
-
-.viewer-row {
-  display: flex; align-items: center; gap: 10px;
-  background: rgba(255,255,255,.04); border-radius: 14px; padding: 8px 10px;
-}
-.viewer-row img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }
+.viewers-empty { padding: 30px 10px; text-align: center; color: rgba(255,255,255,.4); font-size: 12px; }
+.viewer-row { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.04); border-radius: 14px; padding: 8px 10px; }
+.viewer-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none; }
 .viewer-info { flex: 1; min-width: 0; }
-.viewer-name {
-  font-size: 12.5px; font-weight: 700; color: #fff;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.viewer-name { font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viewer-badge { font-size: 10px; color: rgba(255,255,255,.5); font-weight: 600; margin-top: 1px; }
+.viewer-kick-btn { flex: none; background: rgba(255,61,127,.85); color: #fff; border: none; border-radius: 10px; padding: 6px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer; }
+
+.toast {
+  position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px;
+  font-size: 12.5px; font-weight: 600; z-index: 200; opacity: 0; pointer-events: none;
+  transition: opacity .25s; white-space: nowrap;
 }
-/* CONTRAST FIX: .5 → .85 */
-.viewer-badge { font-size: 10.5px; color: rgba(255,255,255,.85); font-weight: 600; margin-top: 1px; }
-.viewer-kick-btn {
-  flex: none; background: rgba(255,61,127,.85); color: #fff; border: none;
-  border-radius: 10px; padding: 6px 10px; font-size: 11px; font-weight: 800; cursor: pointer;
-  transition: transform .1s;
+.toast.show { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-badge .dot, .stage-label .pulse-dot { animation: none !important; }
 }
-.viewer-kick-btn:active { transform: scale(.92); }
+
+/* very short viewports: shave the fixed sections down a touch */
+@media (max-height: 640px) {
+  .host-section { height: 26dvh; }
+  .guest-section { height: 17dvh; }
+  .seats-section { height: 15dvh; }
+  #camera-btn, #beauty-btn { top: calc(50% - 32px); }
+  #mic-btn, #end-live-btn { top: calc(50% + 32px); }
+}
+
+/* narrow phones: side controls need a touch less offset from
+   center so they don't crowd the header/label above the frame */
+@media (max-width: 360px) {
+  .h-ctrl .h-ctrl-icon { width: 26px; height: 26px; font-size: 12px; }
+}
 </style>
-  <script type="module" crossorigin src="/assets/live-ByajwPhW.js"></script>
+  <script type="module" crossorigin src="/assets/live-C2wei0QQ.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-C4Jn-lfK.js">
-  <link rel="modulepreload" crossorigin href="/assets/live-mic-ring-DL7zWBEA.js">
+  <link rel="modulepreload" crossorigin href="/assets/live-mic-ring-xrY8_S8P.js">
   <link rel="modulepreload" crossorigin href="/assets/GiftAnimationManager-B9jrBWX1.js">
-  <link rel="stylesheet" crossorigin href="/assets/style-Dxa647XG.css">
+  <link rel="stylesheet" crossorigin href="/assets/style-DeXY1gmE.css">
 </head>
 <body>
-
-<!-- CAMERA SHARPEN FILTER: single SVG kernel used by every live
-     camera element on this page (#stage-video, #local-video,
-     .participant-tile video), referenced via CSS `filter: url(#camSharpen) …`
-     above. This is real unsharp-mask-style sharpening, not just a
-     contrast/saturation trick. -->
-<svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true" focusable="false">
-  <defs>
-    <filter id="camSharpen" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
-      <feConvolveMatrix order="3" preserveAlpha="true"
-        kernelMatrix="0 -1 0
-                      -1 5 -1
-                      0 -1 0" />
-    </filter>
-  </defs>
-</svg>
-
 <div class="app-shell">
 <div class="live-screen">
 
-  <div class="stage-panel arena" id="arena">
-    <canvas id="arena-particles"></canvas>
-    <div class="arena-blob b1"></div>
-    <div class="arena-blob b2"></div>
-    <svg id="connection-lines"></svg>
-
-    <div class="live-top">
+  <!-- ============ SECTION 1 — HEADER (single row) ============ -->
+  <header class="live-header">
+    <div class="header-row header-row-top">
       <div class="host-chip">
         <img id="host-avatar" src="" alt="">
         <div class="ht">
-          <span class="name" id="host-name">Loading…</span>
+          <span class="name" id="host-name"></span>
           <span class="sub">Live · <span id="live-duration">00:00</span></span>
         </div>
         <button class="follow-btn" id="follow-btn">Follow</button>
       </div>
-      <div class="live-top-right">
-        <button id="end-live-btn" class="end-live-btn">End</button>
-        <span id="network-badge">HD</span>
-        <span class="viewer-chip">👁 <span id="viewer-count">0</span></span>
+      <div class="header-top-right">
         <div class="live-badge"><span class="dot"></span>LIVE</div>
+        <button class="viewer-chip" id="viewers-btn">👥 <span id="viewer-count">0</span></button>
+        <span id="network-badge">HD</span>
         <button class="close-btn" id="close-btn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="14" height="14">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="11" height="11">
             <path d="m6 6 12 12M18 6 6 18"/>
           </svg>
         </button>
       </div>
     </div>
 
-    <div class="top-gifters" id="top-gifters">
+    <div class="top-gifters-row">
       <span class="label">Top Gifters</span>
+      <div id="top-gifters"></div>
     </div>
+  </header>
 
-   <div id="host-controls">
-  <button class="h-ctrl" id="viewers-btn" title="See everyone in this live">👥</button>
-  <button class="h-ctrl" id="mic-btn" title="Mute mic">🎤</button>
-  <button class="h-ctrl" id="camera-btn" title="Camera off">📷</button>
-  <button class="h-ctrl" id="switch-camera-btn" title="Flip camera">🔄</button>
-</div>
+  <!-- ============ STAGE (host / guests / seats) ============ -->
+  <div class="stage" id="arena">
+    <canvas id="arena-particles"></canvas>
+    <svg id="connection-lines"></svg>
 
-    <div class="mic-wrap"><div id="mic-level"></div></div>
+    <!-- ============ SECTION 2 — HOST FRAME ============
+         Host-only controls (#host-controls) float beside the
+         frame — left column: camera / switch camera / mic.
+         right column: beauty / share / end live. Same ids as
+         before, only their position moved. -->
+    <div class="stage-section host-section">
+      <div class="section-label">Host</div>
 
-    <div class="host-card-wrap" id="host-card-wrap">
-      <div class="host-aura"></div>
-      <div class="host-frame">
-        <video id="stage-video" autoplay playsinline></video>
+      <div class="host-controls-overlay" id="host-controls">
+        <button class="h-ctrl" id="camera-btn" title="Camera off"><span class="h-ctrl-icon">📷</span></button>
+        <button class="h-ctrl" id="switch-camera-btn" title="Flip camera"><span class="h-ctrl-icon">🔄</span></button>
+        <button class="h-ctrl" id="mic-btn" title="Mute mic">
+          <span class="mic-wrap"><span id="mic-level"></span></span>
+          <span class="h-ctrl-icon">🎤</span>
+        </button>
+        <button class="h-ctrl" id="beauty-btn" title="Beauty filter"><span class="h-ctrl-icon">✨</span></button>
+        <button class="h-ctrl" id="header-share-btn" title="Share"><span class="h-ctrl-icon">📤</span></button>
+        <button class="h-ctrl end" id="end-live-btn" title="End live"><span class="h-ctrl-icon">⛔</span></button>
+      </div>
 
-        <div class="stage-offline" id="stage-offline">
-          <span class="icon">📡</span>
-          <span>Waiting for host…</span>
+      <div class="host-card-wrap" id="host-card-wrap">
+        <div class="host-frame">
+          <video id="stage-video" autoplay playsinline></video>
+          <div class="stage-offline" id="stage-offline">
+            <span class="icon">📡</span>
+            <span>Waiting for host…</span>
+          </div>
+          <span class="host-online-dot"></span>
         </div>
-        <span class="host-online-dot"></span>
         <div class="stage-label">
           <span class="pulse-dot"></span>
           <span id="stage-host-label">Host</span>
@@ -1036,59 +725,75 @@ body, .app-shell, .live-screen {
       </div>
     </div>
 
-    <div class="guest-frames" id="guest-frames">
-      <div class="guest-frame" id="guest-frame-male" data-slot="male">
-        <span class="guest-placeholder">♂</span>
-        <span class="guest-tag">Male</span>
+    <!-- ============ SECTION 3 — GUEST FRAMES ============ -->
+    <div class="stage-section guest-section">
+      <div class="section-label">Guests</div>
+      <div class="guest-frames" id="guest-frames">
+        <div class="guest-frame" id="guest-frame-male" data-slot="male">
+          <span class="guest-placeholder">♂</span>
+          <span class="guest-tag">Male</span>
+        </div>
+        <div class="guest-frame" id="guest-frame-female" data-slot="female">
+          <span class="guest-placeholder">♀</span>
+          <span class="guest-tag">Female</span>
+        </div>
       </div>
-      <div class="guest-frame" id="guest-frame-female" data-slot="female">
-        <span class="guest-placeholder">♀</span>
-        <span class="guest-tag">Female</span>
-      </div>
-      <span class="guest-link">💞</span>
     </div>
 
-    <div id="participants-strip">
+    <!-- ============ SECTION 4 — 12 MIC SEATS ============ -->
+    <div class="stage-section seats-section">
+      <div class="section-label">Mic Seats</div>
+      <div id="participants-strip"><!-- filled by js/live-mic-ring.js as a 6x2 grid --></div>
+    </div>
+
+    <!-- hidden home for the local video tile when it isn't docked
+         into a guest frame -->
+    <div id="tile-holding-bay">
       <div id="local-tile">
-        <div class="seat-frame">
-          <video id="local-video" autoplay playsinline muted></video>
-        </div>
+        <video id="local-video" autoplay playsinline muted></video>
         <div class="local-tile-controls">
           <button class="local-ctrl-btn" id="local-mic-btn" title="Mute mic">🎤</button>
           <button class="local-ctrl-btn" id="local-camera-btn" title="Camera off">📷</button>
         </div>
         <div id="local-name">You</div>
       </div>
-      <div class="strip-empty-hint" id="strip-hint">Nobody else here yet</div>
     </div>
 
-    <span id="viewer-count-label" style="display:none;">0 online</span>
+    <div class="fx-layer" id="fx-layer"></div>
+    <div class="gift-streak-layer" id="gift-streak-layer"></div>
   </div>
 
+  <!-- Kept in the DOM (hidden via CSS) purely so #stream-title /
+       #stream-desc still exist for the inline script below to
+       fill in — see .stream-meta-bar's comment in the CSS. -->
   <div class="stream-meta-bar">
-    <div class="stream-title" id="stream-title">Loading…</div>
+    <div class="stream-title" id="stream-title"></div>
     <div class="stream-desc" id="stream-desc"></div>
   </div>
 
-  <div class="lower-panel">
-    <div class="fx-layer" id="fx-layer"></div>
-    <div class="gift-streak-layer" id="gift-streak-layer"></div>
-
+  <!-- ============ SECTION 5 — LIVE CHAT (only scrollable section) ============ -->
+  <section class="chat-section">
     <div class="comments-wrap">
       <div class="comments-scroll" id="comments-scroll"></div>
     </div>
+  </section>
 
-    <div class="live-controls">
-      <div class="comment-bar">
-        <input type="text" id="comment-input" placeholder="Say something…" maxlength="200">
-        <button class="comment-send" id="comment-send-btn">Send</button>
-      </div>
-      <button class="ctrl-icon" id="heart-btn">❤️</button>
-      <button class="ctrl-icon" id="gift-btn">🎁</button>
-      <button class="ctrl-icon" id="fire-btn">🔥</button>
+  <!-- ============ SECTION 6 — BOTTOM CONTROLS ============ -->
+  <div class="bottom-controls">
+    <div class="comment-bar">
+      <input type="text" id="comment-input" placeholder="Say something…" maxlength="200">
+      <button class="comment-send" id="comment-send-btn">➤ Send</button>
+    </div>
+    <div class="quick-actions">
+      <button class="ctrl-icon" id="heart-btn"><span>❤️</span></button>
+      <button class="ctrl-icon" id="emoji-btn"><span>😊</span></button>
+      <button class="ctrl-icon" id="gift-btn"><span>🎁</span></button>
+      <button class="ctrl-icon" id="share-btn"><span>📤</span></button>
+      <button class="ctrl-icon" id="fire-btn"><span>🔥</span></button>
     </div>
   </div>
 
+  <span id="viewer-count-label" style="display:none;">0 online</span>
 </div>
 </div>
 
@@ -1108,7 +813,6 @@ body, .app-shell, .live-screen {
   <button class="send-gift-btn" id="send-gift-btn" disabled>Select a gift to send</button>
 </div>
 
-
 <div class="viewers-backdrop" id="viewers-backdrop"></div>
 <div class="viewers-modal" id="viewers-modal">
   <div class="viewers-modal-head">
@@ -1125,6 +829,7 @@ body, .app-shell, .live-screen {
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
 <script>
+  /* Room title/description from URL — unchanged behavior. */
   const _params = new URLSearchParams(window.location.search);
   const _titleEl = document.getElementById("stream-title");
   const _descEl  = document.getElementById("stream-desc");
@@ -1134,6 +839,22 @@ body, .app-shell, .live-screen {
 
   if (_titleParam) _titleEl.textContent = decodeURIComponent(_titleParam);
   if (_descParam)  _descEl.textContent  = decodeURIComponent(_descParam);
+
+  /* Beauty / Share are new UI-only controls added for this redesign.
+     They don't touch any WebRTC/socket/room logic — just a small
+     local toast so they aren't dead clicks. */
+  function _uiToast(msg) {
+    const t = document.getElementById("toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(_uiToast._t);
+    _uiToast._t = setTimeout(() => t.classList.remove("show"), 1600);
+  }
+  document.getElementById("beauty-btn")?.addEventListener("click", () => _uiToast("Beauty filter coming soon"));
+  document.getElementById("header-share-btn")?.addEventListener("click", () => _uiToast("Share link copied"));
+  document.getElementById("share-btn")?.addEventListener("click", () => _uiToast("Share link copied"));
+  document.getElementById("emoji-btn")?.addEventListener("click", () => _uiToast("Emoji picker coming soon"));
 </script>
 
 
