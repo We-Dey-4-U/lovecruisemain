@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,91 +6,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>vConnect — Live</title>
 <style>
-/* ============================================================
-   vConnect Social Live — SECTIONED REDESIGN (v9: seat-grid overflow fix,
-   bigger self-controls, sharper edges)
-   ------------------------------------------------------------
-   Pure UI/UX redesign. No WebRTC / mediasoup / Socket.IO / room /
-   seat-assignment / mute-kick logic lives here or was changed.
-   Every id/class js/live.js and js/live-mic-ring.js read or write
-   still exists under the exact same name.
-
-   ROOT CAUSE FOUND IN v8: the "Host"/"Guests"/"Mic Seats" caption
-   (.section-label) and the host name+pulse-dot tag (.stage-label)
-   were both normal block-flow elements sitting ABOVE/BELOW the
-   frame inside the same flex column. Every pixel of their own
-   height was a pixel the frame itself did NOT get, even though the
-   frame was already "100% of its section" — that 100% was 100% of
-   whatever was left over after the labels, not 100% of the section.
-
-   FIX: both are now `position: absolute` overlay badges (the same
-   technique the Male/Female guest-tag already used) — floating on
-   top of the frame/section instead of taking their own row:
-     - .section-label: small pill, top-left of the section.
-     - .stage-label (host name): small pill, bottom-left of the
-       host frame itself.
-   Neither reserves any flow height anymore, so .host-card-wrap /
-   .guest-frames / #participants-strip — each still the sole
-   flex:1 child of its section — now expand to the section's FULL
-   height, and the frames inside them (already height:100%) follow
-   suit. That's what lets the host frame's top edge sit right at
-   the divider under the header, and the guest frames' top edge
-   sit right at the divider under the host section.
-
-   WHOLE BLOCK ALSO PUSHED UP (more room for chat):
-     .host-section   34dvh → 30dvh
-     .guest-section  24dvh → 20dvh
-     .seats-section  20dvh → 18dvh
-   Even with these section heights trimmed, the frames read as
-   BIGGER than before, because they're no longer sharing that
-   space with a label row. Short-viewport breakpoint (max-height:
-   640px) rescaled to match: host 26dvh, guest 17dvh, seats 15dvh.
-
-   .stage stays flex:0 0 auto so none of this is undone by chat
-   content — host/guest/seats always get their exact fixed height;
-   only chat scrolls.
-
-   ------------------------------------------------------------
-   v9 CHANGES (this pass — 3 fixes, all CSS-only, no DOM/JS contract
-   touched):
-
-   1) SEAT GRID OVERFLOWING PAST THE RIGHT EDGE ON SMALL SCREENS
-      ROOT CAUSE: .seat-slot-frame used `width: auto; height: 100%;
-      aspect-ratio: 1/1; max-width: 100%`. Because HEIGHT was the
-      definite side, aspect-ratio computed WIDTH from it — and that
-      computed width could be wider than the seat's actual grid
-      column (1/6 of a narrow phone width minus gaps). max-width:100%
-      only clamps against the *frame's own* box, not the column, so
-      on narrow screens every seat became slightly too wide and the
-      last column(s) got pushed clean off the right edge of the
-      screen instead of just looking a bit stretched.
-      FIX: flipped which side is definite. Now `width: 100%; height:
-      auto; aspect-ratio: 1/1; max-height: 100%`. Width is always
-      exactly the grid column's width (can never exceed it, so
-      nothing can push past the right edge), and aspect-ratio derives
-      height from that, clamped by max-height so it can't blow out
-      the row either. Also switched the grid's columns/rows from
-      `repeat(6, 1fr)` to `repeat(6, minmax(0, 1fr))` (and added
-      `min-width: 0` to .seat-slot) — a standard grid-blowout
-      safeguard so a track can never grow past its fair share because
-      of a child's intrinsic size, belt-and-braces with the fix above.
-
-   2) MUTE / LEAVE BUTTONS TOO SMALL & TOO CLOSE ON SEATS
-      They were 15x15px with only 2px between them — an easy
-      mis-tap that leaves the seat when the user only meant to mute.
-      Bumped to 21x21px with 7px gap, larger icons, and moved the
-      row down slightly so it still clears the avatar circle. Also
-      grew the seat-mute-indicator dot to match.
-
-   3) EDGES LOOKED DULL — SHARPENED
-      Border alpha values across host frame / guest frames / seat
-      circles were quite low (.25–.4), reading as soft/hazy at small
-      sizes. Raised the base + occupied border opacity, thickened
-      seat borders from 2px to 2.5px, and added a crisp 1px inner
-      highlight (inset box-shadow) alongside the outer glow so edges
-      read as bright, defined lines instead of a soft haze — done
-      purely via border-color/box-shadow, no layout impact.
-   ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -116,11 +32,6 @@ body, .app-shell, .live-screen {
   background: var(--bg-0); overflow: hidden;
 }
 
-/* ══════════════════════════
-   SECTION 1 — HEADER (single compact row for everyone; host-only
-   controls used to live here as a second row — they now live
-   beside the host frame instead, see #host-controls below)
-══════════════════════════ */
 .live-header {
   flex: 0 0 auto;
   display: flex; flex-direction: column; gap: 4px;
@@ -182,23 +93,18 @@ body, .app-shell, .live-screen {
   color: #fff; border: none; cursor: pointer; flex: none;
 }
 
-/* top gifters strip — kept in the DOM (for anything that reads
-   #top-gifters) but hidden by default so the header stays exactly
-   one visible row and doesn't eat extra vertical space. */
+.effects-header-btn {
+  display: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(157,92,255,.22); border: 1px solid rgba(157,92,255,.4);
+  align-items: center; justify-content: center;
+  color: #fff; cursor: pointer; flex: none; font-size: 11px;
+}
+body.host-mode .effects-header-btn { display: flex; }
+
 .top-gifters-row { display: none; }
 
-/* ══════════════════════════
-   STAGE — wraps host / guest / seat blocks. Kept as #arena for
-   js/live.js's DOM contract. Each stage-section gets an explicit
-   dvh-based height so host + guests + all 12 seats are ALWAYS
-   simultaneously visible with no scrolling here — only the chat
-   section below scrolls internally.
-══════════════════════════ */
 .stage {
-  /* flex: 0 0 auto (not 1 1 auto) — .stage never competes with
-     .chat-section for space, so host/guest/seats always get their
-     exact fixed dvh height no matter how much chat content there
-     is. .chat-section is the only flexible element in the column. */
   flex: 0 0 auto; overflow: hidden;
   display: flex; flex-direction: column;
   background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-0) 100%);
@@ -228,20 +134,6 @@ body, .app-shell, .live-screen {
   pointer-events: none;
 }
 
-/* ── SECTION 2 — HOST FRAME ─────────────────────────────
-   Rectangular tile, rounded corners, fixed position — never
-   rotates, never orbits, never moves. Speaking state only changes
-   the border glow / shadow / outline.
-
-   SIZING (v5 — final): width is a real, direct percentage of the
-   row (97%) — NOT derived from height — so it can never be
-   silently clamped down the way an aspect-ratio-from-height value
-   could be. Height is 100% of host-card-wrap, which is itself
-   flex:1 inside host-section, so the frame's bottom edge sits
-   right at the divider line under this section. #stage-video uses
-   object-fit: cover, so filling both axes this way never distorts
-   the picture — it just uses the full space instead of leaving a
-   clamped, narrower box. */
 .host-section { height: 30dvh; }
 .host-card-wrap {
   width: 100%; height: 100%; flex: 1; min-height: 0;
@@ -284,12 +176,6 @@ body, .app-shell, .live-screen {
 }
 .stage-label .pulse-dot { width: 4px; height: 4px; border-radius: 50%; background: #FF3D7F; animation: pulse-anim 1.4s infinite; flex: none; }
 
-/* Host-only controls float in the space beside the (now wide)
-   host frame instead of taking a second header row. Same 6
-   buttons, same ids, same body.host-mode visibility contract —
-   only their position changed. .stage-section already establishes
-   the position:relative containing block these are absolutely
-   positioned against. */
 #host-controls {
   position: absolute; inset: 0;
   z-index: 6; pointer-events: none;
@@ -312,12 +198,10 @@ body.host-mode #host-controls { display: block; }
 .h-ctrl.muted .h-ctrl-icon, .h-ctrl.off .h-ctrl-icon { background: rgba(255,61,127,.4); border-color: rgba(255,61,127,.5); }
 .h-ctrl.end .h-ctrl-icon { background: rgba(255,61,127,.9); border-color: transparent; }
 
-/* left column — beside the left edge of the host frame */
 #camera-btn        { left: 4px; top: calc(50% - 40px); }
 #switch-camera-btn { left: 4px; top: 50%; }
 #mic-btn            { left: 4px; top: calc(50% + 40px); }
 
-/* right column — beside the right edge of the host frame */
 #beauty-btn        { right: 4px; top: calc(50% - 40px); }
 #header-share-btn  { right: 4px; top: 50%; }
 #end-live-btn      { right: 4px; top: calc(50% + 40px); }
@@ -333,19 +217,6 @@ body.host-mode #host-controls { display: block; }
   transition: height .08s;
 }
 
-/* ── SECTION 3 — GUEST FRAMES ───────────────────────────
-   Two tiles, same design language as the host frame, equal size,
-   fixed positions, never circular.
-
-   SIZING (v5 — final): each tile's width is a real, direct
-   calc() of the row (50% minus half the gap) — NOT derived from
-   height — so the two tiles always exactly fill the row edge to
-   edge with no leftover side gutters and can never be silently
-   clamped narrower. Height is 100% of guest-frames, which is
-   itself flex:1 inside guest-section, so both tiles' bottom edges
-   sit right at the divider line under this section. The video
-   tiles inside use object-fit: cover, so filling both axes this
-   way never distorts the picture. */
 .guest-section { height: 20dvh; }
 .guest-frames {
   flex: 1; min-height: 0;
@@ -416,16 +287,6 @@ body.host-mode #host-controls { display: block; }
 .guest-frame.guest-muted { border-color: rgba(255,61,127,.5); }
 .guest-frame.guest-host-muted { border-color: rgba(255,61,127,.8); box-shadow: 0 0 0 3px rgba(255,61,127,.25); }
 
-/* ── SECTION 4 — 12 MIC SEATS ───────────────────────────
-   6x2 grid, circular avatars, even spacing, equal sizing.
-
-   v9 OVERFLOW FIX: the grid's own columns/rows now use
-   minmax(0, 1fr) instead of a bare 1fr, and .seat-slot gets
-   min-width: 0 — standard grid-blowout guards so a track can never
-   be forced wider than its fair share by a child's intrinsic size.
-   The real fix, though, is on .seat-slot-frame below: width is now
-   the definite (100%-of-column) side and height derives from it via
-   aspect-ratio, clamped by max-height — see that rule's comment. */
 .seats-section { height: 18dvh; }
 #participants-strip { flex: 1; min-height: 0; width: 100%; display: flex; }
 .seats-grid {
@@ -441,11 +302,6 @@ body.host-mode #host-controls { display: block; }
 }
 .seat-slot-frame {
   position: relative;
-  /* width is the DEFINITE side (always exactly the grid column's
-     width, so it can never exceed it and push the seat off-screen);
-     height derives from width via aspect-ratio and is capped by
-     max-height so it also can't blow out the row. See v9 comment
-     above the .seats-grid rule for the full root-cause writeup. */
   width: 100%; height: auto;
   aspect-ratio: 1 / 1;
   max-height: 100%;
@@ -473,11 +329,6 @@ body.host-mode #host-controls { display: block; }
   background: #170B2E; border: 1.5px solid var(--bg-0);
   display: none; align-items: center; justify-content: center; font-size: 8px;
 }
-/* v9: self-controls (mute / leave) bumped from 15px to 21px with a
-   wider 7px gap so the two buttons are no longer close enough to
-   mis-tap "leave" while reaching for "mute". Nudged down slightly
-   (-9px instead of -6px) to keep clearing the avatar circle at the
-   new size. */
 .seat-self-controls {
   position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%);
   display: none; align-items: center; justify-content: center; gap: 7px; z-index: 5;
@@ -510,7 +361,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 .guest-frame .host-ctrl-mute { top: 5px; left: 5px; }
 .guest-frame .host-ctrl-kick { top: 5px; right: 5px; }
 
-/* gift fx layers — decorative, transient animation only */
 .fx-layer { position: absolute; inset: 0; pointer-events: none; z-index: 8; overflow: hidden; }
 .fx-particle {
   position: absolute; bottom: 30px; font-size: 18px;
@@ -543,13 +393,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 
 #tile-holding-bay { display: none; }
 
-/* stream title strip — hidden to free vertical space for the
-   guest/seats sections. #stream-title / #stream-desc still exist
-   in the DOM under it, so the inline script (which fills them
-   from the URL's ?title= / ?description= params) still runs
-   exactly as before — the bar itself just no longer takes up
-   screen space. Flip this back to "display:flex" any time it's
-   needed again. */
 .stream-meta-bar {
   display: none;
   flex: 0 0 auto; align-items: baseline; gap: 6px;
@@ -560,16 +403,7 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 .stream-title { font-size: 11px; font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .stream-desc { font-size: 9.5px; color: rgba(255,255,255,.5); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
 
-/* ── SECTION 5 — LIVE CHAT ──────────────────────────────
-   Its own dedicated section, scrollable only inside itself
-   (this is the one place scrolling is expected/allowed). */
 .chat-section {
-  /* The ONLY flex:1 element in .live-screen (see .stage above) —
-     it absorbs whatever vertical space is left after the fixed
-     header, fixed stage (host+guests+seats), and bottom controls.
-     It never shrinks host/guest/seats, and .comments-scroll inside
-     it is what actually scrolls, so long chat threads stay
-     contained right here. */
   flex: 1 1 auto; min-height: 40px;
   display: flex; flex-direction: column;
   background: var(--bg-0);
@@ -596,8 +430,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 .comment-row.gift-row .bubble { background: rgba(157,92,255,.16); border: 1px solid rgba(157,92,255,.28); }
 .comment-row.system .bubble { background: rgba(157,92,255,.12); color: rgba(255,255,255,.7); font-size: 10px; }
 
-/* ── SECTION 6 — BOTTOM CONTROLS ────────────────────────
-   Pinned as the final section in normal flex flow. */
 .bottom-controls {
   flex: 0 0 auto;
   display: flex; flex-direction: column; gap: 6px;
@@ -626,16 +458,13 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 .ctrl-icon .ci-label { font-size: 9px; font-weight: 700; color: rgba(255,255,255,.7); }
 .ctrl-icon:active { transform: scale(.95); }
 
-/* ══════════════════════════
-   MODALS (gift sheet / viewers) — unchanged behavior.
-══════════════════════════ */
-.sheet-backdrop, .viewers-backdrop {
+.sheet-backdrop, .viewers-backdrop, .effects-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   z-index: 50; opacity: 0; pointer-events: none; transition: opacity .25s;
 }
-.sheet-backdrop.open, .viewers-backdrop.open { opacity: 1; pointer-events: auto; }
+.sheet-backdrop.open, .viewers-backdrop.open, .effects-backdrop.open { opacity: 1; pointer-events: auto; }
 
-.gift-sheet, .viewers-modal {
+.gift-sheet, .viewers-modal, .effects-sheet {
   position: fixed; bottom: -100%; left: 0; right: 0;
   max-width: 480px; margin: 0 auto; z-index: 51;
   background: #100a1c; border-radius: 20px 20px 0 0;
@@ -643,10 +472,11 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
   border-top: 1px solid var(--line);
 }
 .gift-sheet { padding: 0 0 28px; }
-.gift-sheet.open, .viewers-modal.open { bottom: 0; }
+.gift-sheet.open, .viewers-modal.open, .effects-sheet.open { bottom: 0; }
 .sheet-handle { width: 36px; height: 4px; background: rgba(255,255,255,.2); border-radius: 2px; margin: 10px auto 0; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px 4px; }
 .sheet-head h3 { font-size: 14px; font-weight: 800; color: #fff; }
+.sheet-head button { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,.08); border: none; color: #fff; cursor: pointer; font-size: 12px; flex: none; }
 .gift-target-row { padding: 0 18px 10px; font-size: 11px; color: rgba(255,255,255,.5); }
 #gift-target-name { color: #FF3D7F; font-weight: 700; }
 .coin-pill-sm { display: flex; align-items: center; gap: 4px; background: rgba(157,92,255,.12); border: 1px solid rgba(157,92,255,.25); border-radius: 16px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #C890FF; }
@@ -678,6 +508,68 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 .viewer-badge { font-size: 10px; color: rgba(255,255,255,.5); font-weight: 600; margin-top: 1px; }
 .viewer-kick-btn { flex: none; background: rgba(255,61,127,.85); color: #fff; border: none; border-radius: 10px; padding: 6px 10px; font-size: 10.5px; font-weight: 800; cursor: pointer; }
 
+/* ══════════════════════════
+   EFFECTS SHEET — color filters / beauty presets / AR stickers +
+   distortion sliders. Driven entirely by js/live.js's
+   renderEffectsSheet()/openEffectsSheet()/switchEffectsTab() etc.
+   (see setColorFilterUI, applyBeautyPresetUI, setStickerUI,
+   setDistortionUI, setFilterIntensityUI) — this block only needs
+   to provide the ids/classes those functions already query for:
+   #effects-btn, #effects-sheet, #effects-backdrop,
+   #effects-close-btn, .effects-tab-btn[data-tab],
+   .effects-tab-panel[data-tab-panel], #filter-grid,
+   #beauty-preset-grid, #sticker-grid, #filter-intensity-slider,
+   #distortion-bigEyes-slider / -slimFace- / -smallNose-, and the
+   .effect-tile tiles rendered into each grid.
+══════════════════════════ */
+.effects-sheet { max-height: 74vh; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
+.effects-tabs {
+  display: flex; gap: 6px; padding: 6px 14px 10px; flex: 0 0 auto;
+}
+.effects-tab-btn {
+  flex: 1; background: rgba(255,255,255,.06); border: 1px solid transparent;
+  border-radius: 12px; padding: 8px 6px; color: rgba(255,255,255,.6);
+  font-size: 11.5px; font-weight: 800; cursor: pointer;
+}
+.effects-tab-btn.active {
+  background: linear-gradient(135deg, rgba(255,61,127,.22), rgba(157,92,255,.28));
+  border-color: rgba(157,92,255,.5); color: #fff;
+}
+.effects-tab-content { flex: 1; overflow-y: auto; scrollbar-width: none; padding: 0 14px 18px; }
+.effects-tab-content::-webkit-scrollbar { display: none; }
+.effects-tab-panel { display: none; }
+.effects-tab-panel.active { display: block; }
+
+.effect-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.effect-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: rgba(255,255,255,.05); border: 1.5px solid transparent;
+  border-radius: 14px; padding: 10px 5px; cursor: pointer;
+  color: rgba(255,255,255,.85); transition: border-color .15s, background .15s, transform .1s;
+}
+.effect-tile:active { transform: scale(.95); }
+.effect-tile.selected { border-color: #FF3D7F; background: rgba(255,61,127,.14); }
+.effect-emoji { font-size: 20px; line-height: 1; }
+.effect-label { font-size: 9.5px; font-weight: 700; text-align: center; }
+
+.effects-section-label {
+  font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  color: rgba(255,255,255,.45); margin: 14px 0 8px;
+}
+.intensity-row {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px;
+}
+.intensity-row label { font-size: 10.5px; font-weight: 700; color: rgba(255,255,255,.6); flex: none; }
+.intensity-row input[type="range"] { flex: 1; accent-color: #FF3D7F; }
+
+.distortion-sliders { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.distortion-row { display: flex; align-items: center; gap: 10px; }
+.distortion-row label { font-size: 10.5px; font-weight: 700; color: rgba(255,255,255,.6); width: 74px; flex: none; }
+.distortion-row input[type="range"] { flex: 1; accent-color: #9D5CFF; }
+.ar-hint { font-size: 10px; color: rgba(255,255,255,.4); margin-bottom: 10px; }
+
 .toast {
   position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
   background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px;
@@ -690,7 +582,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
   .live-badge .dot, .stage-label .pulse-dot { animation: none !important; }
 }
 
-/* very short viewports: shave the fixed sections down a touch */
 @media (max-height: 640px) {
   .host-section { height: 26dvh; }
   .guest-section { height: 17dvh; }
@@ -699,15 +590,13 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
   #mic-btn, #end-live-btn { top: calc(50% + 32px); }
 }
 
-/* narrow phones: side controls need a touch less offset from
-   center so they don't crowd the header/label above the frame */
 @media (max-width: 360px) {
   .h-ctrl .h-ctrl-icon { width: 26px; height: 26px; font-size: 12px; }
 }
 </style>
-  <script type="module" crossorigin src="/assets/live-C2wei0QQ.js"></script>
+  <script type="module" crossorigin src="/assets/live-CTNK_1lK.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/app-C4Jn-lfK.js">
-  <link rel="modulepreload" crossorigin href="/assets/live-mic-ring-xrY8_S8P.js">
+  <link rel="modulepreload" crossorigin href="/assets/live-mic-ring-DkoAXqmB.js">
   <link rel="modulepreload" crossorigin href="/assets/GiftAnimationManager-B9jrBWX1.js">
   <link rel="stylesheet" crossorigin href="/assets/style-DeXY1gmE.css">
 </head>
@@ -730,6 +619,7 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
         <div class="live-badge"><span class="dot"></span>LIVE</div>
         <button class="viewer-chip" id="viewers-btn">👥 <span id="viewer-count">0</span></button>
         <span id="network-badge">HD</span>
+        <button class="effects-header-btn" id="effects-btn" title="Filters & AR effects">✨</button>
         <button class="close-btn" id="close-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="11" height="11">
             <path d="m6 6 12 12M18 6 6 18"/>
@@ -749,11 +639,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
     <canvas id="arena-particles"></canvas>
     <svg id="connection-lines"></svg>
 
-    <!-- ============ SECTION 2 — HOST FRAME ============
-         Host-only controls (#host-controls) float beside the
-         frame — left column: camera / switch camera / mic.
-         right column: beauty / share / end live. Same ids as
-         before, only their position moved. -->
     <div class="stage-section host-section">
       <div class="section-label">Host</div>
 
@@ -785,7 +670,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
       </div>
     </div>
 
-    <!-- ============ SECTION 3 — GUEST FRAMES ============ -->
     <div class="stage-section guest-section">
       <div class="section-label">Guests</div>
       <div class="guest-frames" id="guest-frames">
@@ -800,14 +684,11 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
       </div>
     </div>
 
-    <!-- ============ SECTION 4 — 12 MIC SEATS ============ -->
     <div class="stage-section seats-section">
       <div class="section-label">Mic Seats</div>
       <div id="participants-strip"><!-- filled by js/live-mic-ring.js as a 6x2 grid --></div>
     </div>
 
-    <!-- hidden home for the local video tile when it isn't docked
-         into a guest frame -->
     <div id="tile-holding-bay">
       <div id="local-tile">
         <video id="local-video" autoplay playsinline muted></video>
@@ -823,22 +704,17 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
     <div class="gift-streak-layer" id="gift-streak-layer"></div>
   </div>
 
-  <!-- Kept in the DOM (hidden via CSS) purely so #stream-title /
-       #stream-desc still exist for the inline script below to
-       fill in — see .stream-meta-bar's comment in the CSS. -->
   <div class="stream-meta-bar">
     <div class="stream-title" id="stream-title"></div>
     <div class="stream-desc" id="stream-desc"></div>
   </div>
 
-  <!-- ============ SECTION 5 — LIVE CHAT (only scrollable section) ============ -->
   <section class="chat-section">
     <div class="comments-wrap">
       <div class="comments-scroll" id="comments-scroll"></div>
     </div>
   </section>
 
-  <!-- ============ SECTION 6 — BOTTOM CONTROLS ============ -->
   <div class="bottom-controls">
     <div class="comment-bar">
       <input type="text" id="comment-input" placeholder="Say something…" maxlength="200">
@@ -882,6 +758,61 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
   <div class="viewers-list" id="viewers-list"></div>
 </div>
 
+<!-- ============ EFFECTS SHEET (color filters / beauty presets / AR) ============
+     Populated entirely by js/live.js: renderEffectsSheet() fills
+     #filter-grid, #beauty-preset-grid, #sticker-grid with
+     .effect-tile buttons and wires their click handlers; the
+     sliders below are wired directly by id. Nothing here needs a
+     script tag of its own. -->
+<div class="effects-backdrop" id="effects-backdrop"></div>
+<div class="effects-sheet" id="effects-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <h3>Effects</h3>
+    <button id="effects-close-btn">✕</button>
+  </div>
+
+  <div class="effects-tabs">
+    <button class="effects-tab-btn active" data-tab="filters">Filters</button>
+    <button class="effects-tab-btn" data-tab="beauty">Beauty</button>
+    <button class="effects-tab-btn" data-tab="ar">AR</button>
+  </div>
+
+  <div class="effects-tab-content">
+    <div class="effects-tab-panel active" data-tab-panel="filters">
+      <div class="effect-grid" id="filter-grid"></div>
+      <div class="intensity-row">
+        <label for="filter-intensity-slider">Intensity</label>
+        <input type="range" id="filter-intensity-slider" min="0" max="100" value="100">
+      </div>
+    </div>
+
+    <div class="effects-tab-panel" data-tab-panel="beauty">
+      <div class="effect-grid" id="beauty-preset-grid"></div>
+    </div>
+
+    <div class="effects-tab-panel" data-tab-panel="ar">
+      <div class="ar-hint">Stickers and face-shape sliders track your face live — camera required.</div>
+      <div class="effects-section-label">Stickers</div>
+      <div class="effect-grid" id="sticker-grid"></div>
+      <div class="distortion-sliders">
+        <div class="distortion-row">
+          <label for="distortion-bigEyes-slider">Big Eyes</label>
+          <input type="range" id="distortion-bigEyes-slider" min="0" max="100" value="0">
+        </div>
+        <div class="distortion-row">
+          <label for="distortion-slimFace-slider">Slim Face</label>
+          <input type="range" id="distortion-slimFace-slider" min="0" max="100" value="0">
+        </div>
+        <div class="distortion-row">
+          <label for="distortion-smallNose-slider">Small Nose</label>
+          <input type="range" id="distortion-smallNose-slider" min="0" max="100" value="0">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <div id="gift-engine-root"></div>
@@ -889,7 +820,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
 <script>
-  /* Room title/description from URL — unchanged behavior. */
   const _params = new URLSearchParams(window.location.search);
   const _titleEl = document.getElementById("stream-title");
   const _descEl  = document.getElementById("stream-desc");
@@ -900,9 +830,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
   if (_titleParam) _titleEl.textContent = decodeURIComponent(_titleParam);
   if (_descParam)  _descEl.textContent  = decodeURIComponent(_descParam);
 
-  /* Beauty / Share are new UI-only controls added for this redesign.
-     They don't touch any WebRTC/socket/room logic — just a small
-     local toast so they aren't dead clicks. */
   function _uiToast(msg) {
     const t = document.getElementById("toast");
     if (!t) return;
@@ -911,7 +838,6 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
     clearTimeout(_uiToast._t);
     _uiToast._t = setTimeout(() => t.classList.remove("show"), 1600);
   }
-  document.getElementById("beauty-btn")?.addEventListener("click", () => _uiToast("Beauty filter coming soon"));
   document.getElementById("header-share-btn")?.addEventListener("click", () => _uiToast("Share link copied"));
   document.getElementById("share-btn")?.addEventListener("click", () => _uiToast("Share link copied"));
   document.getElementById("emoji-btn")?.addEventListener("click", () => _uiToast("Emoji picker coming soon"));
@@ -920,3 +846,8 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 
 </body>
 </html>
+
+
+
+
+

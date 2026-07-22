@@ -1,63 +1,6 @@
-//
-//   GIFT-ENGINE: giftReceived handler also forwards the payload
-//         to window.__giftEngine?.playGift(payload) so the 2D PNG-based
-//         gift engine (gift-engine/GiftAnimationManager.js, wired up in
-//         live.html) can render the gift's own icon animated on top of
-//         the stream.
-//
-//   PNG-ICON FIX: GIFT_CATALOG now carries `icon` (= gifts.icon_url)
-//         alongside `emoji`, and renderGiftGrid() renders that PNG in
-//         the gift-selector tiles instead of the emoji. If a PNG 404s,
-//         the tile silently falls back to the emoji.
-//
-//   ANTI-FRAUD/DEDUP FIX: sendSelectedGift() no longer emits a
-//         client-side "sendGift" socket event after the REST call.
-//         The server (giftController.send) emits "giftReceived",
-//         "topGiftersUpdated", and "battleScoreUpdated" itself.
-//
-//   ── GIFT-ENGINE LIFECYCLE ───────────────────────
-//   FIX-D/E/F/G — unchanged from previous pass (teardown, stopAll on
-//         liveEnded, tab-visibility pause/resume, mute hook).
-//
-//   ── BLACK-SCREEN / AUDIO FIXES ──────────────────────────────
-//   FIX-A/B/C — unchanged from previous pass.
-//
-//   ── SPEAKING-DETECTION HOOKS ─────────────────────
-//   Unchanged from previous pass — dispatches `speakingChanged`.
-//
-//   ── GUEST SEATS / MIC SEATS ─────────
-//   Unchanged in behavior from the previous pass — 12 seats now
-//   exist server-side, but the join/leave/mute-vs-leave flow is
-//   identical, just parameterized by seatIndex.
-//
-//   ── HOST-ONLY PARTICIPANTS ROSTER + FULL KICK ──
-//   - window.openParticipantsModal() / closeParticipantsModal()
-//     — pulls the full room roster from the server (host-only;
-//     regular viewers never see this) and renders it into the
-//     #viewers-modal markup added to live.html / podcast-live.html.
-//   - window.hostKickUserFromRoom(socketId) — removes ANY user
-//     from the room entirely (audience, seated, or guest), not just
-//     a seat/guest occupant. Server is sole authority.
-//   - "youWereKicked" listener — if the HOST removes you from
-//     the room outright, tear down local media and leave.
-//   - "newComment" now recognizes payload.system and renders it as
-//     a system row — this is how the server announces joins, which
-//     is the only way a regular viewer learns who's in the room
-//     besides seeing an occupied seat/guest frame.
-//
-//   ── THIS PASS — SOCKET CONNECTION DIAGNOSTICS + TRANSPORT FIX ──
-//   - transports was ["websocket"] only, forcing an immediate WS
-//     upgrade with no polling handshake first. On Render this
-//     produces "WebSocket is closed before the connection is
-//     established" on every attempt. Changed to
-//     ["polling", "websocket"] so the connection establishes via
-//     HTTP polling first, then upgrades to WS if the proxy allows it.
-//   - Added connect / connect_error / disconnect / reconnect_* /
-//     upgrade / upgradeError logging so failures are visible and
-//     diagnosable in the console instead of silent.
-//
-
 import * as mediasoupClient from "mediasoup-client";
+import { BeautyFilterEngine } from "./beauty-filter.js";
+import { FaceEffectsEngine } from "./face-effects.js";
 import "./api.js";
 import "./app.js";
 
@@ -76,17 +19,30 @@ let recvTransportPromise  = null;
 let videoProducer = null;
 let audioProducer = null;
 
-/* ── Consumers — consumerId → { consumer, producerId, socketId, kind, isHost } ── */
+/* ── Consumers ── */
 const consumers = new Map();
-
-/* ── Per-socket media streams (video only — audio is routed via Web Audio) ── */
 const peerStreams = new Map();
 
-/* ── Audio boost graph — consumerId → { source, gainNode, compressor, analyser, socketId, isHost, rafId } ── */
+/* ── Audio boost graph ── */
 const audioBoosts = new Map();
 let audioCtx = null;
 const AUDIO_BOOST_GAIN = 1.7;
-const SPEAKING_THRESHOLD = 18; // 0-255 scale, tuned for typical mic levels
+const SPEAKING_THRESHOLD = 18;
+
+/* ── Beauty / color-filter / AR engines ──
+   beautyEngine: smoothing + sharpening + brightness/contrast/
+   saturation + color-mood grading + landmark-driven liquify warps,
+   all in one WebGL pass (see beauty-filter.js).
+   faceEngine: MediaPipe face-landmark tracking that feeds the
+   warp control points into beautyEngine and draws stickers into
+   its 2D compositing canvas (see face-effects.js). Loaded lazily
+   the first time the host actually goes live with a camera, since
+   the model download/GPU init is unnecessary for audience/guests. ── */
+const beautyEngine = new BeautyFilterEngine();
+const faceEngine = new FaceEffectsEngine();
+let beautyOn = true;
+let faceEngineAttached = false;
+let faceEngineAttaching = null; // in-flight attach() promise, so we never double-load the model
 
 /* ── State ── */
 let localStream   = null;
@@ -101,90 +57,71 @@ let isMicMuted    = false;
 let isCameraOff   = false;
 let GIFT_CATALOG  = [];
 
-/* ── Mic-seat state — which of the 12 seats, if any, the local
-   user currently occupies. null = pure audience. ── */
 let mySeatIndex = null;
-
-/* ── Guest-frame state — which slot ("male"/"female"), if any, the
-   local user currently occupies. null = not a guest. ── */
 let myGuestSlot = null;
 
-/* ── URL params ── */
 const params = new URLSearchParams(window.location.search);
 const roomId = params.get("room") || params.get("id");
 
 if (!roomId) window.showToast?.("Invalid room link");
 
-/* ── Socket ── */
 const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
 console.log("[live.js socket] Connecting to:", SOCKET_URL);
 
 const socket = io(SOCKET_URL, {
-  // NOTE: was transports: ["websocket"] only — forcing straight to
-  // a WS upgrade with no polling handshake first. That is the
-  // classic cause of "WebSocket is closed before the connection is
-  // established" on Render's proxy. Allow polling first, then
-  // upgrade to WS if possible.
   transports:          ["polling", "websocket"],
   reconnectionAttempts: 5,
   reconnectionDelay:   1000
 });
 
-/* ── DIAGNOSTIC LOGGING ── */
 socket.on("connect", () => {
   console.log(
-    "[live.js socket] ✅ connected. id=", socket.id,
+    "[live.js socket] connected. id=", socket.id,
     "transport=", socket.io.engine.transport.name
   );
   window.__mySocketId = socket.id;
 });
 
 socket.on("connect_error", (err) => {
-  console.error("[live.js socket] ❌ connect_error:", err.message, err);
+  console.error("[live.js socket] connect_error:", err.message, err);
 });
 
 socket.on("disconnect", (reason) => {
-  console.warn("[live.js socket] ⚠️ disconnected. reason=", reason);
+  console.warn("[live.js socket] disconnected. reason=", reason);
 });
 
 socket.on("reconnect_attempt", (attempt) => {
-  console.log("[live.js socket] 🔄 reconnect_attempt #", attempt);
+  console.log("[live.js socket] reconnect_attempt #", attempt);
 });
 
 socket.on("reconnect_error", (err) => {
-  console.error("[live.js socket] ❌ reconnect_error:", err.message);
+  console.error("[live.js socket] reconnect_error:", err.message);
 });
 
 socket.on("reconnect_failed", () => {
-  console.error("[live.js socket] ❌ reconnect_failed — giving up");
+  console.error("[live.js socket] reconnect_failed - giving up");
 });
 
 socket.io.on("error", (err) => {
-  console.error("[live.js socket manager] ❌ error:", err);
+  console.error("[live.js socket manager] error:", err);
 });
 
 socket.io.engine?.on("upgrade", (transport) => {
-  console.log("[live.js socket] ⬆️ transport upgraded to:", transport.name);
+  console.log("[live.js socket] transport upgraded to:", transport.name);
 });
 
 socket.io.engine?.on("upgradeError", (err) => {
-  console.error("[live.js socket] ❌ upgradeError:", err);
+  console.error("[live.js socket] upgradeError:", err);
 });
 
 function $(id) { return document.getElementById(id); }
 
-/* ============================================================
-   SPEAKING-DETECTION DISPATCH
-   ============================================================ */
 function dispatchSpeaking(socketId, isHostFlag, active) {
   window.dispatchEvent(new CustomEvent("speakingChanged", {
     detail: { socketId, isHost: !!isHostFlag, active: !!active }
   }));
 }
 
-/* ============================================================
-   AUDIO CONTEXT / "TAP FOR SOUND"
-   ============================================================ */
 function getAudioContext() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -214,9 +151,6 @@ function initAudioUnlock() {
   $("tap-for-sound")?.addEventListener("click", unlock);
 }
 
-/* ============================================================
-   AUDIO BOOST (+ speaking-level analyser)
-   ============================================================ */
 function setupAudioBoost(track, consumerId, socketId, isHostFlag = false) {
   try {
     const ctx = getAudioContext();
@@ -243,7 +177,7 @@ function setupAudioBoost(track, consumerId, socketId, isHostFlag = false) {
     let wasSpeaking = false;
     function tick() {
       const entry = audioBoosts.get(consumerId);
-      if (!entry) return; // cleaned up
+      if (!entry) return;
       analyser.getByteFrequencyData(analyserData);
       const avg = analyserData.reduce((a, b) => a + b, 0) / analyserData.length;
       const speaking = avg > SPEAKING_THRESHOLD;
@@ -289,7 +223,7 @@ function cleanupAllAudioBoosts() {
    CAMERA + MIC INIT (host / full publish)
    ============================================================ */
 async function getLocalStream() {
-  console.log("[getLocalStream] Requesting camera + mic…");
+  console.log("[getLocalStream] Requesting camera + mic...");
   const audioConstraints = {
     echoCancellation: true, noiseSuppression: true,
     autoGainControl: true, sampleRate: 48000, channelCount: 1
@@ -302,11 +236,26 @@ async function getLocalStream() {
 
   for (const vc of videoProfiles) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: vc, audio: audioConstraints });
-      const vt = stream.getVideoTracks()[0];
-      const at = stream.getAudioTracks()[0];
-      console.log(`[getLocalStream] ✅ video=${vt?.label} audio=${at?.label}`, vt?.getSettings());
-      return stream;
+      const rawStream = await navigator.mediaDevices.getUserMedia({ video: vc, audio: audioConstraints });
+      const vt = rawStream.getVideoTracks()[0];
+      const at = rawStream.getAudioTracks()[0];
+      console.log(`[getLocalStream] video=${vt?.label} audio=${at?.label}`, vt?.getSettings());
+
+      const filtered = beautyEngine.start(rawStream, {
+        smoothing:  beautyOn ? 0.62 : 0,
+        brightness: beautyOn ? 0.06 : 0,
+        contrast:   beautyOn ? 1.06 : 1,
+        saturation: beautyOn ? 1.08 : 1,
+        sharpness:  beautyOn ? 0.45 : 0,
+        filter:          currentColorFilter,
+        filterIntensity: currentFilterIntensity
+      });
+
+      // Fire-and-forget: loads the AR model in the background and
+      // starts its detection loop once ready. Never blocks publish.
+      ensureFaceEngineAttached();
+
+      return filtered;
     } catch (e) {
       console.warn("[getLocalStream] Profile failed, retrying:", e.message);
     }
@@ -314,11 +263,35 @@ async function getLocalStream() {
   throw new Error("Camera/microphone access denied");
 }
 
+/**
+ * Lazily attaches FaceEffectsEngine to beautyEngine (loads the
+ * MediaPipe model once) and starts its detection loop. Safe to
+ * call repeatedly - guarded so the model is only ever loaded once
+ * per page session.
+ */
+function ensureFaceEngineAttached() {
+  if (faceEngineAttached) { faceEngine.start(); return; }
+  if (faceEngineAttaching) return faceEngineAttaching;
+
+  faceEngineAttaching = faceEngine.attach(beautyEngine)
+    .then(() => {
+      faceEngineAttached = true;
+      faceEngine.start();
+      console.log("[ensureFaceEngineAttached] AR face-tracking ready");
+    })
+    .catch((e) => {
+      console.warn("[ensureFaceEngineAttached] AR model failed to load - filters/beauty still work:", e);
+    })
+    .finally(() => { faceEngineAttaching = null; });
+
+  return faceEngineAttaching;
+}
+
 /* ============================================================
-   AUDIO-ONLY INIT (seat / guest claim — mic only, no camera.)
+   AUDIO-ONLY INIT (seat / guest claim - mic only, no camera.)
    ============================================================ */
 async function getAudioOnlyStream() {
-  console.log("[getAudioOnlyStream] Requesting mic only…");
+  console.log("[getAudioOnlyStream] Requesting mic only...");
   const audioConstraints = {
     echoCancellation: true, noiseSuppression: true,
     autoGainControl: true, sampleRate: 48000, channelCount: 1
@@ -326,19 +299,13 @@ async function getAudioOnlyStream() {
   return navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
 }
 
-/* ============================================================
-   DEVICE LOAD
-   ============================================================ */
 async function loadDevice(rtpCapabilities) {
-  console.log("[loadDevice] Loading mediasoup Device…");
+  console.log("[loadDevice] Loading mediasoup Device...");
   device = new mediasoupClient.Device();
   await device.load({ routerRtpCapabilities: rtpCapabilities });
-  console.log("[loadDevice] ✅ Device loaded. Codecs:", device.rtpCapabilities.codecs.map(c => c.mimeType));
+  console.log("[loadDevice] Device loaded. Codecs:", device.rtpCapabilities.codecs.map(c => c.mimeType));
 }
 
-/* ============================================================
-   CODEC DETECTION
-   ============================================================ */
 function getPreferredVideoCodec() {
   if (!device?.rtpCapabilities?.codecs) return "VP8";
   const codecs = device.rtpCapabilities.codecs;
@@ -347,15 +314,12 @@ function getPreferredVideoCodec() {
   return "VP8";
 }
 
-/* ============================================================
-   ICE SERVERS
-   ============================================================ */
 function buildIceServers() {
   if (window.__turnConfig && Array.isArray(window.__turnConfig)) {
     console.log("[buildIceServers] Using ICE servers:", window.__turnConfig.length);
     return window.__turnConfig;
   }
-  console.warn("[buildIceServers] No TURN config — using STUN only");
+  console.warn("[buildIceServers] No TURN config - using STUN only");
   return [
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
   ];
@@ -376,11 +340,8 @@ function getIceTransportPolicy() {
   return policy;
 }
 
-/* ============================================================
-   SEND TRANSPORT
-   ============================================================ */
 async function createSendTransport() {
-  console.log("[createSendTransport] Creating…");
+  console.log("[createSendTransport] Creating...");
   return new Promise((resolve, reject) => {
     socket.emit("createSendTransport", { roomId }, (params) => {
       if (params?.error) return reject(new Error(params.error));
@@ -392,7 +353,7 @@ async function createSendTransport() {
       });
 
       sendTransport.on("connect", ({ dtlsParameters }, cb, errback) => {
-        console.log("[sendTransport] connect event — sending DTLS params");
+        console.log("[sendTransport] connect event - sending DTLS params");
         socket.emit("connectTransport", { transportId: sendTransport.id, dtlsParameters }, (res) => {
           if (res?.error) return errback(new Error(res.error));
           cb();
@@ -412,7 +373,7 @@ async function createSendTransport() {
         updateNetworkBadge(state);
       });
 
-      console.log("[createSendTransport] ✅ id=", sendTransport.id);
+      console.log("[createSendTransport] id=", sendTransport.id);
       resolve(sendTransport);
     });
   });
@@ -423,18 +384,15 @@ async function ensureSendTransport() {
   return createSendTransport();
 }
 
-/* ============================================================
-   RECV TRANSPORT
-   ============================================================ */
 async function ensureRecvTransport() {
   if (recvTransport) return recvTransport;
 
   if (recvTransportPromise) {
-    console.log("[ensureRecvTransport] Waiting for in-flight creation…");
+    console.log("[ensureRecvTransport] Waiting for in-flight creation...");
     return recvTransportPromise;
   }
 
-  console.log("[ensureRecvTransport] Creating recv transport…");
+  console.log("[ensureRecvTransport] Creating recv transport...");
   recvTransportPromise = new Promise((resolve, reject) => {
     socket.emit("createRecvTransport", { roomId }, (params) => {
       if (params?.error) {
@@ -449,7 +407,7 @@ async function ensureRecvTransport() {
       });
 
       recvTransport.on("connect", ({ dtlsParameters }, cb, errback) => {
-        console.log("[recvTransport] connect event — sending DTLS params");
+        console.log("[recvTransport] connect event - sending DTLS params");
         socket.emit("connectTransport", { transportId: recvTransport.id, dtlsParameters }, (res) => {
           if (res?.error) return errback(new Error(res.error));
           cb();
@@ -460,7 +418,7 @@ async function ensureRecvTransport() {
         console.log("[recvTransport] connectionstatechange:", state);
       });
 
-      console.log("[ensureRecvTransport] ✅ id=", recvTransport.id);
+      console.log("[ensureRecvTransport] id=", recvTransport.id);
       resolve(recvTransport);
     });
   });
@@ -468,11 +426,8 @@ async function ensureRecvTransport() {
   return recvTransportPromise;
 }
 
-/* ============================================================
-   PUBLISH SELF STREAM (host only — full camera + mic, always on)
-   ============================================================ */
 async function publishStream() {
-  console.log("[publishStream] Starting…");
+  console.log("[publishStream] Starting...");
   localStream = await getLocalStream();
 
   const localVideo = $("local-video");
@@ -487,7 +442,7 @@ async function publishStream() {
                             window.CURRENT_USER?.display_name || "You";
   }
 
-  console.log("[publishStream] Host mode — mirroring to stage");
+  console.log("[publishStream] Host mode - mirroring to stage");
   const stageVideo = $("stage-video");
   if (stageVideo) {
     stageVideo.srcObject = localStream;
@@ -529,7 +484,7 @@ async function publishStream() {
 
     videoProducer = await sendTransport.produce(produceOptions);
     videoProducer.on("score", updateVideoScoreIndicator);
-    console.log("[publishStream] ✅ videoProducer id=", videoProducer.id);
+    console.log("[publishStream] videoProducer id=", videoProducer.id);
   }
 
   const audioTrack = localStream.getAudioTracks()[0];
@@ -540,15 +495,12 @@ async function publishStream() {
       appData: { type: "audio", isHost }
     });
     startAudioLevelMonitor(audioTrack);
-    console.log("[publishStream] ✅ audioProducer id=", audioProducer.id);
+    console.log("[publishStream] audioProducer id=", audioProducer.id);
   }
 
-  console.log("[publishStream] ✅ Done publishing own stream");
+  console.log("[publishStream] Done publishing own stream");
 }
 
-/* ============================================================
-   MIC SEATS — "empty seat → tap → mic activates" flow
-   ============================================================ */
 async function claimMicSeat(seatIndex) {
   if (typeof seatIndex !== "number") return;
   if (mySeatIndex !== null) {
@@ -593,11 +545,11 @@ async function claimMicSeat(seatIndex) {
       }
       mySeatIndex = seatIndex;
       isMicMuted  = false;
-      console.log(`[claimMicSeat] ✅ Seated at ${seatIndex}, mic live`);
-      window.showToast(`Seat ${seatIndex + 1} joined — mic on`);
+      console.log(`[claimMicSeat] Seated at ${seatIndex}, mic live`);
+      window.showToast(`Seat ${seatIndex + 1} joined - mic on`);
     });
   } catch (e) {
-    console.error("[claimMicSeat] ❌", e);
+    console.error("[claimMicSeat]", e);
     window.showToast("Couldn't join that seat");
     audioStream?.getTracks().forEach(t => t.stop());
   }
@@ -643,9 +595,6 @@ function toggleMySeatMic() {
   });
 }
 
-/* ============================================================
-   GUEST FRAMES — matchmaker male/female slots.
-   ============================================================ */
 async function claimGuestSeat(slot) {
   if (slot !== "male" && slot !== "female") return;
   if (myGuestSlot !== null) {
@@ -685,10 +634,10 @@ async function claimGuestSeat(slot) {
       }
       myGuestSlot = slot;
       isMicMuted  = false;
-      window.showToast(`Joined ${slot} guest seat — mic on`);
+      window.showToast(`Joined ${slot} guest seat - mic on`);
     });
   } catch (e) {
-    console.error("[claimGuestSeat] ❌", e);
+    console.error("[claimGuestSeat]", e);
     window.showToast("Couldn't join that guest seat");
     audioStream?.getTracks().forEach(t => t.stop());
   }
@@ -733,9 +682,6 @@ function toggleMyGuestMic() {
   });
 }
 
-/* ============================================================
-   CONSUME A PRODUCER
-   ============================================================ */
 async function consumeProducer({ producerId, socketId, userId, kind, isHost: producerIsHostHint }) {
   console.log(`[consumeProducer] producerId=${producerId} kind=${kind} socketId=${socketId} isHostHint=${producerIsHostHint}`);
 
@@ -761,7 +707,7 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
         return;
       }
 
-      console.log(`[consumeProducer] Got params — consumerId=${params.id} kind=${params.kind} isHost=${params.isHost}`);
+      console.log(`[consumeProducer] Got params - consumerId=${params.id} kind=${params.kind} isHost=${params.isHost}`);
 
       try {
         const consumer = await transport.consume({
@@ -791,7 +737,7 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
           if (res?.error) {
             console.error("[consumeProducer] resumeConsumer error:", res.error);
           } else {
-            console.log(`[consumeProducer] ✅ Consumer resumed: ${consumer.id}`);
+            console.log(`[consumeProducer] Consumer resumed: ${consumer.id}`);
           }
         });
 
@@ -818,9 +764,6 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
   );
 }
 
-/* ============================================================
-   TRACK ROUTING HELPERS
-   ============================================================ */
 function attachTrackToStage(track) {
   console.log("[attachTrackToStage] Attaching video track to #stage-video");
   const stageVideo = $("stage-video");
@@ -836,7 +779,7 @@ function attachTrackToStage(track) {
   if (offlineEl) offlineEl.style.display = "none";
 
   stageVideo.play().catch(e => console.warn("[attachTrackToStage] play() rejected:", e.message));
-  console.log("[attachTrackToStage] ✅ Stage video attached");
+  console.log("[attachTrackToStage] Stage video attached");
 }
 
 function getOrCreateParticipantTile(socketId, userId) {
@@ -863,7 +806,7 @@ function getOrCreateParticipantTile(socketId, userId) {
 
     const mutedBadge = document.createElement("div");
     mutedBadge.className   = "ptile-muted-badge";
-    mutedBadge.textContent = "🔇";
+    mutedBadge.textContent = "muted";
     mutedBadge.style.display = "none";
 
     tile.appendChild(mutedBadge);
@@ -899,9 +842,6 @@ function removeParticipantVideo(socketId) {
   cleanupAudioBoostsForSocket(socketId);
 }
 
-/* ============================================================
-   SIMULCAST / SVC ENCODINGS
-   ============================================================ */
 function buildSimulcastEncodings(width, height) {
   if (width >= 1280) {
     return [
@@ -916,9 +856,6 @@ function buildSimulcastEncodings(width, height) {
   ];
 }
 
-/* ============================================================
-   AUDIO LEVEL MONITOR
-   ============================================================ */
 function startAudioLevelMonitor(audioTrack) {
   try {
     const ctx      = new AudioContext();
@@ -949,18 +886,15 @@ function startAudioLevelMonitor(audioTrack) {
   }
 }
 
-/* ============================================================
-   NETWORK BADGE
-   ============================================================ */
 function updateNetworkBadge(state) {
   const badge = $("network-badge");
   if (!badge) return;
   if (state === "connected") {
     badge.textContent = "HD"; badge.style.background = "rgba(0,200,100,.7)";
   } else if (state === "connecting") {
-    badge.textContent = "…";  badge.style.background = "rgba(255,160,0,.7)";
+    badge.textContent = "..."; badge.style.background = "rgba(255,160,0,.7)";
   } else if (state === "failed" || state === "closed") {
-    badge.textContent = "⚠️"; badge.style.background = "rgba(255,61,127,.7)";
+    badge.textContent = "!"; badge.style.background = "rgba(255,61,127,.7)";
   }
 }
 
@@ -971,19 +905,16 @@ function updateVideoScoreIndicator(scores) {
   if (!badge) return;
   if (best.score >= 9)      { badge.textContent = "HD"; badge.style.background = "rgba(0,200,100,.7)"; }
   else if (best.score >= 6) { badge.textContent = "SD"; badge.style.background = "rgba(255,160,0,.7)"; }
-  else                      { badge.textContent = "⚠️"; badge.style.background = "rgba(255,61,127,.7)"; }
+  else                      { badge.textContent = "!"; badge.style.background = "rgba(255,61,127,.7)"; }
 }
 
-/* ============================================================
-   HOST'S OWN MIC/CAMERA CONTROLS
-   ============================================================ */
 function toggleMic() {
   if (!audioProducer) return;
   isMicMuted = !isMicMuted;
   isMicMuted ? audioProducer.pause() : audioProducer.resume();
 
   const hostBtn = $("mic-btn");
-  if (hostBtn) hostBtn.textContent = isMicMuted ? "🔇" : "🎤";
+  if (hostBtn) hostBtn.textContent = isMicMuted ? "muted" : "mic";
 
   updateLocalMicButton(isMicMuted);
   if (isMicMuted) dispatchSpeaking(socket.id, isHost, false);
@@ -995,7 +926,7 @@ function toggleMic() {
 function updateLocalMicButton(muted) {
   const localMicBtn = $("local-mic-btn");
   if (!localMicBtn) return;
-  localMicBtn.textContent = muted ? "🔇" : "🎤";
+  localMicBtn.textContent = muted ? "muted" : "mic";
   localMicBtn.classList.toggle("muted", muted);
   localMicBtn.title = muted ? "Unmute mic" : "Mute mic";
 }
@@ -1013,7 +944,7 @@ async function toggleCamera() {
   if (localVideo) localVideo.style.opacity = isCameraOff ? "0.15" : "1";
 
   const btn = $("camera-btn");
-  if (btn) btn.textContent = isCameraOff ? "📵" : "📷";
+  if (btn) btn.textContent = isCameraOff ? "off" : "cam";
   window.showToast(isCameraOff ? "Camera off" : "Camera on");
 }
 
@@ -1022,15 +953,27 @@ async function switchCamera() {
   const currentFacing = localStream.getVideoTracks()[0]?.getSettings()?.facingMode || "user";
   const newFacing     = currentFacing === "user" ? "environment" : "user";
   try {
-    const newStream = await navigator.mediaDevices.getUserMedia({
+    const newRawStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: newFacing, width: { ideal: 1280 }, height: { ideal: 720 } }
     });
-    const newTrack = newStream.getVideoTracks()[0];
-    if (videoProducer) await videoProducer.replaceTrack({ track: newTrack });
+    const newRawVideoTrack = newRawStream.getVideoTracks()[0];
+    const existingAudioTrack = localStream.getAudioTracks()[0];
 
-    const oldTrack = localStream.getVideoTracks()[0];
-    if (oldTrack) { oldTrack.stop(); localStream.removeTrack(oldTrack); }
-    localStream.addTrack(newTrack);
+    const combinedRaw = new MediaStream();
+    combinedRaw.addTrack(newRawVideoTrack);
+    if (existingAudioTrack) combinedRaw.addTrack(existingAudioTrack);
+
+    const carriedParams = beautyEngine.getParams();
+    beautyEngine.stop();
+    const filteredStream = beautyEngine.start(combinedRaw, carriedParams);
+    const filteredVideoTrack = filteredStream.getVideoTracks()[0];
+
+    if (videoProducer) await videoProducer.replaceTrack({ track: filteredVideoTrack });
+
+    const oldVideoTrack = localStream.getVideoTracks()[0];
+    if (oldVideoTrack) oldVideoTrack.stop();
+
+    localStream = filteredStream;
 
     const localVideo = $("local-video");
     if (localVideo) localVideo.srcObject = localStream;
@@ -1039,10 +982,179 @@ async function switchCamera() {
       const stageVideo = $("stage-video");
       if (stageVideo) stageVideo.srcObject = localStream;
     }
+
+    // beautyEngine.stop()/start() tore down the old hidden <video>
+    // and rebuilt a new one - re-point the AR engine's overlay hook
+    // at the fresh instance (attach() is cheap/idempotent past the
+    // first real model load; it just re-registers the draw hook).
+    if (faceEngineAttached) faceEngine.attach(beautyEngine).then(() => faceEngine.start());
+
     window.showToast("Camera switched");
   } catch (e) {
     window.showToast("Camera switch failed");
   }
+}
+
+/* ============================================================
+   BEAUTY / SHARPNESS FILTER TOGGLE
+   ============================================================ */
+function toggleBeautyFilter() {
+  beautyOn = !beautyOn;
+  beautyEngine.setParams({
+    smoothing:  beautyOn ? 0.62 : 0,
+    brightness: beautyOn ? 0.06 : 0,
+    contrast:   beautyOn ? 1.06 : 1,
+    saturation: beautyOn ? 1.08 : 1,
+    sharpness:  beautyOn ? 0.45 : 0
+  });
+  window.showToast(beautyOn ? "Beauty filter on" : "Beauty filter off");
+
+  const btn = $("beauty-btn");
+  if (btn) btn.classList.toggle("off", !beautyOn);
+}
+
+/* ============================================================
+   EFFECTS SHEET - color filters, beauty presets, AR (stickers +
+   distortion). All three panes drive the SAME beautyEngine /
+   faceEngine instances that are already running the live preview,
+   so every change here is visible immediately, live, before
+   anything is sent - and is baked into the actual outgoing video
+   track (not just a local CSS preview), same as the beauty filter.
+   ============================================================ */
+let currentColorFilter    = "none";
+let currentFilterIntensity = 1.0;
+let currentBeautyPreset   = "medium";
+
+const COLOR_FILTER_OPTIONS = [
+  { id: "none",      label: "Original",  emoji: "\u2b1c" },
+  { id: "vintage",   label: "Vintage",   emoji: "\ud83c\udf9e\ufe0f" },
+  { id: "bw",        label: "B&W",       emoji: "\u26ab" },
+  { id: "warm",      label: "Warm",      emoji: "\ud83c\udf07" },
+  { id: "cool",      label: "Cool",      emoji: "\u2744\ufe0f" },
+  { id: "vivid",     label: "Vivid",     emoji: "\ud83c\udf08" },
+  { id: "cinematic", label: "Cinematic", emoji: "\ud83c\udfac" }
+];
+
+const BEAUTY_PRESET_OPTIONS = [
+  { id: "light",  label: "Light",     emoji: "\ud83d\ude42" },
+  { id: "medium", label: "Medium",    emoji: "\u2728" },
+  { id: "glam",   label: "Full Glam", emoji: "\ud83d\udc84" }
+];
+
+const STICKER_OPTIONS = [
+  { id: null,          label: "None",         emoji: "\ud83d\udeab" },
+  { id: "glasses",     label: "Glasses",      emoji: "\ud83d\udd76\ufe0f" },
+  { id: "dogEars",     label: "Dog Ears",     emoji: "\ud83d\udc36" },
+  { id: "mustache",    label: "Mustache",     emoji: "\ud83d\udc68" },
+  { id: "flowerCrown", label: "Flower Crown", emoji: "\ud83c\udf38" }
+];
+
+function setColorFilterUI(filterId) {
+  currentColorFilter = filterId;
+  beautyEngine.setColorFilter(filterId, currentFilterIntensity);
+  document.querySelectorAll("#filter-grid .effect-tile").forEach(t =>
+    t.classList.toggle("selected", t.dataset.filterId === filterId));
+}
+
+function setFilterIntensityUI(value) {
+  currentFilterIntensity = value;
+  beautyEngine.setParams({ filterIntensity: value });
+  const slider = $("filter-intensity-slider");
+  if (slider) slider.value = String(Math.round(value * 100));
+}
+
+function applyBeautyPresetUI(presetId) {
+  currentBeautyPreset = presetId;
+  beautyOn = true;
+  beautyEngine.applyBeautyPreset(presetId);
+  document.querySelectorAll("#beauty-preset-grid .effect-tile").forEach(t =>
+    t.classList.toggle("selected", t.dataset.presetId === presetId));
+  const btn = $("beauty-btn");
+  if (btn) btn.classList.remove("off");
+}
+
+function setStickerUI(stickerId) {
+  faceEngine.setSticker(stickerId);
+  document.querySelectorAll("#sticker-grid .effect-tile").forEach(t =>
+    t.classList.toggle("selected", (t.dataset.stickerId || null) === stickerId));
+}
+
+function setDistortionUI(key, value) {
+  faceEngine.setDistortion({ [key]: value });
+  const slider = $(`distortion-${key}-slider`);
+  if (slider) slider.value = String(Math.round(value * 100));
+}
+
+function renderEffectsSheet() {
+  const filterGrid = $("filter-grid");
+  if (filterGrid) {
+    filterGrid.innerHTML = COLOR_FILTER_OPTIONS.map(f => `
+      <button class="effect-tile${f.id === currentColorFilter ? " selected" : ""}" data-filter-id="${f.id}">
+        <span class="effect-emoji">${f.emoji}</span>
+        <span class="effect-label">${f.label}</span>
+      </button>`).join("");
+    filterGrid.querySelectorAll(".effect-tile").forEach(tile => {
+      tile.addEventListener("click", () => setColorFilterUI(tile.dataset.filterId));
+    });
+  }
+
+  const presetGrid = $("beauty-preset-grid");
+  if (presetGrid) {
+    presetGrid.innerHTML = BEAUTY_PRESET_OPTIONS.map(p => `
+      <button class="effect-tile${p.id === currentBeautyPreset ? " selected" : ""}" data-preset-id="${p.id}">
+        <span class="effect-emoji">${p.emoji}</span>
+        <span class="effect-label">${p.label}</span>
+      </button>`).join("");
+    presetGrid.querySelectorAll(".effect-tile").forEach(tile => {
+      tile.addEventListener("click", () => applyBeautyPresetUI(tile.dataset.presetId));
+    });
+  }
+
+  const stickerGrid = $("sticker-grid");
+  if (stickerGrid) {
+    stickerGrid.innerHTML = STICKER_OPTIONS.map(s => `
+      <button class="effect-tile" data-sticker-id="${s.id ?? ""}">
+        <span class="effect-emoji">${s.emoji}</span>
+        <span class="effect-label">${s.label}</span>
+      </button>`).join("");
+    stickerGrid.querySelectorAll(".effect-tile").forEach(tile => {
+      tile.addEventListener("click", () => setStickerUI(tile.dataset.stickerId || null));
+    });
+    setStickerUI(null);
+  }
+
+  ["bigEyes", "slimFace", "smallNose"].forEach(key => {
+    const slider = $(`distortion-${key}-slider`);
+    slider?.addEventListener("input", (e) => setDistortionUI(key, Number(e.target.value) / 100));
+  });
+
+  $("filter-intensity-slider")?.addEventListener("input", (e) => setFilterIntensityUI(Number(e.target.value) / 100));
+}
+
+function openEffectsSheet() {
+  if (!localStream) {
+    window.showToast("Start your camera first");
+    return;
+  }
+  $("effects-backdrop")?.classList.add("open");
+  $("effects-sheet")?.classList.add("open");
+  if (!faceEngineAttached) {
+    ensureFaceEngineAttached().then(() => {
+      if (!faceEngine.isReady()) window.showToast("AR effects unavailable on this device");
+    });
+  }
+}
+
+function closeEffectsSheet() {
+  $("effects-backdrop")?.classList.remove("open");
+  $("effects-sheet")?.classList.remove("open");
+}
+
+function switchEffectsTab(tabName) {
+  document.querySelectorAll(".effects-tab-btn").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === tabName));
+  document.querySelectorAll(".effects-tab-panel").forEach(p =>
+    p.classList.toggle("active", p.dataset.tabPanel === tabName));
 }
 
 /* ============================================================
@@ -1090,9 +1202,9 @@ async function loadRoom() {
       secondsLive = Math.floor((Date.now() - new Date(room.started_at).getTime()) / 1000);
     }
 
-    console.log(`[loadRoom] ✅ room=${roomId} host_id=${room.host_id}`);
+    console.log(`[loadRoom] room=${roomId} host_id=${room.host_id}`);
   } catch (err) {
-    console.error("[loadRoom] ❌", err);
+    console.error("[loadRoom]", err);
     window.showToast("Failed to load room");
   }
 }
@@ -1104,7 +1216,7 @@ async function joinRoom() {
     socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
     console.log(`[joinRoom] Emitted joinRoom room=${roomId}`);
   } catch (err) {
-    console.error("[joinRoom] ❌", err);
+    console.error("[joinRoom]", err);
   }
 }
 
@@ -1116,6 +1228,10 @@ async function leaveRoom() {
   if (localStream)   localStream.getTracks().forEach(t => t.stop());
   cleanupAllAudioBoosts();
 
+  try { faceEngine.destroy(); } catch (e) {}
+  faceEngineAttached = false;
+  try { beautyEngine.stop(); } catch (e) {}
+
   try {
     await window.api.request(`/live/${roomId}/leave`, { method: "POST" });
     socket.emit("leaveGuestSeat", { roomId });
@@ -1124,22 +1240,10 @@ async function leaveRoom() {
   } catch (e) {}
 }
 
-/* ============================================================
-   GIFT ENGINE — DELIBERATE-EXIT TEARDOWN ONLY
-   ============================================================ */
 function destroyGiftEngineForRealExit() {
   try { window.__giftEngine?.destroy(); } catch (e) {}
 }
 
-/* ============================================================
-   PARTICIPANTS / VIEWERS MODAL (host-only roster + full kick)
-   ------------------------------------------------------------
-   Regular viewers never see this — the only way anyone else
-   learns who's around is the comment feed (join announcements)
-   or seeing an occupied seat/guest frame. The host alone can
-   pull the full roster and remove ANYONE from the room, not just
-   seat/guest occupants.
-   ============================================================ */
 function isParticipantsModalOpen() {
   return $("viewers-modal")?.classList.contains("open");
 }
@@ -1223,9 +1327,6 @@ function hostKickUserFromRoom(targetSocketId) {
   });
 }
 
-/* ============================================================
-   SOCKET EVENTS
-   ============================================================ */
 function initSocket() {
 
   socket.on("routerRtpCapabilities", async ({ rtpCapabilities }) => {
@@ -1234,9 +1335,9 @@ function initSocket() {
     try {
       await loadDevice(rtpCapabilities);
       _deviceReadyResolve();
-      console.log("[socket] ✅ deviceReady resolved (device loaded)");
+      console.log("[socket] deviceReady resolved (device loaded)");
     } catch (err) {
-      console.error("[socket] loadDevice failed — cannot consume OR publish:", err);
+      console.error("[socket] loadDevice failed - cannot consume OR publish:", err);
       window.showToast("Failed to connect: " + err.message);
       return;
     }
@@ -1245,7 +1346,7 @@ function initSocket() {
       try {
         await publishStream();
       } catch (err) {
-        console.warn("[socket] publishStream failed — continuing in watch-only mode:", err.message);
+        console.warn("[socket] publishStream failed - continuing in watch-only mode:", err.message);
         window.showToast("Watching only (camera unavailable)");
       }
     }
@@ -1293,8 +1394,6 @@ function initSocket() {
     if (el) el.textContent = window.formatCoins(vc);
   });
 
-  // Regular chat, plus system rows (join announcements etc.) — the
-  // only way a non-host learns who's around besides seats/guests.
   socket.on("newComment", (payload) => {
     if (payload.system) {
       appendComment({ type: "system", text: payload.text });
@@ -1331,7 +1430,6 @@ function initSocket() {
     }
   });
 
-  // ── PARTICIPANTS ROSTER (host-only) ──
   socket.on("participantsUpdated", (list) => {
     window.__lastParticipants = list;
     if (isParticipantsModalOpen()) renderParticipantsList(list);
@@ -1374,7 +1472,6 @@ function initSocket() {
     window.showToast(isMicMuted ? "Host muted your mic" : "Host unmuted your mic");
   });
 
-  // ── HOST REMOVED YOU FROM THE ENTIRE ROOM (not just a seat) ──
   socket.on("youWereKicked", async () => {
     window.showToast("You were removed from this live by the host");
     await leaveRoom();
@@ -1383,9 +1480,6 @@ function initSocket() {
   });
 }
 
-/* ============================================================
-   COMMENTS
-   ============================================================ */
 function appendComment({ avatar, name, text, type = "comment" }) {
   const wrap = $("comments-scroll");
   if (!wrap) return;
@@ -1413,9 +1507,6 @@ function sendComment() {
   input.value = "";
 }
 
-/* ============================================================
-   REACTIONS
-   ============================================================ */
 function sendReaction(emoji) {
   socket.emit("streamReaction", { roomId, emoji, userId: window.CURRENT_USER.id });
 }
@@ -1433,9 +1524,6 @@ function spawnFloatParticle(emoji) {
   setTimeout(() => el.remove(), 2700);
 }
 
-/* ============================================================
-   GIFTS
-   ============================================================ */
 async function loadGiftCatalog() {
   try {
     const response = await window.api.request("/gifts");
@@ -1448,7 +1536,7 @@ async function loadGiftCatalog() {
     }));
     renderGiftGrid();
   } catch (err) {
-    console.error("[loadGiftCatalog] ❌", err);
+    console.error("[loadGiftCatalog]", err);
   }
 }
 
@@ -1459,8 +1547,8 @@ function renderGiftGrid() {
   grid.innerHTML = GIFT_CATALOG.map(gift => `
     <button class="gift-tile" id="gift-${gift.id}" data-gift-id="${gift.id}">
       ${gift.icon
-        ? `<img class="gift-icon-img" src="${gift.icon}" alt="${window.escapeHtml(gift.name)}" data-fallback-emoji="${window.escapeHtml(gift.emoji || "🎁")}">`
-        : `<span class="emoji">${gift.emoji || "🎁"}</span>`}
+        ? `<img class="gift-icon-img" src="${gift.icon}" alt="${window.escapeHtml(gift.name)}" data-fallback-emoji="${window.escapeHtml(gift.emoji || "gift")}">`
+        : `<span class="emoji">${gift.emoji || "gift"}</span>`}
       <span class="name">${window.escapeHtml(gift.name)}</span>
       <span class="price">${gift.price}</span>
     </button>
@@ -1470,7 +1558,7 @@ function renderGiftGrid() {
     img.addEventListener("error", () => {
       const span = document.createElement("span");
       span.className = "emoji";
-      span.textContent = img.dataset.fallbackEmoji || "🎁";
+      span.textContent = img.dataset.fallbackEmoji || "gift";
       img.replaceWith(span);
     }, { once: true });
   });
@@ -1488,13 +1576,10 @@ function selectGift(giftId) {
   const btn = $("send-gift-btn");
   if (btn) {
     btn.disabled    = false;
-    btn.textContent = `Send ${selectedGift.emoji || "🎁"} ${selectedGift.name} (${selectedGift.price} coins)`;
+    btn.textContent = `Send ${selectedGift.emoji || "gift"} ${selectedGift.name} (${selectedGift.price} coins)`;
   }
 }
 
-/* ============================================================
-   SEND SELECTED GIFT
-   ============================================================ */
 async function sendSelectedGift() {
   if (!selectedGift || !currentRoom) return;
   try {
@@ -1515,7 +1600,7 @@ async function sendSelectedGift() {
     const balEl = $("sheet-coin-balance");
     if (balEl) balEl.textContent = window.formatCoins(coinBalance);
     closeGiftSheet();
-    window.showToast(`${selectedGift.emoji || "🎁"} Gift sent!`);
+    window.showToast(`${selectedGift.emoji || "gift"} Gift sent!`);
   } catch (err) {
     window.showToast(err.message || "Gift failed");
   }
@@ -1540,8 +1625,8 @@ function launchGiftBanner(payload) {
   banner.className = "gift-banner";
 
   const avatarHtml = payload.giftIcon
-    ? `<img class="gift-banner-icon" src="${payload.giftIcon}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'gift-banner-avatar',textContent:'${(payload.giftEmoji || "🎁").replace(/'/g, "\\'")}'}))">`
-    : `<span class="gift-banner-avatar">${payload.giftEmoji || "🎁"}</span>`;
+    ? `<img class="gift-banner-icon" src="${payload.giftIcon}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'gift-banner-avatar',textContent:'${(payload.giftEmoji || "gift").replace(/'/g, "\\'")}'}))">`
+    : `<span class="gift-banner-avatar">${payload.giftEmoji || "gift"}</span>`;
 
   banner.innerHTML = `
     ${avatarHtml}
@@ -1553,9 +1638,6 @@ function launchGiftBanner(payload) {
   setTimeout(() => banner.remove(), 3000);
 }
 
-/* ============================================================
-   TOP GIFTERS
-   ============================================================ */
 async function loadTopGifters() {
   if (!roomId) return;
   try {
@@ -1574,9 +1656,6 @@ function renderTopGifters(gifters) {
   `).join("") + `<span class="label">Top Gifters</span>`;
 }
 
-/* ============================================================
-   FOLLOW
-   ============================================================ */
 async function toggleFollow() {
   if (!currentRoom) return;
   try {
@@ -1593,9 +1672,6 @@ async function toggleFollow() {
   }
 }
 
-/* ============================================================
-   END LIVE
-   ============================================================ */
 async function endLive() {
   if (!confirm("End this live stream?")) return;
   try {
@@ -1609,9 +1685,6 @@ async function endLive() {
   }
 }
 
-/* ============================================================
-   CLOCK
-   ============================================================ */
 function tickClock() {
   secondsLive++;
   const m  = Math.floor(secondsLive / 60).toString().padStart(2, "0");
@@ -1620,9 +1693,6 @@ function tickClock() {
   if (el) el.textContent = `${m}:${s}`;
 }
 
-/* ============================================================
-   GIFT ENGINE — TAB VISIBILITY
-   ============================================================ */
 function initGiftEngineVisibilityHandling() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
@@ -1633,9 +1703,6 @@ function initGiftEngineVisibilityHandling() {
   });
 }
 
-/* ============================================================
-   UI LISTENERS
-   ============================================================ */
 function attachUIListeners() {
   $("follow-btn")?.addEventListener("click", toggleFollow);
   $("end-live-btn")?.addEventListener("click", endLive);
@@ -1649,6 +1716,7 @@ function attachUIListeners() {
   $("mic-btn")?.addEventListener("click", toggleMic);
   $("camera-btn")?.addEventListener("click", toggleCamera);
   $("switch-camera-btn")?.addEventListener("click", switchCamera);
+  $("beauty-btn")?.addEventListener("click", toggleBeautyFilter);
 
   $("local-mic-btn")?.addEventListener("click", toggleMic);
   $("local-camera-btn")?.addEventListener("click", toggleCamera);
@@ -1658,23 +1726,28 @@ function attachUIListeners() {
   });
   $("comment-send-btn")?.addEventListener("click", sendComment);
 
-  $("heart-btn")?.addEventListener("click", () => sendReaction("❤️"));
-  $("fire-btn")?.addEventListener("click",  () => sendReaction("🔥"));
+  $("heart-btn")?.addEventListener("click", () => sendReaction("heart"));
+  $("fire-btn")?.addEventListener("click",  () => sendReaction("fire"));
 
   $("gift-btn")?.addEventListener("click", openGiftSheet);
   $("sheet-backdrop")?.addEventListener("click", closeGiftSheet);
   $("send-gift-btn")?.addEventListener("click", sendSelectedGift);
   $("topup-btn")?.addEventListener("click", () => { window.location.href = "coins.html"; });
 
-  // ── Participants / viewers modal (host-only) ──
   $("viewers-btn")?.addEventListener("click", openParticipantsModal);
   $("viewers-close-btn")?.addEventListener("click", closeParticipantsModal);
   $("viewers-backdrop")?.addEventListener("click", closeParticipantsModal);
+
+  // Effects sheet (color filters / beauty presets / AR)
+  $("effects-btn")?.addEventListener("click", openEffectsSheet);
+  $("effects-close-btn")?.addEventListener("click", closeEffectsSheet);
+  $("effects-backdrop")?.addEventListener("click", closeEffectsSheet);
+  document.querySelectorAll(".effects-tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => switchEffectsTab(btn.dataset.tab));
+  });
+  renderEffectsSheet();
 }
 
-/* ============================================================
-   INIT
-   ============================================================ */
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("[init] Room:", roomId, "User:", window.CURRENT_USER?.id);
 
@@ -1694,11 +1767,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const turnRes = await window.api.request("/live/turn-credentials");
     if (turnRes?.data) {
       window.__turnConfig = turnRes.data;
-      console.log("[init] ✅ ICE config loaded, servers:", window.__turnConfig.length,
+      console.log("[init] ICE config loaded, servers:", window.__turnConfig.length,
         "real TURN present:", hasRealTurnServer());
     }
   } catch (e) {
-    console.warn("[init] ⚠️ Could not load TURN config — falling back to STUN-only, non-relay ICE:", e.message);
+    console.warn("[init] Could not load TURN config - falling back to STUN-only, non-relay ICE:", e.message);
   }
 
   await loadRoom();
@@ -1723,18 +1796,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   appendComment({
     type: "system",
     text: isHost
-      ? "Welcome to the live room 🎉 Be kind and have fun!"
-      : "Welcome! Tap any empty seat below to join the conversation 🎙️"
+      ? "Welcome to the live room! Be kind and have fun."
+      : "Welcome! Tap any empty seat below to join the conversation."
   });
 
   setInterval(tickClock, 1000);
 });
 
-/* ── Cleanup ── */
 window.addEventListener("beforeunload", leaveRoom);
 window.addEventListener("pagehide",     leaveRoom);
 
-/* ── Window exports ── */
 window.toggleMic        = toggleMic;
 window.toggleCamera     = toggleCamera;
 window.switchCamera     = switchCamera;
@@ -1747,6 +1818,7 @@ window.endLive          = endLive;
 window.sendSelectedGift = sendSelectedGift;
 window.selectGift       = selectGift;
 window.leaveRoom        = leaveRoom;
+window.toggleBeautyFilter = toggleBeautyFilter;
 
 window.setGiftSoundMuted = (muted = true) => {
   window.__giftEngine?.setMuted(muted);
@@ -1781,7 +1853,14 @@ window.claimMicSeat    = claimMicSeat;
 window.releaseMicSeat  = releaseMicSeat;
 window.toggleMySeatMic = toggleMySeatMic;
 
-// ── Participants / viewers modal (host-only) ──
 window.openParticipantsModal  = openParticipantsModal;
 window.closeParticipantsModal = closeParticipantsModal;
 window.hostKickUserFromRoom    = hostKickUserFromRoom;
+
+// Effects (color filters / beauty presets / AR)
+window.openEffectsSheet   = openEffectsSheet;
+window.closeEffectsSheet  = closeEffectsSheet;
+window.setColorFilter     = setColorFilterUI;
+window.applyBeautyPreset  = applyBeautyPresetUI;
+window.setSticker         = setStickerUI;
+window.setDistortion      = setDistortionUI;
