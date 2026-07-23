@@ -22,7 +22,13 @@ function buildTransportOptions() {
   const announcedIp =
     process.env.MEDIASOUP_ANNOUNCED_IP ||
     process.env.ANNOUNCED_IP ||
-    null; // null = mediasoup will not announce; fine for localhost only
+    null; // null = mediasoup will not announce; fine for localhost 
+    
+    console.log("=================================");
+console.log("MEDIASOUP TRANSPORT");
+console.log("ANNOUNCED IP =", announcedIp);
+console.log("LISTEN IP =", process.env.MEDIASOUP_LISTEN_IP || "0.0.0.0");
+console.log("=================================");
 
   if (!announcedIp) {
     console.warn(

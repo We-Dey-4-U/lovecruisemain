@@ -65,7 +65,7 @@ const roomId = params.get("room") || params.get("id");
 
 if (!roomId) window.showToast?.("Invalid room link");
 
-const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
+const SOCKET_URL = window.API_BASE_URL.replace(/\/api\/?$/, "");
 console.log("[live.js socket] Connecting to:", SOCKET_URL);
 
 const socket = io(SOCKET_URL, {

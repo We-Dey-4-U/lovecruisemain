@@ -5,7 +5,8 @@
 //const API_BASE_URL = "http://localhost:3000/api";
 //https://lovecruise-api-1.onrender.com
 //https://lovecruisemain.onrender.com
-const API_BASE_URL = "https://lovecruisemain.onrender.com/api";
+//https://api.lovecruz.fun/
+const API_BASE_URL = "https://api.lovecruz.fun/api";
 
 const api = {
   async request(endpoint, options = {}) {

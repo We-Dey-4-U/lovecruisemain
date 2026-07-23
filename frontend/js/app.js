@@ -121,7 +121,7 @@ async function initPresenceSocket() {
 
   if (presenceSocket) return;
 
-  const socketUrl = window.API_BASE_URL.replace("/api", "");
+const socketUrl = window.API_BASE_URL.replace(/\/api\/?$/, "");
   console.log("[presenceSocket] Connecting to:", socketUrl);
 
   presenceSocket = window.io(socketUrl, {
