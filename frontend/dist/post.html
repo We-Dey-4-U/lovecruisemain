@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Post Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+
+body{
+  margin:0;
+  background:#000;
+  color:#fff;
+  font-family:Inter, sans-serif;
+}
+
+.viewer{
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+.topbar{
+  padding:12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background:rgba(0,0,0,0.6);
+  position:sticky;
+  top:0;
+}
+
+.back{
+  background:none;
+  border:none;
+  color:#fff;
+  font-size:18px;
+  cursor:pointer;
+}
+
+.slider{
+  flex:1;
+  display:flex;
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;
+}
+
+.slide{
+  min-width:100%;
+  height:100%;
+  scroll-snap-align:center;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.slide img,
+.slide video{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+
+.counter{
+  position:absolute;
+  bottom:20px;
+  right:20px;
+  background:rgba(0,0,0,0.5);
+  padding:6px 12px;
+  border-radius:20px;
+  font-size:13px;
+}
+
+.viewer-share-btn{
+  margin-left:auto;
+  background:rgba(255,255,255,.1);
+  border:none;
+  color:#fff;
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+
+</style>
+  <script type="module" crossorigin src="/assets/post-C5e6CjwM.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/app-CDuEJM5E.js">
+  <link rel="stylesheet" crossorigin href="/assets/style-DeXY1gmE.css">
+</head>
+
+<body>
+
+<div class="viewer">
+
+  <div class="topbar">
+    <button class="back" onclick="history.back()">←</button>
+    <div id="title">Post</div>
+    <button class="viewer-share-btn" id="viewer-share-btn" aria-label="Share">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+    </button>
+  </div>
+
+  <div class="slider" id="slider"></div>
+
+  <div class="counter" id="counter"></div>
+
+</div>
+
+
+</body>
+</html>

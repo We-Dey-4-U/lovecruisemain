@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lovecruise — Radio Station</title>
+<style>
+/* ══════════════════════════════════════════
+   TOPBAR
+══════════════════════════════════════════ */
+.station-topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 12px; position: sticky; top: 0; z-index: 20;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+}
+.topbar-icon-btn {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); cursor: pointer; flex: none; text-decoration: none;
+}
+.station-topbar-title {
+  flex: 1; font-size: 15px; font-weight: 800; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ══════════════════════════════════════════
+   HERO
+══════════════════════════════════════════ */
+.station-hero {
+  position: relative; margin: 14px 16px 0; border-radius: 24px; overflow: hidden;
+  background: linear-gradient(155deg, #1a1420 0%, #241428 60%, #1a1420 100%);
+  border: 1px solid rgba(255,61,127,.25);
+  padding: 26px 20px 22px; text-align: center;
+}
+.station-hero-glow {
+  position: absolute; inset: -30% -10% auto -10%; height: 160%;
+  background: radial-gradient(circle at 30% 20%, rgba(255,61,127,.22), transparent 60%),
+              radial-gradient(circle at 80% 70%, rgba(160,90,255,.18), transparent 55%);
+  pointer-events: none;
+}
+.station-cover-wrap { position: relative; width: 128px; height: 128px; margin: 0 auto; }
+.station-cover-ring {
+  width: 100%; height: 100%; border-radius: 26px; padding: 4px;
+  background: conic-gradient(from 220deg, #ff3d7f, #ffc857, #00d9b5, #a05aff, #ff3d7f);
+  box-shadow: 0 10px 34px rgba(255,61,127,.35);
+}
+.station-cover-ring img { width: 100%; height: 100%; border-radius: 22px; object-fit: cover; display: block; border: 3px solid #1a1420; }
+.station-title-lg { font-size: 19px; font-weight: 900; margin-top: 16px; position: relative; }
+.station-cat-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; position: relative; font-size: 12.5px; color: var(--text-dim); font-weight: 700; }
+.station-host-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; position: relative; }
+.station-host-row img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.station-host-row span { font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
+.station-desc { font-size: 12.5px; color: var(--text-dim); margin-top: 10px; position: relative; line-height: 1.5; }
+
+.on-air-pill {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; position: relative;
+  background: rgba(255,61,127,.92); color: #fff; font-size: 11px; font-weight: 900;
+  padding: 5px 12px; border-radius: 10px; letter-spacing: .04em;
+}
+.on-air-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: pulse-anim 1.4s infinite; }
+@keyframes pulse-anim { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.35;transform:scale(.7)} }
+.offline-pill {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; position: relative;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+  font-size: 11px; font-weight: 800; padding: 5px 12px; border-radius: 10px;
+}
+
+/* ══════════════════════════════════════════
+   PRIMARY ACTION
+══════════════════════════════════════════ */
+.station-action-row { display: flex; gap: 10px; margin: 16px 16px 0; }
+.go-live-btn, .tune-in-btn {
+  flex: 1; height: 54px; border-radius: 18px; border: none; cursor: pointer;
+  font-size: 15px; font-weight: 900; display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(135deg, #ff3d7f, #a05aff); color: #fff;
+  box-shadow: 0 8px 26px rgba(255,61,127,.35);
+}
+.go-live-btn.is-live, .tune-in-btn { background: linear-gradient(135deg, #ff3d7f, #c2185b); }
+.station-secondary-btn {
+  flex: none; width: 54px; height: 54px; border-radius: 18px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  cursor: pointer; font-size: 19px; display: flex; align-items: center; justify-content: center;
+}
+.station-secondary-btn.following { color: #ff3d7f; border-color: rgba(255,61,127,.4); background: rgba(255,61,127,.08); }
+
+/* ══════════════════════════════════════════
+   STATS
+══════════════════════════════════════════ */
+.station-stats-row { display: flex; margin: 16px 16px 0; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+.station-stat-cell { flex: 1; text-align: center; padding: 12px 6px; border-right: 1px solid var(--border); }
+.station-stat-cell:last-child { border-right: none; }
+.station-stat-val { font-size: 16px; font-weight: 900; }
+.station-stat-lbl { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+
+/* ══════════════════════════════════════════
+   SECTIONS
+══════════════════════════════════════════ */
+.station-section { padding: 18px 16px 0; }
+.station-section-title { font-size: 13px; font-weight: 800; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+.station-section-title .add-btn { font-size: 12px; font-weight: 800; color: #ff3d7f; cursor: pointer; }
+
+.show-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  margin-bottom: 8px;
+}
+.show-time-box {
+  flex: none; width: 52px; height: 52px; border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255,61,127,.15), rgba(160,90,255,.1));
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.show-time-box .day { font-size: 9.5px; font-weight: 800; color: #ff3d7f; text-transform: uppercase; }
+.show-time-box .time { font-size: 12.5px; font-weight: 900; margin-top: 2px; }
+.show-info { flex: 1; min-width: 0; }
+.show-info strong { font-size: 13.5px; font-weight: 800; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.show-info small { font-size: 11.5px; color: var(--text-dim); }
+
+.empty-hint { text-align: center; padding: 24px 16px; color: var(--text-dim); font-size: 12.5px; }
+.skel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; height: 70px; animation: skel-pulse 1.5s infinite; margin-bottom: 8px; }
+@keyframes skel-pulse { 0%,100%{opacity:.4} 50%{opacity:.85} }
+
+/* ══════════════════════════════════════════
+   SHEETS
+══════════════════════════════════════════ */
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 300; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+.bottom-sheet { position: fixed; left: 0; right: 0; bottom: -100%; max-width: 480px; margin: 0 auto; background: var(--surface); border-radius: 24px 24px 0 0; z-index: 301; padding: 0 20px 40px; transition: bottom .3s cubic-bezier(.4,0,.2,1); max-height: 85vh; overflow-y: auto; }
+.bottom-sheet.open { bottom: 0; }
+.sheet-handle { width: 38px; height: 4px; background: var(--border); border-radius: 2px; margin: 14px auto 20px; }
+.sheet-title { font-size: 17px; font-weight: 900; margin-bottom: 6px; }
+.sheet-subtitle { font-size: 12px; color: var(--text-dim); margin-bottom: 18px; line-height: 1.5; }
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 7px; }
+.form-group input, .form-group textarea { width: 100%; box-sizing: border-box; background: var(--bg); border: 1.5px solid var(--border); border-radius: 14px; color: var(--text); font-size: 14px; padding: 11px 14px; outline: none; font-family: inherit; }
+.form-group textarea { resize: vertical; min-height: 70px; }
+.save-btn { width: 100%; background: linear-gradient(135deg, #ff3d7f, #a05aff); border: none; border-radius: 22px; color: #fff; font-size: 15px; font-weight: 800; padding: 15px; cursor: pointer; }
+.save-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.88); color: #fff; padding: 9px 18px; border-radius: 18px; font-size: 12.5px; font-weight: 600; z-index: 500; opacity: 0; pointer-events: none; transition: opacity .25s; white-space: nowrap; }
+.toast.show { opacity: 1; }
+</style>
+  <script type="module" crossorigin src="/assets/radio-station.html-t36MiXfk.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/app-CDuEJM5E.js">
+  <link rel="stylesheet" crossorigin href="/assets/style-DeXY1gmE.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <div class="screen" style="padding:0;overflow-y:auto;padding-bottom:40px;">
+
+    <div class="station-topbar">
+      <a href="radio-discover.html" class="topbar-icon-btn" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="17" height="17"><polyline points="15 18 9 12 15 6"/></svg>
+      </a>
+      <span class="station-topbar-title" id="topbar-station-title">Loading…</span>
+      <button class="topbar-icon-btn" id="share-btn" aria-label="Share">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      </button>
+    </div>
+
+    <div class="station-hero">
+      <div class="station-hero-glow"></div>
+      <div class="station-cover-wrap">
+        <div class="station-cover-ring">
+          <img id="station-cover" src="" alt="">
+        </div>
+      </div>
+      <div class="station-title-lg" id="station-title">Loading…</div>
+      <div class="station-cat-row" id="station-cat-row"></div>
+      <div class="station-host-row">
+        <img id="host-avatar" src="https://i.pravatar.cc/100?img=3" alt="">
+        <span id="host-name">Host</span>
+      </div>
+      <div class="station-desc" id="station-desc"></div>
+
+      <div id="live-status-wrap"></div>
+    </div>
+
+    <div class="station-action-row" id="station-action-row">
+      <!-- Filled by JS: Go Live / Enter Room / Tune In / Offline state -->
+    </div>
+
+    <div class="station-stats-row">
+      <div class="station-stat-cell">
+        <div class="station-stat-val" id="stat-followers">0</div>
+        <div class="station-stat-lbl">Followers</div>
+      </div>
+      <div class="station-stat-cell">
+        <div class="station-stat-val" id="stat-listeners">0</div>
+        <div class="station-stat-lbl">Listening now</div>
+      </div>
+      <div class="station-stat-cell">
+        <div class="station-stat-val" id="stat-status">—</div>
+        <div class="station-stat-lbl">Status</div>
+      </div>
+    </div>
+
+    <div class="station-section">
+      <div class="station-section-title">
+        <span>📅 Upcoming Shows</span>
+        <span class="add-btn" id="add-show-btn" style="display:none;">+ Schedule</span>
+      </div>
+      <div id="shows-list">
+        <div class="skel-card"></div>
+        <div class="skel-card"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── GO LIVE SHEET (host only) ── -->
+<div class="sheet-backdrop" id="golive-backdrop"></div>
+<div class="bottom-sheet" id="golive-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Go Live on this Station</div>
+  <div class="sheet-subtitle">This starts a live broadcast right now. Listeners following this station will be notified and can tune in immediately.</div>
+  <div class="form-group">
+    <label>Broadcast title</label>
+    <input type="text" id="golive-title" placeholder="e.g. Friday Night Love Talk" maxlength="150">
+  </div>
+  <div class="form-group">
+    <label>Description (optional)</label>
+    <textarea id="golive-desc" placeholder="What's today's show about?" maxlength="300"></textarea>
+  </div>
+  <button class="save-btn" id="golive-submit-btn">🔴 Start Broadcast</button>
+</div>
+
+<!-- ── SCHEDULE SHOW SHEET (host only) ── -->
+<div class="sheet-backdrop" id="show-backdrop"></div>
+<div class="bottom-sheet" id="show-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Schedule a Show</div>
+  <div class="form-group">
+    <label>Show title</label>
+    <input type="text" id="show-title" placeholder="e.g. Sunday Matchmaking Hour" maxlength="150">
+  </div>
+  <div class="form-group">
+    <label>Date & time</label>
+    <input type="datetime-local" id="show-datetime">
+  </div>
+  <div class="form-group">
+    <label>Duration (minutes)</label>
+    <input type="number" id="show-duration" value="60" min="10" max="480">
+  </div>
+  <button class="save-btn" id="show-submit-btn">Schedule Show</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+</body>
+</html>

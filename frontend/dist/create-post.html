@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Create Post — vConnect</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+.create-wrap{
+  padding:20px;
+}
+
+textarea{
+  width:100%;
+  min-height:120px;
+  padding:12px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text);
+  resize:none;
+}
+
+.media-box{
+  margin-top:12px;
+  border:1px dashed var(--border);
+  border-radius:14px;
+  padding:14px;
+  text-align:center;
+  cursor:pointer;
+  color:var(--text-dim);
+}
+
+.media-box input{ display:none; }
+
+.preview{
+  margin-top:12px;
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap:6px;
+}
+
+.preview img,
+.preview video{
+  width:100%;
+  height:100px;
+  border-radius:10px;
+  object-fit:cover;
+}
+
+.actions{
+  margin-top:16px;
+}
+
+.btn{
+  width:100%;
+  padding:12px;
+  border:none;
+  border-radius:999px;
+  font-weight:700;
+  cursor:pointer;
+  background:linear-gradient(135deg,var(--magenta),var(--teal));
+  color:#fff;
+}
+
+.small{
+  font-size:12px;
+  color:var(--text-dim);
+  margin-top:6px;
+}
+</style>
+  <script type="module" crossorigin src="/assets/create-post-c2O5dFGS.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/app-CDuEJM5E.js">
+  <link rel="stylesheet" crossorigin href="/assets/style-DeXY1gmE.css">
+</head>
+
+<body>
+
+<div class="app-shell">
+  <div class="screen">
+
+    <div class="topbar">
+      <!-- ✅ NO onclick= here; wired below via addEventListener  help me build this file correctly-->
+      <button class="icon-btn" id="backBtn">←</button>
+      <div class="brand">Create Post</div>
+    </div>
+
+    <div class="create-wrap">
+      <textarea id="caption" placeholder="What's on your mind?"></textarea>
+      <label class="media-box">
+        📷 Upload Images / Videos
+        <input type="file" id="file" accept="image/*,video/*" multiple>
+      </label>
+      <div class="preview" id="preview"></div>
+      <div class="small">You can select multiple images/videos</div>
+      <div class="actions">
+        <!-- ✅ NO onclick= -->
+        <button class="btn" id="postBtn">Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>
