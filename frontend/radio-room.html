@@ -843,9 +843,8 @@ const remoteStream = new MediaStream();
 // INDIVIDUAL track separately, keyed by their userId. That's what
 // lets the UI correctly show a wave/glow on the specific guest who
 // is actually speaking — including right after the host mutes
-// themself and hands the mic to a guest — without any special-case
-// logic tied to mute/pause events. It's purely reactive to real
-// audio energy on that person's track.
+// themself and hands the mic to an approved guest. It's purely
+// reactive to real audio energy on that person's track.
 const guestTrackAnalysers = new Map(); // userId(string) -> { analyser, dataArray, source, level }
 
 const audioEl = new Audio();
@@ -856,9 +855,59 @@ audioEl.srcObject = remoteStream;
 function $(id) { return document.getElementById(id); }
 
 /* ══════════════════════════════════════════
-   SOCKET
+   SOCKET URL RESOLUTION
+   ------------------------------------------
+   FIX: previously this read window.API_BASE_URL synchronously
+   the instant this module executed. On radio-room.html that
+   sometimes ran BEFORE js/api.js finished settling API_BASE_URL
+   to its real value (a load-order race — app.js's presenceSocket
+   connected fine because it runs slightly later, after awaiting
+   ensureSocketIoLoaded()). When the race was lost, this file
+   captured a bad/placeholder URL (logged as "https:/.lovecruz.fun/api"
+   or similar), producing a socket.io Manager pointed at a broken
+   host and an infinite connect_error retry loop.
+   
+   Fix: actively wait (bounded, polling) until window.API_BASE_URL
+   looks like a real "https://something" URL before building the
+   socket URL, instead of trusting whatever value happens to be
+   set on the very first synchronous read. Falls back to the known
+   production API host if nothing valid appears within 4s, so the
+   page never hangs indefinitely on a broken deploy.
 ══════════════════════════════════════════ */
-const SOCKET_URL = window.API_BASE_URL.replace(/\/api\/?$/, "");
+function resolveSocketUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const stripped = raw.replace(/\/api\/?$/, "");
+  // A valid resolved URL always looks like "https://something.tld" -
+  // never "https:/." or "//https/" etc, which is what the race
+  // produced.
+  if (!/^https?:\/\/[a-zA-Z0-9]/.test(stripped)) return null;
+  return stripped;
+}
+
+async function waitForSocketUrl(maxWaitMs = 4000, intervalMs = 50) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const resolved = resolveSocketUrl(window.API_BASE_URL);
+    if (resolved) return resolved;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  console.warn("[radio-room socket] API_BASE_URL never resolved cleanly within", maxWaitMs, "ms — using fallback host");
+  return "https://api.lovecruz.fun";
+}
+
+/* ══════════════════════════════════════════
+   SOCKET
+   ------------------------------------------
+   `socket` starts null and is assigned inside initSocketConnection()
+   once a valid URL is confirmed. Every socket.on(...) handler in
+   this file, and every place that calls socket.emit(...), is safe
+   because this whole module script keeps running top-to-bottom
+   AFTER the `await waitForSocketUrl()` below resolves (top-level
+   await pauses the rest of this module's execution, it does not
+   let later statements run out of order) - so nothing below this
+   point ever touches `socket` while it's still null.
+══════════════════════════════════════════ */
+const SOCKET_URL = await waitForSocketUrl();
 console.log("[radio-room socket] Connecting to:", SOCKET_URL);
 
 const socket = io(SOCKET_URL, {
