@@ -603,19 +603,54 @@ async function claimGuestSeat(slot) {
   }
   if (mySeatIndex !== null) releaseMicSeat();
 
-  let audioStream = null;
+  let stream = null;
   try {
-    audioStream = await getAudioOnlyStream();
+    stream = await getLocalStream(); // camera + mic, same pipeline the host uses
   } catch (e) {
-    window.showToast("Microphone access denied");
+    window.showToast("Camera/microphone access denied");
     return;
   }
 
   try {
-    localStream = audioStream;
+    localStream = stream;
+
+    const localVideo = $("local-video");
+    if (localVideo) {
+      localVideo.srcObject = localStream;
+      localVideo.muted = true;
+    }
+
     await ensureSendTransport();
 
-    const audioTrack = audioStream.getAudioTracks()[0];
+    const codec = getPreferredVideoCodec();
+    const videoTrack = localStream.getVideoTracks()[0];
+
+    if (videoTrack) {
+      const settings = videoTrack.getSettings();
+      const width  = settings.width  || 1280;
+      const height = settings.height || 720;
+
+      const produceOptions = {
+        track: videoTrack,
+        codecOptions: {
+          videoGoogleStartBitrate: 800,
+          videoGoogleMaxBitrate:   4000,
+          videoGoogleMinBitrate:   200
+        },
+        appData: { type: "video", isHost: false, guestSlot: slot }
+      };
+
+      if (codec === "VP9") {
+        produceOptions.encodings = [{ maxBitrate: 4_000_000, scalabilityMode: "L1T3" }];
+      } else {
+        produceOptions.encodings = buildSimulcastEncodings(width, height);
+      }
+
+      videoProducer = await sendTransport.produce(produceOptions);
+      videoProducer.on("score", updateVideoScoreIndicator);
+    }
+
+    const audioTrack = localStream.getAudioTracks()[0];
     audioProducer = await sendTransport.produce({
       track: audioTrack,
       codecOptions: { opusDtx: true, opusFec: true, opusMaxPlaybackRate: 48000 },
@@ -626,20 +661,24 @@ async function claimGuestSeat(slot) {
     socket.emit("requestGuestSeat", { roomId, slot }, (res) => {
       if (res?.error) {
         window.showToast(res.error);
+        try { videoProducer?.close(); } catch (e) {}
         try { audioProducer?.close(); } catch (e) {}
+        videoProducer = null;
         audioProducer = null;
         localStream?.getTracks().forEach(t => t.stop());
         localStream = null;
+        if (localVideo) localVideo.srcObject = null;
         return;
       }
       myGuestSlot = slot;
       isMicMuted  = false;
-      window.showToast(`Joined ${slot} guest seat - mic on`);
+      isCameraOff = false;
+      window.showToast(`Joined ${slot} guest seat - camera & mic on`);
     });
   } catch (e) {
     console.error("[claimGuestSeat]", e);
     window.showToast("Couldn't join that guest seat");
-    audioStream?.getTracks().forEach(t => t.stop());
+    stream?.getTracks().forEach(t => t.stop());
   }
 }
 

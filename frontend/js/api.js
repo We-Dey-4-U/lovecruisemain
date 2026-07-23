@@ -7,6 +7,7 @@
 //https://lovecruisemain.onrender.com
 //https://api.lovecruz.fun/
 const API_BASE_URL = "https://api.lovecruz.fun/api";
+//const API_BASE_URL = "https://lovecruisemain.onrender.com/api";
 
 const api = {
   async request(endpoint, options = {}) {
