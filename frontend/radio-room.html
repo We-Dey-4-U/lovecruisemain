@@ -858,7 +858,7 @@ function $(id) { return document.getElementById(id); }
 /* ══════════════════════════════════════════
    SOCKET
 ══════════════════════════════════════════ */
-const SOCKET_URL = window.API_BASE_URL.replace("/api", "");
+const SOCKET_URL = window.API_BASE_URL.replace(/\/api\/?$/, "");
 console.log("[radio-room socket] Connecting to:", SOCKET_URL);
 
 const socket = io(SOCKET_URL, {
