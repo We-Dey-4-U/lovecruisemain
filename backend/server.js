@@ -1,4 +1,13 @@
 require("dotenv").config();
+// Safety net: a transient Redis blip (or any other unhandled async
+// error) must never take down mediasoup workers / live streams.
+// Logs the error and keeps the process running instead of crashing.
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ Unhandled Rejection (server stayed up):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("❌ Uncaught Exception (server stayed up):", err);
+});
 console.log("MEDIASOUP_ANNOUNCED_IP =", process.env.MEDIASOUP_ANNOUNCED_IP);
 
 const http = require("http");
@@ -8,6 +17,8 @@ const server = http.createServer(app);
 
 const socketSetup = require("./src/sockets");
 const mediasoupWorker = require("./src/mediasoup/worker.js");
+const nodeRegistry = require("./src/mediasoup/nodeRegistry");
+const { getAllRooms } = require("./src/mediasoup/room");
 
 /* =========================================================
    DEBUG MEDIASOUP IMPORT
@@ -70,6 +81,24 @@ async function start() {
     await mediasoupWorker.createWorker();
 
     console.log("✅ Mediasoup ready");
+
+    /* =========================================================
+       START MEDIA-NODE HEARTBEAT (Redis)
+       ------------------------------------------------------------
+       THIS PASS: registers this process as a media node with a live
+       load snapshot (room/producer counts pulled straight from
+       room.js's existing getAllRooms()). On a single VPS this is
+       purely observational — nothing currently routes based on it —
+       but it means the moment you add a second media-server box,
+       both are already visible to each other with zero extra setup.
+    ========================================================= */
+    nodeRegistry.startHeartbeat(() => {
+      const allRooms = getAllRooms();
+      return {
+        roomCount: allRooms.length,
+        producerCount: allRooms.reduce((sum, r) => sum + r.producerCount, 0)
+      };
+    });
 
     /* =========================================================
        START SOCKET.IO

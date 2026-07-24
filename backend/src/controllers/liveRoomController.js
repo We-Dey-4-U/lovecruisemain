@@ -1,4 +1,5 @@
 // backend/src/controllers/liveRoomController.js
+const liveEgressManager = require("../mediasoup/liveEgressManager");
 
 const db = require("../config/db");
 
@@ -74,11 +75,24 @@ const liveRoomController = {
         [req.params.id]
       );
 
-      if (!rows.length) {
-        return res.status(404).json({ success: false, message: "Room not found" });
-      }
+     if (!rows.length) {
+  return res.status(404).json({
+    success: false,
+    message: "Room not found"
+  });
+}
 
-      return res.json({ success: true, data: rows[0] });
+// Get HLS status for this room
+const egress = liveEgressManager.getEgressStatus(req.params.id);
+
+// Return room + HLS URL (if active)
+return res.json({
+  success: true,
+  data: {
+    ...rows[0],
+    hlsUrl: egress.active ? egress.hlsUrl : null
+  }
+});
     } catch (err) {
       next(err);
     }

@@ -4,6 +4,76 @@ import { FaceEffectsEngine } from "./face-effects.js";
 import "./api.js";
 import "./app.js";
 
+/* ============================================================
+   FIXES APPLIED IN THIS PASS (root-cause trace, not speculative):
+   ------------------------------------------------------------
+   FIX-1 (root cause of black-screen / "producer replaced" bug):
+     consumeProducer() had NO guard against consuming the same
+     producerId twice. On any reconnect, the client re-emits
+     "joinRoom", the server resends the FULL "existingProducers"
+     list, and consumeProducer() ran again for producers already
+     being consumed. attachTrackToStage()/attachTrackToParticipantTile()
+     both call removeTrack()+track.stop() on whatever track is
+     CURRENTLY in the target <video> element before adding the new
+     one - so a duplicate consume silently kills a track that was
+     already working. This is exactly checklist item #7 ("ensure
+     producers/consumers are not being closed or replaced"). Fixed
+     with a producerId -> consumerId map that skips re-consumption
+     and is cleaned up on producerclose/transportclose.
+
+   FIX-2 (real correctness bug, independent of the above):
+     getPreferredVideoCodec() was computed but never actually
+     passed into sendTransport.produce()/claimGuestSeat's produce()
+     calls, so mediasoup-client always negotiated whatever codec is
+     FIRST in the router's list (VP8) regardless of what the UI
+     claimed to prefer. Fixed by resolving the actual RtpCodecCapability
+     object from device.rtpCapabilities and passing it explicitly.
+
+   FIX-3 (instrumentation - answers "why does host video freeze"):
+     No code path in this file touches the HOST's own localStream /
+     #local-video / #stage-video in response to guest-join events -
+     so if the host's own preview is still freezing after FIX-1,
+     it is a browser/OS-level frame stall, not app logic. Added a
+     frame-freeze watchdog (requestVideoFrameCallback, with a
+     currentTime-polling fallback) on every <video> element this
+     file controls, so a stall now produces an unmistakable,
+     timestamped console.error the moment it happens, instead of
+     being inferred after the fact.
+
+   FIX-4 (requested logging): detailed, tagged logs for producer
+     creation, consumer creation, transport connect/state, and
+     track mute/unmute/ended - added throughout.
+
+   ------------------------------------------------------------
+   HLS-1 (THIS PASS — audience scaling via mediasoup -> FFmpeg ->
+     RTMP -> HLS/CDN, see backend/src/mediasoup/liveEgressManager.js):
+
+     Plain audience (not on stage) no longer opens a WebRTC consumer
+     for the HOST's producer(s). Instead they play the host through
+     hls.js against the `hlsUrl` the backend now returns from
+     GET /live/:id (liveRoomController.getById() -> liveEgressManager
+     .getEgressStatus()). This is the actual point of the egress
+     pipeline: the SFU stops allocating a per-viewer consumer for
+     the host stream, which is the thing that doesn't scale past a
+     few hundred concurrent viewers.
+
+     What did NOT change:
+       - Host publishing (publishStream) — still pure WebRTC, unchanged.
+       - Mic-seat / guest-seat occupants — still pure WebRTC
+         produce+consume, since they need real low-latency talk-over-
+         each-other audio. Claiming a seat flips a viewer from
+         HLS -> WebRTC (enterInteractiveMode); leaving flips back
+         (enterAudienceMode).
+       - Guest/co-host video tiles for OTHER audience members — still
+         consumed via WebRTC exactly as before. Only the HOST's
+         producer is ever skipped for HLS-mode viewers, because the
+         backend only egresses the host's producers (see
+         liveEgressManager.js's own integration notes).
+       - consumeProducer()'s FIX-1 dedup guard — unchanged, and is
+         exactly what makes enterInteractiveMode() safe to implement
+         as "just re-emit joinRoom".
+   ============================================================ */
+
 /* ── Device ── */
 let device = null;
 
@@ -22,6 +92,12 @@ let audioProducer = null;
 /* ── Consumers ── */
 const consumers = new Map();
 const peerStreams = new Map();
+
+// FIX-1: producerId -> consumerId. Guards against consuming the
+// same remote producer twice (reconnect / duplicate existingProducers
+// / duplicate newProducer race), which was silently stopping tracks
+// that were already attached and working.
+const consumedProducers = new Map();
 
 /* ── Audio boost graph ── */
 const audioBoosts = new Map();
@@ -59,6 +135,18 @@ let GIFT_CATALOG  = [];
 
 let mySeatIndex = null;
 let myGuestSlot = null;
+
+/* ── HLS-1: audience playback state ──
+   viewMode tracks how #stage-video is currently being fed:
+     "webrtc" - host publishing (isHost) OR this viewer is
+                interactive (seated / guest) and consuming the
+                host's real WebRTC producer.
+     "hls"    - plain audience, playing the host via hls.js against
+                the egressed HLS stream instead of a WebRTC consumer. */
+let viewMode        = "webrtc";
+let hls             = null;
+let audienceHlsUrl  = null;
+let hlsPollTimer    = null;
 
 const params = new URLSearchParams(window.location.search);
 const roomId = params.get("room") || params.get("id");
@@ -116,10 +204,321 @@ socket.io.engine?.on("upgradeError", (err) => {
 
 function $(id) { return document.getElementById(id); }
 
+function nowMs() { return Math.round(performance.now()); }
+
 function dispatchSpeaking(socketId, isHostFlag, active) {
   window.dispatchEvent(new CustomEvent("speakingChanged", {
     detail: { socketId, isHost: !!isHostFlag, active: !!active }
   }));
+}
+
+/* ============================================================
+   HLS-1: is this viewer plain audience right now?
+   ------------------------------------------------------------
+   Host is never audience. A viewer stops being audience the
+   instant they claim a mic seat or a guest slot (see
+   claimMicSeat/claimGuestSeat -> enterInteractiveMode), and goes
+   back to being audience the instant they leave (see
+   releaseMicSeat/releaseGuestSeatLocal -> enterAudienceMode).
+   ============================================================ */
+function isAudienceHlsMode() {
+  return !isHost && mySeatIndex === null && myGuestSlot === null;
+}
+
+/* ============================================================
+   HLS-1: HLS playback for #stage-video (plain audience only)
+   ============================================================ */
+function attachHlsToStage(url) {
+  const stageVideo = $("stage-video");
+  if (!stageVideo || !url) return;
+
+  console.log("[attachHlsToStage] Loading HLS stream:", url);
+  detachHlsFromStage();
+  viewMode = "hls";
+
+  const offlineEl = $("stage-offline");
+  if (offlineEl) offlineEl.style.display = "none";
+
+  if (window.Hls && window.Hls.isSupported()) {
+    hls = new window.Hls({
+      lowLatencyMode: true,
+      liveSyncDurationCount: 3,
+      backBufferLength: 30
+    });
+    hls.loadSource(url);
+    hls.attachMedia(stageVideo);
+
+    hls.on(window.Hls.Events.ERROR, (_event, data) => {
+      console.warn(`[hls.js] error type=${data.type} details=${data.details} fatal=${data.fatal}`);
+      if (!data.fatal) return;
+
+      switch (data.type) {
+        case window.Hls.ErrorTypes.NETWORK_ERROR:
+          console.warn("[hls.js] fatal network error - calling hls.startLoad()");
+          try { hls.startLoad(); } catch (e) {}
+          break;
+        case window.Hls.ErrorTypes.MEDIA_ERROR:
+          console.warn("[hls.js] fatal media error - calling hls.recoverMediaError()");
+          try { hls.recoverMediaError(); } catch (e) {}
+          break;
+        default:
+          console.error("[hls.js] unrecoverable fatal error - tearing down and re-polling for a fresh hlsUrl");
+          detachHlsFromStage();
+          pollForHlsUrl();
+          break;
+      }
+    });
+  } else if (stageVideo.canPlayType("application/vnd.apple.mpegurl")) {
+    // Safari (and some mobile browsers) play HLS natively - no
+    // hls.js needed, just point the <video> at the .m3u8 directly.
+    console.log("[attachHlsToStage] Using native HLS support (no hls.js)");
+    stageVideo.src = url;
+  } else {
+    console.error("[attachHlsToStage] No HLS playback support in this browser (no hls.js, no native HLS)");
+    window.showToast("Your browser can't play this live stream");
+    return;
+  }
+
+  // Autoplay policies require starting muted; initHlsAudioUnlock()
+  // unmutes on the viewer's first tap, same pattern as the existing
+  // WebRTC audio-boost tap-to-unmute flow.
+  stageVideo.muted = true;
+  stageVideo.play().catch(e => console.warn("[attachHlsToStage] play() rejected:", e.message));
+  startFreezeWatchdog(stageVideo, "stage-video(hls-audience)");
+
+  const stageLabel = $("stage-host-label");
+  if (stageLabel) {
+    stageLabel.textContent = currentRoom?.username || currentRoom?.display_name || "Host";
+  }
+}
+
+function detachHlsFromStage() {
+  if (hls) {
+    console.log("[detachHlsFromStage] Destroying hls.js instance");
+    try { hls.destroy(); } catch (e) {}
+    hls = null;
+  }
+
+  const stageVideo = $("stage-video");
+  if (stageVideo) {
+    stopFreezeWatchdog(stageVideo);
+    try {
+      stageVideo.removeAttribute("src");
+      stageVideo.load();
+    } catch (e) {}
+    stageVideo.srcObject = null;
+  }
+}
+
+/**
+ * Retries GET /live/:id every 5s until the backend reports a live
+ * hlsUrl (covers the gap between "host started publishing" and
+ * "FFmpeg/RTMP->HLS packager has produced its first segment").
+ * Self-cancels the moment this viewer stops being audience (seated,
+ * became host — shouldn't happen mid-poll, but defensive) or the
+ * hlsUrl shows up.
+ */
+function pollForHlsUrl() {
+  if (hlsPollTimer) return;
+  console.log("[pollForHlsUrl] hlsUrl not ready yet - polling every 5s");
+
+  hlsPollTimer = setInterval(async () => {
+    if (isHost || !isAudienceHlsMode()) {
+      console.log("[pollForHlsUrl] No longer plain audience - stopping poll");
+      clearInterval(hlsPollTimer);
+      hlsPollTimer = null;
+      return;
+    }
+    try {
+      const response = await window.api.request(`/live/${roomId}`);
+      const url = response.data?.hlsUrl;
+      if (url) {
+        console.log("[pollForHlsUrl] hlsUrl now available:", url);
+        audienceHlsUrl = url;
+        clearInterval(hlsPollTimer);
+        hlsPollTimer = null;
+        attachHlsToStage(url);
+      }
+    } catch (err) {
+      console.warn("[pollForHlsUrl] request failed:", err.message);
+    }
+  }, 5000);
+}
+
+function stopHlsPolling() {
+  if (hlsPollTimer) {
+    clearInterval(hlsPollTimer);
+    hlsPollTimer = null;
+  }
+}
+
+/**
+ * Called once, on load, for non-host viewers. Uses whatever hlsUrl
+ * loadRoom() already picked up; falls back to polling if the
+ * egress pipeline hasn't produced a playlist yet.
+ */
+function initAudienceHlsMode() {
+  audienceHlsUrl = currentRoom?.hlsUrl || null;
+  if (audienceHlsUrl) {
+    attachHlsToStage(audienceHlsUrl);
+  } else {
+    console.log("[initAudienceHlsMode] No hlsUrl yet on room payload - will poll");
+    pollForHlsUrl();
+  }
+}
+
+/**
+ * Viewer claimed a mic seat or guest slot: stop HLS, stop polling,
+ * and re-trigger the server's "existingProducers" resend so the
+ * host's WebRTC producer(s) - intentionally skipped while this
+ * viewer was audience (see consumeProducer's isAudienceHlsMode()
+ * guard below) - get consumed now. FIX-1's dedup guard makes this
+ * safe even though it looks like a blunt "just rejoin" call.
+ */
+function enterInteractiveMode() {
+  console.log("[enterInteractiveMode] Leaving HLS audience playback, switching #stage-video to WebRTC");
+  stopHlsPolling();
+  detachHlsFromStage();
+  viewMode = "webrtc";
+
+  const offlineEl = $("stage-offline");
+  if (offlineEl) offlineEl.style.display = "flex";
+
+  socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
+}
+
+/**
+ * Viewer left their mic seat / guest slot and is back to being
+ * plain audience: close whatever WebRTC consumer(s) we were using
+ * for the host (no longer needed - the HLS stream already carries
+ * the host's video+audio, egressed server-side independently of
+ * any individual viewer's consumers) and resume HLS playback.
+ */
+function enterAudienceMode() {
+  console.log("[enterAudienceMode] Returning to HLS audience playback");
+
+  for (const [consumerId, entry] of [...consumers.entries()]) {
+    if (!entry.isHost) continue;
+    try { entry.consumer.close(); } catch (e) {}
+    cleanupAudioBoost(consumerId);
+    consumers.delete(consumerId);
+    if (consumedProducers.get(entry.producerId) === consumerId) {
+      consumedProducers.delete(entry.producerId);
+    }
+    console.log(`[enterAudienceMode] Closed leftover host consumer=${consumerId} kind=${entry.kind}`);
+  }
+
+  if (audienceHlsUrl) {
+    attachHlsToStage(audienceHlsUrl);
+  } else {
+    pollForHlsUrl();
+  }
+}
+
+function initHlsAudioUnlock() {
+  const unmute = () => {
+    if (viewMode !== "hls") return;
+    const stageVideo = $("stage-video");
+    if (stageVideo && stageVideo.muted) {
+      stageVideo.muted = false;
+      stageVideo.play().catch(() => {});
+    }
+  };
+  document.addEventListener("pointerdown", unmute, { passive: true });
+}
+
+/* ============================================================
+   FIX-3: FRAME-FREEZE WATCHDOG
+   ------------------------------------------------------------
+   Attaches to any <video> element this file controls (local
+   preview, stage video, participant tiles) and logs a clear,
+   timestamped console.error the instant that element stops
+   advancing frames for longer than STALL_MS - regardless of
+   whether the srcObject/track/connection "look" fine. This turns
+   "the host's video freezes" from an inferred symptom into a
+   provable, timestamped event that can be correlated against the
+   producer/consumer logs below.
+   ============================================================ */
+const STALL_MS = 2500;
+const watchdogs = new Map(); // videoEl -> { stop() }
+
+function watchdogLabel(el) {
+  return el?.id || el?.dataset?.socketId || "video";
+}
+
+function stopFreezeWatchdog(videoEl) {
+  const entry = watchdogs.get(videoEl);
+  if (entry) {
+    entry.stop();
+    watchdogs.delete(videoEl);
+  }
+}
+
+function startFreezeWatchdog(videoEl, label) {
+  if (!videoEl) return;
+  stopFreezeWatchdog(videoEl);
+
+  let lastAdvanceAt = nowMs();
+  let lastTime = videoEl.currentTime;
+  let stalledLogged = false;
+  let rvfcHandle = null;
+  let pollHandle = null;
+  let stopped = false;
+
+  function markAlive() {
+    lastAdvanceAt = nowMs();
+    if (stalledLogged) {
+      console.log(`[freeze-watchdog:${label}] ✅ recovered - frames advancing again`);
+      stalledLogged = false;
+    }
+  }
+
+  function checkStall() {
+    if (stopped) return;
+    const gap = nowMs() - lastAdvanceAt;
+    if (gap > STALL_MS && !stalledLogged) {
+      stalledLogged = true;
+      console.error(
+        `[freeze-watchdog:${label}] ❌ FROZEN - no new frame for ${gap}ms ` +
+        `(readyState=${videoEl.readyState}, paused=${videoEl.paused}, ` +
+        `srcObject active=${videoEl.srcObject?.active}, ` +
+        `videoTracks=${videoEl.srcObject?.getVideoTracks?.().map(t => `${t.label}:${t.readyState}:muted=${t.muted}`)})`
+      );
+    }
+  }
+
+  if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) {
+    const onFrame = () => {
+      if (stopped) return;
+      markAlive();
+      rvfcHandle = videoEl.requestVideoFrameCallback(onFrame);
+    };
+    rvfcHandle = videoEl.requestVideoFrameCallback(onFrame);
+    pollHandle = setInterval(checkStall, 500);
+  } else {
+    // Fallback for browsers without requestVideoFrameCallback:
+    // poll currentTime, which still advances even without an rVFC.
+    pollHandle = setInterval(() => {
+      if (stopped) return;
+      if (videoEl.currentTime !== lastTime) {
+        lastTime = videoEl.currentTime;
+        markAlive();
+      }
+      checkStall();
+    }, 500);
+  }
+
+  watchdogs.set(videoEl, {
+    stop() {
+      stopped = true;
+      if (pollHandle) clearInterval(pollHandle);
+      if (rvfcHandle != null && videoEl.cancelVideoFrameCallback) {
+        try { videoEl.cancelVideoFrameCallback(rvfcHandle); } catch (e) {}
+      }
+    }
+  });
+
+  console.log(`[freeze-watchdog:${label}] armed`);
 }
 
 function getAudioContext() {
@@ -220,6 +619,26 @@ function cleanupAllAudioBoosts() {
 }
 
 /* ============================================================
+   TRACK EVENT LOGGING (requested: mute/unmute/ended visibility)
+   ============================================================ */
+function instrumentTrack(track, label) {
+  if (!track || track.__instrumented) return;
+  track.__instrumented = true;
+
+  console.log(`[track:${label}] created. kind=${track.kind} id=${track.id} readyState=${track.readyState} muted=${track.muted}`);
+
+  track.addEventListener("mute", () => {
+    console.warn(`[track:${label}] 🔇 MUTED (no RTP arriving) kind=${track.kind} id=${track.id}`);
+  });
+  track.addEventListener("unmute", () => {
+    console.log(`[track:${label}] 🔊 unmuted (RTP flowing again) kind=${track.kind} id=${track.id}`);
+  });
+  track.addEventListener("ended", () => {
+    console.error(`[track:${label}] ⛔ ENDED kind=${track.kind} id=${track.id}`);
+  });
+}
+
+/* ============================================================
    CAMERA + MIC INIT (host / full publish)
    ============================================================ */
 async function getLocalStream() {
@@ -240,6 +659,8 @@ async function getLocalStream() {
       const vt = rawStream.getVideoTracks()[0];
       const at = rawStream.getAudioTracks()[0];
       console.log(`[getLocalStream] video=${vt?.label} audio=${at?.label}`, vt?.getSettings());
+      instrumentTrack(vt, "local-video-raw");
+      instrumentTrack(at, "local-audio-raw");
 
       const filtered = beautyEngine.start(rawStream, {
         smoothing:  beautyOn ? 0.62 : 0,
@@ -250,6 +671,8 @@ async function getLocalStream() {
         filter:          currentColorFilter,
         filterIntensity: currentFilterIntensity
       });
+
+      instrumentTrack(filtered.getVideoTracks()[0], "local-video-filtered");
 
       // Fire-and-forget: loads the AR model in the background and
       // starts its detection loop once ready. Never blocks publish.
@@ -306,11 +729,30 @@ async function loadDevice(rtpCapabilities) {
   console.log("[loadDevice] Device loaded. Codecs:", device.rtpCapabilities.codecs.map(c => c.mimeType));
 }
 
-function getPreferredVideoCodec() {
-  if (!device?.rtpCapabilities?.codecs) return "VP8";
-  const codecs = device.rtpCapabilities.codecs;
-  if (codecs.some(c => c.mimeType.toLowerCase() === "video/vp9"))  return "VP9";
-  if (codecs.some(c => c.mimeType.toLowerCase() === "video/h264")) return "H264";
+/**
+ * FIX-2: this used to only decide the ENCODINGS shape, and was
+ * never actually passed to sendTransport.produce() as a `codec`
+ * override - so the codec actually negotiated (whatever
+ * mediasoup-client picks first, i.e. VP8) could silently diverge
+ * from what this function claimed to prefer. It now returns the
+ * real RtpCodecCapability object so callers can pass it straight
+ * into produce({ codec }).
+ */
+function getPreferredVideoCodecCapability() {
+  const codecs = device?.rtpCapabilities?.codecs || [];
+  const vp9  = codecs.find(c => c.mimeType.toLowerCase() === "video/vp9");
+  const h264 = codecs.find(c => c.mimeType.toLowerCase() === "video/h264");
+  const vp8  = codecs.find(c => c.mimeType.toLowerCase() === "video/vp8");
+  const chosen = vp9 || h264 || vp8 || null;
+  console.log("[getPreferredVideoCodecCapability] chosen:", chosen?.mimeType || "(none found)");
+  return chosen;
+}
+
+function codecLabel(codecCapability) {
+  if (!codecCapability) return "VP8";
+  const mt = codecCapability.mimeType.toLowerCase();
+  if (mt === "video/vp9") return "VP9";
+  if (mt === "video/h264") return "H264";
   return "VP8";
 }
 
@@ -369,8 +811,11 @@ async function createSendTransport() {
       });
 
       sendTransport.on("connectionstatechange", (state) => {
-        console.log("[sendTransport] connectionstatechange:", state);
+        console.log(`[sendTransport] connectionstatechange: ${state} id=${sendTransport.id}`);
         updateNetworkBadge(state);
+        if (state === "failed" || state === "disconnected") {
+          console.error(`[sendTransport] ⚠️ ${state} - outgoing (your own) video/audio may stall.`);
+        }
       });
 
       console.log("[createSendTransport] id=", sendTransport.id);
@@ -415,7 +860,10 @@ async function ensureRecvTransport() {
       });
 
       recvTransport.on("connectionstatechange", (state) => {
-        console.log("[recvTransport] connectionstatechange:", state);
+        console.log(`[recvTransport] connectionstatechange: ${state} id=${recvTransport.id} activeConsumers=${consumers.size}`);
+        if (state === "failed" || state === "disconnected") {
+          console.error(`[recvTransport] ⚠️ ${state} - all incoming remote video/audio may stall (${consumers.size} consumer(s) affected).`);
+        }
       });
 
       console.log("[ensureRecvTransport] id=", recvTransport.id);
@@ -434,6 +882,7 @@ async function publishStream() {
   if (localVideo) {
     localVideo.srcObject = localStream;
     localVideo.muted = true;
+    startFreezeWatchdog(localVideo, "local-video(self)");
   }
 
   const localName = $("local-name");
@@ -447,6 +896,7 @@ async function publishStream() {
   if (stageVideo) {
     stageVideo.srcObject = localStream;
     stageVideo.muted = true;
+    startFreezeWatchdog(stageVideo, "stage-video(host-self)");
   }
   const offlineEl = $("stage-offline");
   if (offlineEl) offlineEl.style.display = "none";
@@ -457,7 +907,8 @@ async function publishStream() {
 
   await ensureSendTransport();
 
-  const codec = getPreferredVideoCodec();
+  const codecCapability = getPreferredVideoCodecCapability();
+  const codec = codecLabel(codecCapability);
   console.log(`[publishStream] Using codec: ${codec}`);
 
   const videoTrack = localStream.getVideoTracks()[0];
@@ -476,6 +927,11 @@ async function publishStream() {
       appData: { type: "video", isHost }
     };
 
+    // FIX-2: actually force the codec we claim to prefer, instead
+    // of letting mediasoup-client silently pick the first one
+    // (VP8) regardless of what codecLabel() said.
+    if (codecCapability) produceOptions.codec = codecCapability;
+
     if (codec === "VP9") {
       produceOptions.encodings = [{ maxBitrate: 4_000_000, scalabilityMode: "L1T3" }];
     } else {
@@ -484,7 +940,9 @@ async function publishStream() {
 
     videoProducer = await sendTransport.produce(produceOptions);
     videoProducer.on("score", updateVideoScoreIndicator);
-    console.log("[publishStream] videoProducer id=", videoProducer.id);
+    videoProducer.on("transportclose", () => console.warn("[videoProducer] transportclose"));
+    videoProducer.on("trackended", () => console.error("[videoProducer] ⛔ trackended - camera track stopped unexpectedly"));
+    console.log("[publishStream] videoProducer id=", videoProducer.id, "codec=", codec);
   }
 
   const audioTrack = localStream.getAudioTracks()[0];
@@ -494,6 +952,8 @@ async function publishStream() {
       codecOptions: { opusDtx: true, opusFec: true, opusMaxPlaybackRate: 48000 },
       appData: { type: "audio", isHost }
     });
+    audioProducer.on("transportclose", () => console.warn("[audioProducer] transportclose"));
+    audioProducer.on("trackended", () => console.error("[audioProducer] ⛔ trackended - mic track stopped unexpectedly"));
     startAudioLevelMonitor(audioTrack);
     console.log("[publishStream] audioProducer id=", audioProducer.id);
   }
@@ -526,6 +986,7 @@ async function claimMicSeat(seatIndex) {
     await ensureSendTransport();
 
     const audioTrack = audioStream.getAudioTracks()[0];
+    instrumentTrack(audioTrack, "mic-seat-audio");
     audioProducer = await sendTransport.produce({
       track: audioTrack,
       codecOptions: { opusDtx: true, opusFec: true, opusMaxPlaybackRate: 48000 },
@@ -547,6 +1008,9 @@ async function claimMicSeat(seatIndex) {
       isMicMuted  = false;
       console.log(`[claimMicSeat] Seated at ${seatIndex}, mic live`);
       window.showToast(`Seat ${seatIndex + 1} joined - mic on`);
+      // HLS-1: no longer plain audience - switch #stage-video back
+      // to a real WebRTC consumer of the host.
+      enterInteractiveMode();
     });
   } catch (e) {
     console.error("[claimMicSeat]", e);
@@ -573,13 +1037,16 @@ function releaseMicSeat() {
   }
 
   const localVideo = $("local-video");
-  if (localVideo) localVideo.srcObject = null;
+  if (localVideo) { stopFreezeWatchdog(localVideo); localVideo.srcObject = null; }
 
   socket.emit("leaveMicSeat", { roomId });
   console.log(`[releaseMicSeat] Left seat ${mySeatIndex}`);
   mySeatIndex = null;
   isMicMuted  = false;
   window.showToast("Left seat");
+
+  // HLS-1: back to plain audience once neither seat state is held.
+  if (!isHost && mySeatIndex === null && myGuestSlot === null) enterAudienceMode();
 }
 
 function toggleMySeatMic() {
@@ -618,11 +1085,13 @@ async function claimGuestSeat(slot) {
     if (localVideo) {
       localVideo.srcObject = localStream;
       localVideo.muted = true;
+      startFreezeWatchdog(localVideo, "local-video(self-guest)");
     }
 
     await ensureSendTransport();
 
-    const codec = getPreferredVideoCodec();
+    const codecCapability = getPreferredVideoCodecCapability();
+    const codec = codecLabel(codecCapability);
     const videoTrack = localStream.getVideoTracks()[0];
 
     if (videoTrack) {
@@ -640,6 +1109,9 @@ async function claimGuestSeat(slot) {
         appData: { type: "video", isHost: false, guestSlot: slot }
       };
 
+      // FIX-2: force the actual negotiated codec to match what we claim.
+      if (codecCapability) produceOptions.codec = codecCapability;
+
       if (codec === "VP9") {
         produceOptions.encodings = [{ maxBitrate: 4_000_000, scalabilityMode: "L1T3" }];
       } else {
@@ -648,6 +1120,9 @@ async function claimGuestSeat(slot) {
 
       videoProducer = await sendTransport.produce(produceOptions);
       videoProducer.on("score", updateVideoScoreIndicator);
+      videoProducer.on("transportclose", () => console.warn("[guest videoProducer] transportclose"));
+      videoProducer.on("trackended", () => console.error("[guest videoProducer] ⛔ trackended"));
+      console.log("[claimGuestSeat] videoProducer id=", videoProducer.id, "codec=", codec);
     }
 
     const audioTrack = localStream.getAudioTracks()[0];
@@ -667,13 +1142,16 @@ async function claimGuestSeat(slot) {
         audioProducer = null;
         localStream?.getTracks().forEach(t => t.stop());
         localStream = null;
-        if (localVideo) localVideo.srcObject = null;
+        if (localVideo) { stopFreezeWatchdog(localVideo); localVideo.srcObject = null; }
         return;
       }
       myGuestSlot = slot;
       isMicMuted  = false;
       isCameraOff = false;
       window.showToast(`Joined ${slot} guest seat - camera & mic on`);
+      // HLS-1: no longer plain audience - switch #stage-video back
+      // to a real WebRTC consumer of the host.
+      enterInteractiveMode();
     });
   } catch (e) {
     console.error("[claimGuestSeat]", e);
@@ -700,12 +1178,15 @@ function releaseGuestSeatLocal() {
   }
 
   const localVideo = $("local-video");
-  if (localVideo) localVideo.srcObject = null;
+  if (localVideo) { stopFreezeWatchdog(localVideo); localVideo.srcObject = null; }
 
   socket.emit("leaveGuestSeat", { roomId });
   myGuestSlot = null;
   isMicMuted  = false;
   window.showToast("Left guest seat");
+
+  // HLS-1: back to plain audience once neither seat state is held.
+  if (!isHost && mySeatIndex === null && myGuestSlot === null) enterAudienceMode();
 }
 
 function toggleMyGuestMic() {
@@ -721,6 +1202,21 @@ function toggleMyGuestMic() {
   });
 }
 
+/**
+ * FIX-1: guarded against duplicate consumption of the same
+ * producerId. This is the actual root cause fix - previously,
+ * any re-emission of "existingProducers" (e.g. on socket
+ * reconnect / rejoin) or an overlapping "newProducer" would call
+ * this a second time for a producer already being consumed,
+ * silently creating a second consumer whose track attachment
+ * would removeTrack()+stop() the FIRST (already working) track.
+ *
+ * HLS-1: also guarded against ever WebRTC-consuming the HOST's
+ * producer while this viewer is plain audience - that video/audio
+ * is being served via hls.js instead (see attachHlsToStage /
+ * isAudienceHlsMode). Guest/co-host producers are never skipped
+ * here, only the host's.
+ */
 async function consumeProducer({ producerId, socketId, userId, kind, isHost: producerIsHostHint }) {
   console.log(`[consumeProducer] producerId=${producerId} kind=${kind} socketId=${socketId} isHostHint=${producerIsHostHint}`);
 
@@ -728,6 +1224,20 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
 
   if (socketId === socket.id) {
     console.log("[consumeProducer] Skipping self");
+    return;
+  }
+
+  if (producerIsHostHint && isAudienceHlsMode()) {
+    console.log(`[consumeProducer] ⏭️  Skipping host producerId=${producerId} kind=${kind} - this viewer is plain audience in HLS mode (see attachHlsToStage).`);
+    return;
+  }
+
+  if (consumedProducers.has(producerId)) {
+    console.warn(
+      `[consumeProducer] ⏭️  Already consuming producerId=${producerId} ` +
+      `(existing consumerId=${consumedProducers.get(producerId)}) - skipping duplicate ` +
+      `consume to avoid stopping the already-attached track.`
+    );
     return;
   }
 
@@ -746,6 +1256,20 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
         return;
       }
 
+      // Re-check after the round trip - a duplicate call could have
+      // raced ahead and completed while this one was awaiting the
+      // server response. Also re-check the HLS-mode guard, in case
+      // the viewer switched back to audience mode while this consume
+      // was in flight.
+      if (consumedProducers.has(producerId)) {
+        console.warn(`[consumeProducer] ⏭️  Duplicate resolved after round-trip for producerId=${producerId} - discarding.`);
+        return;
+      }
+      if ((params.isHost ?? producerIsHostHint) && isAudienceHlsMode()) {
+        console.warn(`[consumeProducer] ⏭️  Viewer returned to audience HLS mode mid-consume for producerId=${producerId} - discarding host consumer.`);
+        return;
+      }
+
       console.log(`[consumeProducer] Got params - consumerId=${params.id} kind=${params.kind} isHost=${params.isHost}`);
 
       try {
@@ -759,8 +1283,11 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
         const producerIsHost = params.isHost ?? producerIsHostHint;
 
         consumers.set(consumer.id, { consumer, producerId, socketId, kind, isHost: producerIsHost });
+        consumedProducers.set(producerId, consumer.id);
 
-        console.log(`[consumeProducer] Routing track: kind=${consumer.kind} isHost=${producerIsHost} socketId=${socketId}`);
+        instrumentTrack(consumer.track, `remote-${producerIsHost ? "host" : "guest"}-${kind}-${socketId}`);
+
+        console.log(`[consumeProducer] Routing track: kind=${consumer.kind} isHost=${producerIsHost} socketId=${socketId} consumerId=${consumer.id}`);
 
         if (consumer.kind === "video") {
           if (producerIsHost) {
@@ -776,7 +1303,7 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
           if (res?.error) {
             console.error("[consumeProducer] resumeConsumer error:", res.error);
           } else {
-            console.log(`[consumeProducer] Consumer resumed: ${consumer.id}`);
+            console.log(`[consumeProducer] Consumer resumed: ${consumer.id} track.readyState=${consumer.track.readyState} track.muted=${consumer.track.muted}`);
           }
         });
 
@@ -784,6 +1311,7 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
           console.log(`[consumer] transportclose: ${consumer.id}`);
           cleanupAudioBoost(consumer.id);
           consumers.delete(consumer.id);
+          if (consumedProducers.get(producerId) === consumer.id) consumedProducers.delete(producerId);
         });
 
         consumer.on("producerclose", () => {
@@ -791,6 +1319,7 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
           consumer.close();
           cleanupAudioBoost(consumer.id);
           consumers.delete(consumer.id);
+          if (consumedProducers.get(producerId) === consumer.id) consumedProducers.delete(producerId);
           if (consumer.kind === "video" && !producerIsHost) {
             removeParticipantVideo(socketId);
           }
@@ -808,16 +1337,27 @@ function attachTrackToStage(track) {
   const stageVideo = $("stage-video");
   if (!stageVideo) { console.error("[attachTrackToStage] #stage-video not found!"); return; }
 
+  // HLS-1: a WebRTC host track is about to own #stage-video - make
+  // sure any hls.js instance/native HLS src is fully torn down
+  // first so the two never fight over the same <video> element.
+  if (viewMode === "hls") detachHlsFromStage();
+  viewMode = "webrtc";
+
   stageVideo.muted = true;
 
   if (!stageVideo.srcObject) stageVideo.srcObject = new MediaStream();
-  stageVideo.srcObject.getVideoTracks().forEach(t => { stageVideo.srcObject.removeTrack(t); t.stop(); });
+  const existingTracks = stageVideo.srcObject.getVideoTracks();
+  if (existingTracks.length) {
+    console.log(`[attachTrackToStage] Replacing ${existingTracks.length} existing track(s) on #stage-video`);
+  }
+  existingTracks.forEach(t => { stageVideo.srcObject.removeTrack(t); t.stop(); });
   stageVideo.srcObject.addTrack(track);
 
   const offlineEl = $("stage-offline");
   if (offlineEl) offlineEl.style.display = "none";
 
   stageVideo.play().catch(e => console.warn("[attachTrackToStage] play() rejected:", e.message));
+  startFreezeWatchdog(stageVideo, "stage-video(remote-host)");
   console.log("[attachTrackToStage] Stage video attached");
 }
 
@@ -856,27 +1396,39 @@ function getOrCreateParticipantTile(socketId, userId) {
 
     peerStreams.set(socketId, new MediaStream());
     video.srcObject = peerStreams.get(socketId);
+
+    console.log(`[getOrCreateParticipantTile] Created new tile for socketId=${socketId}`);
   }
   return tile;
 }
 
 function attachTrackToParticipantTile(track, socketId, userId) {
+  console.log(`[attachTrackToParticipantTile] Attaching video track for socketId=${socketId}`);
   const tile  = getOrCreateParticipantTile(socketId, userId);
   const video = tile.querySelector("video");
   if (!video) return;
 
   let stream = peerStreams.get(socketId);
   if (!stream) { stream = new MediaStream(); peerStreams.set(socketId, stream); }
-  stream.getVideoTracks().forEach(t => { stream.removeTrack(t); t.stop(); });
+  const existingTracks = stream.getVideoTracks();
+  if (existingTracks.length) {
+    console.log(`[attachTrackToParticipantTile] Replacing ${existingTracks.length} existing track(s) for socketId=${socketId}`);
+  }
+  existingTracks.forEach(t => { stream.removeTrack(t); t.stop(); });
   stream.addTrack(track);
   video.srcObject = stream;
   video.muted = true;
   video.play().catch(e => console.warn("[attachTrackToParticipantTile] play() rejected:", e.message));
+  startFreezeWatchdog(video, `guest-tile(${socketId})`);
 }
 
 function removeParticipantVideo(socketId) {
   const tile = document.querySelector(`.participant-tile[data-socket-id="${socketId}"]`);
-  if (tile) tile.remove();
+  if (tile) {
+    const video = tile.querySelector("video");
+    if (video) stopFreezeWatchdog(video);
+    tile.remove();
+  }
   peerStreams.delete(socketId);
   cleanupAudioBoostsForSocket(socketId);
 }
@@ -996,6 +1548,7 @@ async function switchCamera() {
       video: { facingMode: newFacing, width: { ideal: 1280 }, height: { ideal: 720 } }
     });
     const newRawVideoTrack = newRawStream.getVideoTracks()[0];
+    instrumentTrack(newRawVideoTrack, "switched-camera-raw");
     const existingAudioTrack = localStream.getAudioTracks()[0];
 
     const combinedRaw = new MediaStream();
@@ -1006,6 +1559,7 @@ async function switchCamera() {
     beautyEngine.stop();
     const filteredStream = beautyEngine.start(combinedRaw, carriedParams);
     const filteredVideoTrack = filteredStream.getVideoTracks()[0];
+    instrumentTrack(filteredVideoTrack, "switched-camera-filtered");
 
     if (videoProducer) await videoProducer.replaceTrack({ track: filteredVideoTrack });
 
@@ -1215,6 +1769,11 @@ async function loadRoom() {
     currentRoom = room;
     viewerCount = room.viewer_count || 0;
 
+    // HLS-1: keep our own audienceHlsUrl in sync with whatever the
+    // room payload carries (liveRoomController.getById() -> egress
+    // status). initAudienceHlsMode()/pollForHlsUrl() read this.
+    audienceHlsUrl = room.hlsUrl || null;
+
     $("host-name").textContent = room.username || room.display_name || "Host";
     $("viewer-count").textContent = window.formatCoins(viewerCount);
 
@@ -1241,7 +1800,7 @@ async function loadRoom() {
       secondsLive = Math.floor((Date.now() - new Date(room.started_at).getTime()) / 1000);
     }
 
-    console.log(`[loadRoom] room=${roomId} host_id=${room.host_id}`);
+    console.log(`[loadRoom] room=${roomId} host_id=${room.host_id} hlsUrl=${room.hlsUrl || "(none yet)"}`);
   } catch (err) {
     console.error("[loadRoom]", err);
     window.showToast("Failed to load room");
@@ -1266,6 +1825,13 @@ async function leaveRoom() {
   if (recvTransport) { try { recvTransport.close(); } catch (e) {} }
   if (localStream)   localStream.getTracks().forEach(t => t.stop());
   cleanupAllAudioBoosts();
+
+  for (const videoEl of [...watchdogs.keys()]) stopFreezeWatchdog(videoEl);
+  consumedProducers.clear();
+
+  // HLS-1: tear down hls.js / stop the audience polling loop too.
+  stopHlsPolling();
+  detachHlsFromStage();
 
   try { faceEngine.destroy(); } catch (e) {}
   faceEngineAttached = false;
@@ -1409,12 +1975,26 @@ function initSocket() {
     if (socketId === socket.id) return;
     removeParticipantVideo(socketId);
 
-    const hostConsumerExists = [...consumers.values()].some(c => c.isHost && !c.consumer.closed);
-    if (!hostConsumerExists && !isHost) {
-      const stageVideo = $("stage-video");
-      if (stageVideo) stageVideo.srcObject = null;
-      const offlineEl = $("stage-offline");
-      if (offlineEl) offlineEl.style.display = "flex";
+    // Clean up any dedup entries left over for this peer's producers.
+    for (const [producerId, consumerId] of [...consumedProducers.entries()]) {
+      const entry = consumers.get(consumerId);
+      if (entry?.socketId === socketId) consumedProducers.delete(producerId);
+    }
+
+    // HLS-1: this fallback (showing the "waiting for host" overlay
+    // when no host consumer is left) only makes sense while this
+    // viewer is actually consuming the host over WebRTC. Plain
+    // audience in HLS mode has no host consumer to check by design
+    // - the HLS stream itself ending is what signals host-offline
+    // for them (handled separately via the "hostLeft" event below).
+    if (viewMode === "webrtc") {
+      const hostConsumerExists = [...consumers.values()].some(c => c.isHost && !c.consumer.closed);
+      if (!hostConsumerExists && !isHost) {
+        const stageVideo = $("stage-video");
+        if (stageVideo) { stopFreezeWatchdog(stageVideo); stageVideo.srcObject = null; }
+        const offlineEl = $("stage-offline");
+        if (offlineEl) offlineEl.style.display = "flex";
+      }
     }
   });
 
@@ -1484,12 +2064,21 @@ function initSocket() {
 
   socket.on("hostLeft", () => {
     window.showToast("Host disconnected");
+    // HLS-1: relevant regardless of viewMode - if the viewer was in
+    // HLS mode, the stream itself will also error out shortly after
+    // (egress stops with the host), this just surfaces it sooner.
     const offlineEl = $("stage-offline");
     if (offlineEl && !isHost) offlineEl.style.display = "flex";
   });
 
   socket.on("reconnect", () => {
     window.showToast("Reconnected");
+    // NOTE: this re-emits joinRoom, which will cause the server to
+    // resend "existingProducers" - consumeProducer()'s FIX-1 guard
+    // is what prevents this from duplicating/killing already-working
+    // consumers, and its HLS-1 guard is what prevents it from
+    // needlessly WebRTC-consuming the host for a viewer who's still
+    // plain audience.
     socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
   });
 
@@ -1796,6 +2385,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   attachUIListeners();
   initAudioUnlock();
+  initHlsAudioUnlock();
   initGiftEngineVisibilityHandling();
 
   if (window.CURRENT_USER.id) {
@@ -1824,6 +2414,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const hostCtrls = $("host-controls");
     if (endBtn)    endBtn.style.display    = "flex";
     if (hostCtrls) hostCtrls.style.display = "flex";
+  } else {
+    // HLS-1: plain audience (not seated/guest yet) starts on HLS,
+    // not a WebRTC consumer of the host. Host/co-host/guest video
+    // for OTHER stage occupants is completely unaffected - this
+    // only concerns #stage-video / the host's own producer.
+    initAudienceHlsMode();
   }
 
   initSocket();

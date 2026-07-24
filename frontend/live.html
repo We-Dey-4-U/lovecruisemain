@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -815,6 +814,18 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
+<!-- ══════════════════════════════════════════════════════════
+     HLS.JS — used by js/live.js for pure-audience viewers.
+     THIS PASS: this is the client half of the mediasoup → FFmpeg
+     → RTMP → HLS → CDN scaling pipeline. Host/co-host/guest
+     playback is completely unaffected — this is only ever loaded
+     onto #stage-video for a viewer who is NOT on stage. Loaded as
+     a plain global script (not a module) so live.js can check
+     `window.Hls` before deciding whether to use MSE or fall back
+     to Safari's native HLS support.
+     ══════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+
 <script>
   const _params = new URLSearchParams(window.location.search);
   const _titleEl = document.getElementById("stream-title");
@@ -848,8 +859,3 @@ body.host-mode .guest-frame.occupied .host-ctrl-overlay { display: block; }
 </script>
 </body>
 </html>
-
-
-
-
-

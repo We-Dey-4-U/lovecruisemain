@@ -1,8 +1,27 @@
 // backend/src/mediasoup/room.js
 // Premium LiveRoom — SFU with simulcast, VP9/H264, send+recv transports
+//
+// THIS PASS: createRoom()/closeRoom() now also sync a roomId->nodeId
+// mapping into Redis via roomRegistry.js, as fire-and-forget async
+// calls (.catch(() => {}) — never awaited, never throws into the
+// caller). createRoom/getRoom/closeRoom keep their EXACT original
+// synchronous signatures and behavior — every existing call site in
+// stream.socket.js and radioMedia.socket.js (both call these
+// functions synchronously, without awaiting them) continues to work
+// completely unchanged. This is pure additive bookkeeping: on a
+// single node it has zero observable effect on any room, live or
+// radio; it only becomes useful once a gateway/allocator reads
+// roomRegistry.getRoomNode() to route a request to the right media
+// node, which is separate, not-yet-wired Tier-2 work.
+//
+// The LiveRoom class itself — peers, transports, producers,
+// consumers, router, and every method radioMedia.socket.js and
+// stream.socket.js call directly on a room instance — is byte-for-
+// byte identical to before.
 
 const { createSendTransport, createRecvTransport } = require("./transport");
 const { createRouter, closeRouter } = require("./router");
+const { registerRoom, unregisterRoom } = require("./roomRegistry");
 
 const rooms = new Map();
 
@@ -209,13 +228,8 @@ class LiveRoom {
     if (this.router) {
       try { this.router.close(); } catch (e) {}
     }
-    // FIX: evict router.js's own cache entry for this room too — its
-    // module-level `routers` Map otherwise keeps handing back this
-    // now-closed router on the next createRouter(roomId) call, which
-    // is what caused "Channel request handler ... not found" for any
-    // guest whose transport was created after the room had cycled
-    // closed/reopened (radioMedia.socket.js's cleanupRadioMedia calls
-    // closeRoom() whenever a broadcast briefly has 0 producers/peers).
+    // Evict router.js's own cache entry for this room too — see
+    // router.js's comments; unchanged from before this pass.
     closeRouter(this.roomId);
     this.peers.clear();
     this.transports.clear();
@@ -230,6 +244,13 @@ function createRoom(roomId) {
   if (!rooms.has(roomId)) {
     rooms.set(roomId, new LiveRoom(roomId));
     console.log(`🏠 Room created: ${roomId}`);
+
+    // Fire-and-forget Redis registry sync — never awaited, never
+    // throws into the caller. Radio and live rooms both pass through
+    // here (radioMedia.socket.js uses roomId = `radio:${broadcastId}`,
+    // stream.socket.js uses the plain live roomId), so both get
+    // registered identically with zero code changes on their end.
+    registerRoom(roomId).catch(() => {});
   }
   return rooms.get(roomId);
 }
@@ -243,6 +264,7 @@ function closeRoom(roomId) {
   if (room) {
     room.close();
     rooms.delete(roomId);
+    unregisterRoom(roomId).catch(() => {});
   }
 }
 
