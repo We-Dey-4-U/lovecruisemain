@@ -1854,6 +1854,7 @@ function renderFollowList(list, type) {
  * so this stays well within "no polling" since it only runs once
  * when the sheet opens; live updates afterwards come purely from
  * the "presenceUpdated" socket event, no repeated fetching).
+ * i neded this
  */
 async function loadFollowListPresence(userIds) {
   const uniqueIds = [...new Set(userIds)].filter(Boolean);
