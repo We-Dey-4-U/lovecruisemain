@@ -1,44 +1,37 @@
 // backend/src/sockets/stream.socket.js
 //
 // ═══════════════════════════════════════════════════════════════
-//   THIS PASS — FOLLOW-TO-LIVE-ROOM PRESENCE SYSTEM
+//   THIS PASS — HLS EGRESS WIRING
 // ═══════════════════════════════════════════════════════════════
-//   Every socket-driven room transition (join, seat/guest claim or
-//   release, kick, live end, disconnect) now also updates the
-//   user's realtime presence (OFFLINE / ONLINE / WATCHING_LIVE /
-//   HOSTING_LIVE / CO_HOST / GUEST_SEAT) via presenceService, and
-//   broadcasts the change to that user's followers (respecting
-//   their privacy settings) as a "presenceUpdated" event on each
-//   follower's personal `user:{id}` room.
+//   liveEgressManager (mediasoup -> FFmpeg -> RTMP -> HLS) is now
+//   actually invoked from this file, which previously imported
+//   nothing from it. Three additive hooks, nothing else changed:
 //
-//   Seat mapping used here:
-//     - 12 audio mic seats (requestMicSeat/leaveMicSeat)  -> CO_HOST
-//     - matchmaker male/female guest frames (requestGuestSeat/
-//       leaveGuestSeat)                                    -> GUEST_SEAT
+//     1. "produce" handler — once BOTH the host's video and audio
+//        producers exist, liveEgressManager.startEgress() is fired
+//        (fire-and-forget, .catch()'d) so GET /live/:id can start
+//        returning a real hlsUrl to plain viewers.
+//     2. "liveEnded" handler — liveEgressManager.stopEgress() is
+//        awaited before closeRoom(roomId), so the ffmpeg child and
+//        PlainTransports are cleaned up when the host explicitly
+//        ends the stream.
+//     3. _handlePeerLeave()'s `if (wasHost)` block — the same
+//        stopEgress() call fires when the host disconnects/leaves
+//        without clicking "End Live", so egress doesn't keep
+//        running (and doesn't keep an ffmpeg process alive) against
+//        a room nobody is hosting anymore.
 //
-//   New/explicit events added for spec compliance (aliases of the
-//   existing join/leave flow, safe to call directly too):
-//     "joinLiveRoom" -> same handler as "joinRoom"
-//     "leaveLive"    -> same handler as "leaveRoom"
-//     "startLive"    -> marks HOSTING_LIVE immediately (useful right
-//                       after go-live.html creates the room, before
-//                       the host's live.html page even finishes
-//                       loading mediasoup)
-//
-//   Disconnects get an 8s grace period before presence flips to
-//   OFFLINE, so a page refresh / brief network drop doesn't cause
-//   a flicker for followers. Reconnecting (registerUser/joinRoom)
-//   within that window cancels the pending OFFLINE flip.
-//
-//   Everything else — mediasoup transports/producers/consumers,
-//   host-only participants roster + full kick, seat/guest mute-vs-
-//   leave split — is UNCHANGED from the previous pass.
+//   Everything else in this file — presence system, mediasoup
+//   transports/producers/consumers, host-only participants roster,
+//   seat/guest mute-vs-leave split — is UNCHANGED from the previous
+//   pass.
 // ═══════════════════════════════════════════════════════════════
 
 const db = require("../config/db");
 const { createRoom, getRoom, closeRoom } = require("../mediasoup/room");
 const { createRouter } = require("../mediasoup/router");
 const presenceService = require("../services/presenceService");
+const liveEgressManager = require("../mediasoup/liveEgressManager");
 
 /* ══════════════════════════════════════════════════════
    USER LOOKUP
@@ -661,6 +654,30 @@ module.exports = (io, socket) => {
 
       room.producers.set(producer.id, producer);
 
+      // ── HLS EGRESS: once the host has BOTH a video and audio
+      // producer live, start (or reuse) the mediasoup -> FFmpeg ->
+      // RTMP -> HLS pipeline for this room. Fire-and-forget: this
+      // must never block or fail the produce() callback for the
+      // host's own publish, so failures are only logged.
+      if (isHost) {
+        const hostVideoProducer = [...room.producers.values()]
+          .find(p => p.appData?.socketId === room.hostSocketId && p.kind === "video" && !p.closed);
+        const hostAudioProducer = [...room.producers.values()]
+          .find(p => p.appData?.socketId === room.hostSocketId && p.kind === "audio" && !p.closed);
+
+        if (hostVideoProducer && hostAudioProducer) {
+          liveEgressManager.startEgress({
+            roomId: socket.currentRoomId,
+            router: room.router,
+            videoProducer: hostVideoProducer,
+            audioProducer: hostAudioProducer,
+            streamKey: socket.currentRoomId
+          }).then(info => {
+            if (info) console.log(`[produce] Egress started/confirmed for room=${socket.currentRoomId} -> ${info.hlsUrl}`);
+          }).catch(err => console.error("[produce] egress start failed:", err.message));
+        }
+      }
+
       producer.on("score", (scores) => {
         socket.emit("producerScore", { producerId: producer.id, scores });
       });
@@ -1017,7 +1034,9 @@ module.exports = (io, socket) => {
 
   /* ══════════════════════════════════════════════════════
      LIVE ENDED — every connected participant's presence
-     resets to ONLINE and their followers are notified.
+     resets to ONLINE and their followers are notified. Also
+     stops the HLS egress pipeline (ffmpeg + PlainTransports)
+     for this room, since the host explicitly ended the live.
   ══════════════════════════════════════════════════════ */
   socket.on("liveEnded", async ({ roomId }) => {
     try {
@@ -1037,6 +1056,8 @@ module.exports = (io, socket) => {
           broadcastPresenceToFollowers(io, uid, presencePayload).catch(() => {});
         }
       }
+
+      await liveEgressManager.stopEgress(roomId).catch(() => {});
 
       closeRoom(roomId);
 
@@ -1138,6 +1159,11 @@ module.exports = (io, socket) => {
        user is still connected, just left the room -> ONLINE now.
      - isFullDisconnect=true (socket dropped): grace-period timer
        before flipping to OFFLINE, so quick reconnects don't flicker.
+     - If the LEAVING peer was the host, the HLS egress pipeline is
+       stopped too (mirrors the explicit "liveEnded" stopEgress
+       call) — a host disconnecting/refreshing without clicking
+       "End Live" should not leave ffmpeg running against a room
+       nobody is hosting.
   ══════════════════════════════════════════════════════ */
   async function _handlePeerLeave(io, socket, roomId, { isFullDisconnect = false } = {}) {
     const room = getRoom(roomId);
@@ -1159,6 +1185,8 @@ module.exports = (io, socket) => {
       if (wasHost) {
         room.hostSocketId = null;
         io.to(`room:${roomId}`).emit("hostLeft", { roomId });
+
+        liveEgressManager.stopEgress(roomId).catch(() => {});
       }
     }
 
