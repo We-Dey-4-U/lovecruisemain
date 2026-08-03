@@ -288,13 +288,14 @@ module.exports = (io, socket) => {
         if (!producer.closed) {
           const peerSocketId = producer.appData?.socketId;
           const peerInfo     = room.peers.get(peerSocketId) || {};
-          existingProducers.push({
-            producerId,
-            socketId: peerSocketId,
-            userId:   peerInfo.userId || producer.appData?.userId || null,
-            kind:     producer.kind,
-            isHost:   peerSocketId === room.hostSocketId
-          });
+         existingProducers.push({
+  producerId,
+  socketId: peerSocketId,
+  userId:   peerInfo.userId || producer.appData?.userId || null,
+  kind:     producer.kind,
+  isHost:   peerSocketId === room.hostSocketId,
+  appData:  producer.appData || null
+});
         }
       }
 

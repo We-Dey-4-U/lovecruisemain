@@ -5,149 +5,73 @@ import "./api.js";
 import "./app.js";
 
 /* ============================================================
-   FIXES APPLIED IN THIS PASS (root-cause trace, not speculative):
+   THIS PASS — fixes applied (root-cause trace)
    ------------------------------------------------------------
-   FIX-1 (root cause of black-screen / "producer replaced" bug):
-     consumeProducer() had NO guard against consuming the same
-     producerId twice. On any reconnect, the client re-emits
-     "joinRoom", the server resends the FULL "existingProducers"
-     list, and consumeProducer() ran again for producers already
-     being consumed. attachTrackToStage()/attachTrackToParticipantTile()
-     both call removeTrack()+track.stop() on whatever track is
-     CURRENTLY in the target <video> element before adding the new
-     one - so a duplicate consume silently kills a track that was
-     already working. This is exactly checklist item #7 ("ensure
-     producers/consumers are not being closed or replaced"). Fixed
-     with a producerId -> consumerId map that skips re-consumption
-     and is cleaned up on producerclose/transportclose.
+   FIX-1 (kept, root cause of black-screen / "producer replaced"):
+     consumeProducer() is guarded against consuming the same
+     producerId twice via a producerId -> consumerId map, so a
+     reconnect / duplicate "existingProducers" resend can never
+     silently kill a track that's already attached and working.
 
-   FIX-2 (real correctness bug, independent of the above):
-     getPreferredVideoCodec() was computed but never actually
-     passed into sendTransport.produce()/claimGuestSeat's produce()
-     calls, so mediasoup-client always negotiated whatever codec is
-     FIRST in the router's list (VP8) regardless of what the UI
-     claimed to prefer. Fixed by resolving the actual RtpCodecCapability
-     object from device.rtpCapabilities and passing it explicitly.
+   FIX-2 (kept, real codec bug):
+     The preferred video codec is resolved to a real
+     RtpCodecCapability and passed into produce({ codec }), so the
+     UI's codec choice is actually the one negotiated, instead of
+     mediasoup-client always picking whatever's first (VP8).
 
-   FIX-3 (root cause of host-preview-freezes-when-a-guest-joins):
-     getLocalStream() used to call ensureFaceEngineAttached() on
-     EVERY camera session unconditionally - meaning every stream
-     (host or guest) permanently ran a MediaPipe FaceLandmarker
-     (GPU delegate) detection loop in the background, whether or
-     not anyone ever opened the Effects/AR panel. That's a constant
-     extra GPU+CPU load stacked on top of the WebGL beauty shader
-     already running every frame. The moment a guest joins, the
-     host's browser has to simultaneously negotiate a new ICE/DTLS
-     handshake, spin up a recv transport, decode the new remote
-     track, and update the DOM - all while that unnecessary
-     background face-tracking loop is already competing for the
-     same GPU/main thread, which is exactly the kind of spike that
-     trips the freeze watchdog below. Fixed by DELETING the eager
-     call - openEffectsSheet() already calls
-     ensureFaceEngineAttached() lazily, on demand, the first time
-     someone actually opens the Effects panel, so AR stickers/
-     distortion still work fine the first time it's opened; it
-     just never runs silently in the background otherwise.
+   FIX-3 (kept, root cause of host-preview-freezes-on-guest-join):
+     The MediaPipe face-tracking model is only ever loaded lazily,
+     the first time someone opens the Effects panel
+     (ensureFaceEngineAttached() inside openEffectsSheet()).
+     getLocalStream() no longer starts it eagerly on every camera
+     session, so it no longer competes with the new ICE/DTLS
+     handshake + recv-transport work a guest join triggers.
 
-   FIX-4 (frame-freeze instrumentation, kept from previous pass):
-     Added a frame-freeze watchdog (requestVideoFrameCallback, with
-     a currentTime-polling fallback) on every <video> element this
-     file controls, so a stall now produces an unmistakable,
-     timestamped console.error the moment it happens, instead of
-     being inferred after the fact.
-
-   FIX-5 (requested logging): detailed, tagged logs for producer
-     creation, consumer creation, transport connect/state, and
-     track mute/unmute/ended - added throughout.
+   FIX-4 (kept): frame-freeze watchdog on every <video> element.
+   FIX-5 (kept): tagged logging for producers/consumers/transports.
 
    ------------------------------------------------------------
-   HLS-1 (audience scaling via mediasoup -> FFmpeg -> RTMP ->
-     HLS/CDN, see backend/src/mediasoup/liveEgressManager.js):
+   REMOVED THIS PASS — the audience-HLS pipeline (was "HLS-1/2/3"):
 
-     Plain audience (not on stage) no longer opens a WebRTC consumer
-     for the HOST's producer(s). Instead they play the host through
-     hls.js against the `hlsUrl` the backend returns from
-     GET /live/:id (liveRoomController.getById() -> liveEgressManager
-     .getEgressStatus()). This is the actual point of the egress
-     pipeline: the SFU stops allocating a per-viewer consumer for
-     the host stream, which is the thing that doesn't scale past a
-     few hundred concurrent viewers.
+     A previous pass made plain viewers (not on stage) wait for an
+     HLS stream from a server-side mediasoup->FFmpeg->RTMP->HLS
+     egress pipeline instead of consuming the host's WebRTC
+     producer directly, only falling back to WebRTC after ~3 failed
+     attempts (worst case ~15-40s). That pipeline requires real
+     infrastructure — ffmpeg installed on the media server, a
+     running RTMP ingest + HLS packager, and liveRoomController.js
+     actually returning a working hlsUrl from GET /live/:id — none
+     of which is confirmed deployed. If any piece of that is
+     missing, EVERY viewer sees a blank "Waiting for host..." screen
+     for a long stretch before falling back. That's almost certainly
+     why viewers reported "can't see the host."
 
-     What did NOT change:
-       - Host publishing (publishStream) — still pure WebRTC, unchanged.
-       - Mic-seat / guest-seat occupants — still pure WebRTC
-         produce+consume, since they need real low-latency talk-over-
-         each-other audio. Claiming a seat flips a viewer from
-         HLS -> WebRTC (enterInteractiveMode); leaving flips back
-         (enterAudienceMode).
-       - Guest/co-host video tiles for OTHER audience members — still
-         consumed via WebRTC exactly as before. Only the HOST's
-         producer is ever skipped for HLS-mode viewers, because the
-         backend only egresses the host's producers (see
-         liveEgressManager.js's own integration notes).
-       - consumeProducer()'s FIX-1 dedup guard — unchanged, and is
-         exactly what makes enterInteractiveMode() / the WebRTC
-         fallback below safe to implement as "just re-emit joinRoom".
+     Since there's no need yet to scale past a few hundred
+     concurrent viewers, this pass removes that dependency entirely:
+     every viewer (audience, seated, or guest) now consumes the
+     host's WebRTC producer directly and immediately, exactly like
+     guest/co-host video always has. FIX-1's dedup guard is what
+     makes this safe across reconnects/rejoins.
 
-   HLS-2 (WebRTC fallback so joiners never see a blank/frozen host):
+     Nothing on the backend needs to change for this — the egress
+     manager can keep running in the background harmlessly (it's
+     fire-and-forget from stream.socket.js's "produce" handler) and
+     can be wired back in later once real RTMP/HLS infra exists.
 
-     Previously, if the backend's HLS egress pipeline was ever
-     broken, not yet configured, or just slow to produce its first
-     segment, a plain viewer would poll GET /live/:id forever and
-     NEVER see the host - permanently stuck on the "Waiting for
-     host…" placeholder, because consumeProducer() unconditionally
-     skips the host's producer for anyone in HLS mode.
+   FIX-6 (this pass — guest video was landing in the wrong place):
+     attachTrackToParticipantTile() used to ALWAYS create a generic
+     tile and append it into #participants-strip (the mic-seats
+     strip), even for guest-frame (male/female) occupants, because
+     consumeProducer() never captured/forwarded appData.guestSlot.
+     Guest camera video now routes into the correct
+     #guest-frame-male / #guest-frame-female element. Mic-seat
+     occupants are audio-only (unaffected — they were never video).
 
-     Fixed with a bounded retry: once this viewer's HLS attempt
-     budget (hlsAttempts vs HLS_MAX_ATTEMPTS) is exhausted,
-     fallbackToWebRTCForHost() flips this viewer permanently out of
-     HLS mode (audienceForceWebRTC = true) and re-emits "joinRoom"
-     so the server resends "existingProducers" - this time including
-     the host's producer, since isAudienceHlsMode() now returns
-     false for this viewer. FIX-1's dedup guard is what makes this
-     re-join safe even for a viewer who was already mid-consume of
-     other (non-host) producers.
-
-   HLS-3 (THIS PASS — fixes the two real bugs in the HLS-2 safety
-     net that could still leave a viewer stuck forever):
-
-     Bug A — "a URL is not proof of playback." liveEgressManager's
-     startEgress() marks a session active and returns a real-looking
-     hlsUrl the instant the host's producers exist, even if the
-     ffmpeg process itself failed to spawn or never produced a
-     single segment (the spawn error is only logged there, never
-     reflected back into session/response state). The old code
-     treated "we got a hlsUrl" as success and stopped checking.
-     Fixed: attachHlsToStage() now arms a bounded verification
-     watchdog (armHlsPlaybackVerification / HLS_VERIFY_TIMEOUT_MS)
-     that requires an actual "bytes are flowing" signal - hls.js's
-     Hls.Events.FRAG_LOADED, or the native <video> "playing" event
-     on Safari's built-in HLS path - before this attempt counts as
-     a success. No such signal in time = treated exactly like a
-     network/parse failure.
-
-     Bug B — "the retry counter wasn't durable." pollForHlsUrl()
-     used to reset hlsAttempts = 0 on every single call, and hls.js's
-     own ERROR handler called pollForHlsUrl() again on any
-     unrecoverable error - so the "give up after N attempts" counter
-     could never actually reach its limit from inside that loop.
-     That's exactly how this turned into an infinite retry loop with
-     no way out. Fixed: hlsAttempts is now a durable, monotonically
-     increasing counter for the lifetime of a single audience-HLS
-     attempt cycle. It is reset to 0 ONLY at genuine fresh starts
-     (initAudienceHlsMode() on load, enterAudienceMode() when
-     returning from a seat and not already on the permanent WebRTC
-     fallback) - never inside pollForHlsUrl() itself. Both the
-     hls.js unrecoverable-error path and the new playback-timeout
-     path route through one function, handleHlsAttemptFailure(),
-     which increments (never resets) the counter and only calls
-     fallbackToWebRTCForHost() once it's actually exhausted.
-
-     Net effect: every viewer now sees the host within a bounded,
-     predictable amount of time no matter how badly the HLS/egress
-     backend is misbehaving - either real HLS playback, or a real
-     WebRTC consumer of the host - never a permanently blank/frozen
-     frame and never an unbounded retry loop.
+     NOTE: this also requires stream.socket.js's "existingProducers"
+     list to include each producer's appData (it already does this
+     for "newProducer" — just needed adding to existingProducers
+     too), so a page-load/rejoin can determine guestSlot the same
+     way a live "newProducer" event does.
    ============================================================ */
 
 /* ── Device ── */
@@ -212,41 +136,6 @@ let GIFT_CATALOG  = [];
 
 let mySeatIndex = null;
 let myGuestSlot = null;
-
-/* ── HLS-1 / HLS-2 / HLS-3: audience playback state ──
-   viewMode tracks how #stage-video is currently being fed:
-     "webrtc" - host publishing (isHost) OR this viewer is
-                interactive (seated / guest) and consuming the
-                host's real WebRTC producer, OR this viewer fell
-                back to WebRTC after HLS never became available
-                (see audienceForceWebRTC below).
-     "hls"    - plain audience, playing the host via hls.js against
-                the egressed HLS stream instead of a WebRTC consumer. */
-let viewMode        = "webrtc";
-let hls             = null;
-let audienceHlsUrl  = null;
-let hlsPollTimer    = null;
-
-// HLS-2: once true, this viewer is permanently done trying HLS for
-// the rest of this session and always consumes the host over
-// WebRTC instead - reset only by a fresh page load.
-let audienceForceWebRTC = false;
-let hlsAttempts = 0;
-const HLS_MAX_ATTEMPTS = 3; // durable attempt budget (see HLS-3) before giving up on HLS
-
-// HLS-3: real-playback verification. A returned hlsUrl only proves
-// the backend THINKS egress is running - it does NOT prove ffmpeg is
-// actually producing segments (see liveEgressManager.js: startEgress()
-// marks a session active and returns a real-looking hlsUrl the
-// instant the host's producers exist, even if the ffmpeg spawn
-// itself failed - the spawn error is only logged, never reflected
-// back into session state). So "we got a hlsUrl" can no longer be
-// treated as "HLS is working." Every attachHlsToStage() call now
-// arms a bounded timer that requires an actual signal that bytes
-// are flowing (hls.js FRAG_LOADED, or the native <video> "playing"
-// event for Safari's built-in HLS path) before it counts as success.
-let hlsVerifyTimer = null;
-const HLS_VERIFY_TIMEOUT_MS = 8000; // must see real playback within 8s of attaching
 
 const params = new URLSearchParams(window.location.search);
 const roomId = params.get("room") || params.get("id");
@@ -313,406 +202,15 @@ function dispatchSpeaking(socketId, isHostFlag, active) {
 }
 
 /* ============================================================
-   HLS-1 / HLS-2: is this viewer plain audience right now?
-   ------------------------------------------------------------
-   Host is never audience. A viewer stops being audience the
-   instant they claim a mic seat or a guest slot (see
-   claimMicSeat/claimGuestSeat -> enterInteractiveMode), the
-   instant they leave (see releaseMicSeat/releaseGuestSeatLocal ->
-   enterAudienceMode), OR the instant they've permanently fallen
-   back to WebRTC because HLS never became available
-   (audienceForceWebRTC - see fallbackToWebRTCForHost below).
-   ============================================================ */
-function isAudienceHlsMode() {
-  return !isHost && mySeatIndex === null && myGuestSlot === null && !audienceForceWebRTC;
-}
-
-/* ============================================================
-   HLS-1 / HLS-3: HLS playback for #stage-video (plain audience
-   only)
-   ============================================================ */
-function attachHlsToStage(url) {
-  const stageVideo = $("stage-video");
-  if (!stageVideo || !url) return;
-
-  console.log("[attachHlsToStage] Loading HLS stream:", url);
-  detachHlsFromStage();
-  viewMode = "hls";
-
-  const offlineEl = $("stage-offline");
-  if (offlineEl) offlineEl.style.display = "none";
-
-  if (window.Hls && window.Hls.isSupported()) {
-    hls = new window.Hls({
-      lowLatencyMode: true,
-      liveSyncDurationCount: 3,
-      backBufferLength: 30
-    });
-    hls.loadSource(url);
-    hls.attachMedia(stageVideo);
-
-    hls.on(window.Hls.Events.ERROR, (_event, data) => {
-      console.warn(`[hls.js] error type=${data.type} details=${data.details} fatal=${data.fatal}`);
-      if (!data.fatal) return;
-
-      switch (data.type) {
-        case window.Hls.ErrorTypes.NETWORK_ERROR:
-          console.warn("[hls.js] fatal network error - calling hls.startLoad()");
-          try { hls.startLoad(); } catch (e) {}
-          break;
-        case window.Hls.ErrorTypes.MEDIA_ERROR:
-          console.warn("[hls.js] fatal media error - calling hls.recoverMediaError()");
-          try { hls.recoverMediaError(); } catch (e) {}
-          break;
-        default:
-          // HLS-3: this used to call pollForHlsUrl() directly, and
-          // pollForHlsUrl() unconditionally reset hlsAttempts = 0 -
-          // meaning an hls.js internal error could silently reset
-          // the "give up after N attempts" counter forever, which is
-          // exactly how this turned into an infinite retry loop with
-          // no way out. Routed through handleHlsAttemptFailure()
-          // instead, which increments (never resets) the durable
-          // counter and only falls back to WebRTC once it's exhausted.
-          console.error("[hls.js] unrecoverable fatal error - counting as a failed HLS attempt");
-          handleHlsAttemptFailure();
-          break;
-      }
-    });
-  } else if (stageVideo.canPlayType("application/vnd.apple.mpegurl")) {
-    // Safari (and some mobile browsers) play HLS natively - no
-    // hls.js needed, just point the <video> at the .m3u8 directly.
-    console.log("[attachHlsToStage] Using native HLS support (no hls.js)");
-    stageVideo.src = url;
-  } else {
-    console.error("[attachHlsToStage] No HLS playback support in this browser (no hls.js, no native HLS)");
-    window.showToast("Your browser can't play this live stream");
-    return;
-  }
-
-  // Autoplay policies require starting muted; initHlsAudioUnlock()
-  // unmutes on the viewer's first tap, same pattern as the existing
-  // WebRTC audio-boost tap-to-unmute flow.
-  stageVideo.muted = true;
-  stageVideo.play().catch(e => console.warn("[attachHlsToStage] play() rejected:", e.message));
-  startFreezeWatchdog(stageVideo, "stage-video(hls-audience)");
-
-  // HLS-3: arm the real-playback verification watchdog - a
-  // returned hlsUrl (or a successfully "attached" hls.js instance)
-  // is not proof frames are actually arriving.
-  armHlsPlaybackVerification(url);
-
-  const stageLabel = $("stage-host-label");
-  if (stageLabel) {
-    stageLabel.textContent = currentRoom?.username || currentRoom?.display_name || "Host";
-  }
-}
-
-function detachHlsFromStage() {
-  clearHlsPlaybackVerification();
-
-  if (hls) {
-    console.log("[detachHlsFromStage] Destroying hls.js instance");
-    try { hls.destroy(); } catch (e) {}
-    hls = null;
-  }
-
-  const stageVideo = $("stage-video");
-  if (stageVideo) {
-    stopFreezeWatchdog(stageVideo);
-    try {
-      stageVideo.removeAttribute("src");
-      stageVideo.load();
-    } catch (e) {}
-    stageVideo.srcObject = null;
-  }
-}
-
-/**
- * HLS-3: confirms an attachHlsToStage() call actually resulted in
- * real media arriving, not just a URL that LOOKED valid. Listens
- * for the first concrete "bytes are flowing" signal:
- *   - hls.js path: Hls.Events.FRAG_LOADED (a real segment downloaded
- *     and handed to MSE)
- *   - native HLS path (Safari): the <video> "playing" event
- * If neither fires within HLS_VERIFY_TIMEOUT_MS, this attempt is
- * routed through handleHlsAttemptFailure() exactly like a
- * network/parse error would be.
- */
-function armHlsPlaybackVerification(url) {
-  clearHlsPlaybackVerification();
-
-  const stageVideo = $("stage-video");
-  let verified = false;
-
-  function markVerified() {
-    if (verified) return;
-    verified = true;
-    console.log("[armHlsPlaybackVerification] ✅ Real HLS playback confirmed (segments/frames arriving)");
-    clearHlsPlaybackVerification();
-  }
-
-  if (window.Hls && hls) {
-    hls.once(window.Hls.Events.FRAG_LOADED, markVerified);
-  }
-  stageVideo?.addEventListener("playing", markVerified, { once: true });
-
-  // Stash so clearHlsPlaybackVerification() can remove the listener
-  // if verification succeeds/gets cancelled before "playing" fires.
-  armHlsPlaybackVerification._pendingVideo = stageVideo || null;
-  armHlsPlaybackVerification._pendingFn = markVerified;
-
-  hlsVerifyTimer = setTimeout(() => {
-    if (verified) return;
-    console.warn(`[armHlsPlaybackVerification] ⏱️ No real playback within ${HLS_VERIFY_TIMEOUT_MS}ms for ${url} - treating as a failed HLS attempt`);
-    handleHlsAttemptFailure();
-  }, HLS_VERIFY_TIMEOUT_MS);
-}
-
-function clearHlsPlaybackVerification() {
-  if (hlsVerifyTimer) {
-    clearTimeout(hlsVerifyTimer);
-    hlsVerifyTimer = null;
-  }
-  const video = armHlsPlaybackVerification._pendingVideo;
-  const fn    = armHlsPlaybackVerification._pendingFn;
-  if (video && fn) {
-    video.removeEventListener("playing", fn);
-  }
-  armHlsPlaybackVerification._pendingVideo = null;
-  armHlsPlaybackVerification._pendingFn = null;
-}
-
-/**
- * HLS-3: the single place a "this HLS attempt didn't pan out" event
- * flows through - whether that's an hls.js unrecoverable error or
- * the playback-verification timeout above. Unlike the old code,
- * this INCREMENTS hlsAttempts (never resets it) and only calls
- * fallbackToWebRTCForHost() once the durable counter is actually
- * exhausted, which is what makes it impossible for this to loop
- * forever regardless of how many times hls.js internally errors out.
- */
-function handleHlsAttemptFailure() {
-  clearHlsPlaybackVerification();
-  detachHlsFromStage();
-
-  if (!isAudienceHlsMode()) {
-    console.log("[handleHlsAttemptFailure] No longer plain audience - ignoring stale HLS failure");
-    return;
-  }
-
-  hlsAttempts++;
-  console.warn(`[handleHlsAttemptFailure] HLS attempt ${hlsAttempts}/${HLS_MAX_ATTEMPTS} failed`);
-
-  if (hlsAttempts >= HLS_MAX_ATTEMPTS) {
-    console.warn("[handleHlsAttemptFailure] Exhausted HLS attempts - falling back to direct WebRTC playback of host");
-    fallbackToWebRTCForHost();
-    return;
-  }
-
-  const offlineEl = $("stage-offline");
-  if (offlineEl) offlineEl.style.display = "flex";
-
-  setTimeout(() => {
-    if (!isAudienceHlsMode()) return;
-    pollForHlsUrl();
-  }, 3000);
-}
-
-/**
- * HLS-2 / HLS-3: Retries GET /live/:id every 5s until the backend
- * reports a live hlsUrl (covers the gap between "host started
- * publishing" and "FFmpeg/RTMP->HLS packager has produced its first
- * segment"). hlsAttempts is a DURABLE counter shared with
- * handleHlsAttemptFailure() above - it is intentionally NOT reset
- * here, so an hls.js error or a playback-verification timeout that
- * routes back into this function can never reset the "give up"
- * budget back to zero (that was the exact bug behind the old
- * infinite-retry loop). Once hlsAttempts reaches HLS_MAX_ATTEMPTS,
- * this gives up on HLS entirely for this viewer and falls back to a
- * real WebRTC consumer of the host instead (fallbackToWebRTCForHost)
- * - this is what guarantees a viewer never gets stuck staring at a
- * blank/"Waiting for host…" screen just because egress isn't
- * working. Self-cancels the moment this viewer stops being audience
- * (seated, became host — shouldn't happen mid-poll, but defensive)
- * or the hlsUrl shows up.
- */
-function pollForHlsUrl() {
-  if (hlsPollTimer) return;
-  console.log(`[pollForHlsUrl] hlsUrl not ready yet - polling every 5s (attempts so far: ${hlsAttempts}/${HLS_MAX_ATTEMPTS})`);
-
-  hlsPollTimer = setInterval(async () => {
-    if (isHost || !isAudienceHlsMode()) {
-      console.log("[pollForHlsUrl] No longer plain audience - stopping poll");
-      clearInterval(hlsPollTimer);
-      hlsPollTimer = null;
-      return;
-    }
-    hlsAttempts++;
-    try {
-      const response = await window.api.request(`/live/${roomId}`);
-      const url = response.data?.hlsUrl;
-      if (url) {
-        console.log("[pollForHlsUrl] hlsUrl now available:", url);
-        audienceHlsUrl = url;
-        clearInterval(hlsPollTimer);
-        hlsPollTimer = null;
-        attachHlsToStage(url);
-        return;
-      }
-    } catch (err) {
-      console.warn("[pollForHlsUrl] request failed:", err.message);
-    }
-
-    if (hlsAttempts >= HLS_MAX_ATTEMPTS) {
-      console.warn(`[pollForHlsUrl] No hlsUrl after ${hlsAttempts} attempts - falling back to direct WebRTC playback of host`);
-      clearInterval(hlsPollTimer);
-      hlsPollTimer = null;
-      fallbackToWebRTCForHost();
-    }
-  }, 5000);
-}
-
-function stopHlsPolling() {
-  if (hlsPollTimer) {
-    clearInterval(hlsPollTimer);
-    hlsPollTimer = null;
-  }
-}
-
-/**
- * HLS-2: Permanently (for this session) stops treating this viewer
- * as HLS-eligible and re-requests the host's real WebRTC producer.
- * isAudienceHlsMode() returning false from now on is what makes
- * consumeProducer() actually accept and attach the host's producer
- * once "existingProducers" comes back in response to this re-join.
- */
-function fallbackToWebRTCForHost() {
-  audienceForceWebRTC = true;
-  detachHlsFromStage();
-  viewMode = "webrtc";
-
-  const offlineEl = $("stage-offline");
-  if (offlineEl) offlineEl.style.display = "flex";
-
-  console.log("[fallbackToWebRTCForHost] Re-joining room to request host's WebRTC producer directly");
-  socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
-}
-
-/**
- * Called once, on load, for non-host viewers. Uses whatever hlsUrl
- * loadRoom() already picked up; falls back to polling if the
- * egress pipeline hasn't produced a playlist yet.
- *
- * HLS-3: gives this brand-new audience session a fresh attempt
- * budget - hlsAttempts always starts at 0 here.
- */
-function initAudienceHlsMode() {
-  hlsAttempts = 0;
-  audienceHlsUrl = currentRoom?.hlsUrl || null;
-  if (audienceHlsUrl) {
-    attachHlsToStage(audienceHlsUrl);
-  } else {
-    console.log("[initAudienceHlsMode] No hlsUrl yet on room payload - will poll");
-    pollForHlsUrl();
-  }
-}
-
-/**
- * Viewer claimed a mic seat or guest slot: stop HLS, stop polling,
- * and re-trigger the server's "existingProducers" resend so the
- * host's WebRTC producer(s) - intentionally skipped while this
- * viewer was audience (see consumeProducer's isAudienceHlsMode()
- * guard below) - get consumed now. FIX-1's dedup guard makes this
- * safe even though it looks like a blunt "just rejoin" call.
- */
-function enterInteractiveMode() {
-  console.log("[enterInteractiveMode] Leaving HLS audience playback, switching #stage-video to WebRTC");
-  stopHlsPolling();
-  detachHlsFromStage();
-  viewMode = "webrtc";
-
-  const offlineEl = $("stage-offline");
-  if (offlineEl) offlineEl.style.display = "flex";
-
-  socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
-}
-
-/**
- * Viewer left their mic seat / guest slot and is back to being
- * plain audience: close whatever WebRTC consumer(s) we were using
- * for the host (no longer needed - the HLS stream already carries
- * the host's video+audio, egressed server-side independently of
- * any individual viewer's consumers) and resume HLS playback.
- *
- * HLS-2: if this viewer already permanently fell back to WebRTC
- * (audienceForceWebRTC), don't try to switch back to an HLS stream
- * that never worked in the first place - just re-request the
- * host's WebRTC producer directly, same as fallbackToWebRTCForHost.
- *
- * HLS-3: otherwise, this is a genuinely fresh audience cycle - give
- * it its own attempt budget (hlsAttempts = 0) rather than carrying
- * over whatever was spent trying HLS before this viewer went
- * interactive.
- */
-function enterAudienceMode() {
-  console.log("[enterAudienceMode] Returning to audience playback");
-
-  for (const [consumerId, entry] of [...consumers.entries()]) {
-    if (!entry.isHost) continue;
-    try { entry.consumer.close(); } catch (e) {}
-    cleanupAudioBoost(consumerId);
-    consumers.delete(consumerId);
-    if (consumedProducers.get(entry.producerId) === consumerId) {
-      consumedProducers.delete(entry.producerId);
-    }
-    console.log(`[enterAudienceMode] Closed leftover host consumer=${consumerId} kind=${entry.kind}`);
-  }
-
-  if (audienceForceWebRTC) {
-    console.log("[enterAudienceMode] Already on permanent WebRTC fallback - re-requesting host producer via joinRoom");
-    socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
-    return;
-  }
-
-  hlsAttempts = 0;
-
-  if (audienceHlsUrl) {
-    attachHlsToStage(audienceHlsUrl);
-  } else {
-    pollForHlsUrl();
-  }
-}
-
-function initHlsAudioUnlock() {
-  const unmute = () => {
-    if (viewMode !== "hls") return;
-    const stageVideo = $("stage-video");
-    if (stageVideo && stageVideo.muted) {
-      stageVideo.muted = false;
-      stageVideo.play().catch(() => {});
-    }
-  };
-  document.addEventListener("pointerdown", unmute, { passive: true });
-}
-
-/* ============================================================
    FIX-4: FRAME-FREEZE WATCHDOG
    ------------------------------------------------------------
    Attaches to any <video> element this file controls (local
    preview, stage video, participant tiles) and logs a clear,
    timestamped console.error the instant that element stops
-   advancing frames for longer than STALL_MS - regardless of
-   whether the srcObject/track/connection "look" fine. This turns
-   "the host's video freezes" from an inferred symptom into a
-   provable, timestamped event that can be correlated against the
-   producer/consumer logs below.
+   advancing frames for longer than STALL_MS.
    ============================================================ */
 const STALL_MS = 2500;
 const watchdogs = new Map(); // videoEl -> { stop() }
-
-function watchdogLabel(el) {
-  return el?.id || el?.dataset?.socketId || "video";
-}
 
 function stopFreezeWatchdog(videoEl) {
   const entry = watchdogs.get(videoEl);
@@ -764,8 +262,6 @@ function startFreezeWatchdog(videoEl, label) {
     rvfcHandle = videoEl.requestVideoFrameCallback(onFrame);
     pollHandle = setInterval(checkStall, 500);
   } else {
-    // Fallback for browsers without requestVideoFrameCallback:
-    // poll currentTime, which still advances even without an rVFC.
     pollHandle = setInterval(() => {
       if (stopped) return;
       if (videoEl.currentTime !== lastTime) {
@@ -887,7 +383,7 @@ function cleanupAllAudioBoosts() {
 }
 
 /* ============================================================
-   TRACK EVENT LOGGING (requested: mute/unmute/ended visibility)
+   TRACK EVENT LOGGING (mute/unmute/ended visibility)
    ============================================================ */
 function instrumentTrack(track, label) {
   if (!track || track.__instrumented) return;
@@ -942,19 +438,13 @@ async function getLocalStream() {
 
       instrumentTrack(filtered.getVideoTracks()[0], "local-video-filtered");
 
-      // FIX-3: REMOVED the old unconditional
-      // `ensureFaceEngineAttached()` call that used to sit here.
-      // It was starting a continuous GPU face-tracking loop for
-      // EVERY camera session (host, guest, anyone) even when AR
-      // effects were never opened - that permanent extra GPU/CPU
-      // load is what was tripping the freeze watchdog the instant
-      // a guest joined and the host's browser needed to do real
-      // WebRTC work (new ICE/DTLS handshake, new recv transport,
-      // new track decode) at the same time. openEffectsSheet()
-      // below already calls ensureFaceEngineAttached() lazily the
-      // first time someone actually opens the Effects panel, so
-      // stickers/distortion still work exactly the same - this
-      // model just never loads/runs unless requested.
+      // FIX-3: intentionally NOT calling ensureFaceEngineAttached()
+      // here. It only ever loads lazily, the first time someone
+      // opens the Effects panel (openEffectsSheet() below) - this
+      // is what stops every camera session from permanently running
+      // a background GPU face-tracking loop that used to compete
+      // with new WebRTC work (e.g. a guest joining) for the main
+      // thread/GPU and trip the freeze watchdog.
 
       return filtered;
     } catch (e) {
@@ -968,9 +458,9 @@ async function getLocalStream() {
  * Lazily attaches FaceEffectsEngine to beautyEngine (loads the
  * MediaPipe model once) and starts its detection loop. Safe to
  * call repeatedly - guarded so the model is only ever loaded once
- * per page session. As of FIX-3, this is now the ONLY place the
- * AR model is ever loaded from (openEffectsSheet(), on demand) -
- * getLocalStream() no longer calls this eagerly.
+ * per page session. This is the ONLY place the AR model is ever
+ * loaded from (openEffectsSheet(), on demand) - getLocalStream()
+ * never calls this eagerly (see FIX-3).
  */
 function ensureFaceEngineAttached() {
   if (faceEngineAttached) { faceEngine.start(); return; }
@@ -1010,13 +500,11 @@ async function loadDevice(rtpCapabilities) {
 }
 
 /**
- * FIX-2: this used to only decide the ENCODINGS shape, and was
- * never actually passed to sendTransport.produce() as a `codec`
- * override - so the codec actually negotiated (whatever
- * mediasoup-client picks first, i.e. VP8) could silently diverge
- * from what this function claimed to prefer. It now returns the
- * real RtpCodecCapability object so callers can pass it straight
- * into produce({ codec }).
+ * FIX-2: returns the real RtpCodecCapability object so callers can
+ * pass it straight into produce({ codec }), instead of only
+ * deciding the encodings shape and letting mediasoup-client
+ * silently negotiate whatever codec is first (VP8) regardless of
+ * what the UI claimed to prefer.
  */
 function getPreferredVideoCodecCapability() {
   const codecs = device?.rtpCapabilities?.codecs || [];
@@ -1207,9 +695,7 @@ async function publishStream() {
       appData: { type: "video", isHost }
     };
 
-    // FIX-2: actually force the codec we claim to prefer, instead
-    // of letting mediasoup-client silently pick the first one
-    // (VP8) regardless of what codecLabel() said.
+    // FIX-2: actually force the codec we claim to prefer.
     if (codecCapability) produceOptions.codec = codecCapability;
 
     if (codec === "VP9") {
@@ -1288,9 +774,6 @@ async function claimMicSeat(seatIndex) {
       isMicMuted  = false;
       console.log(`[claimMicSeat] Seated at ${seatIndex}, mic live`);
       window.showToast(`Seat ${seatIndex + 1} joined - mic on`);
-      // HLS-1: no longer plain audience - switch #stage-video back
-      // to a real WebRTC consumer of the host.
-      enterInteractiveMode();
     });
   } catch (e) {
     console.error("[claimMicSeat]", e);
@@ -1324,9 +807,6 @@ function releaseMicSeat() {
   mySeatIndex = null;
   isMicMuted  = false;
   window.showToast("Left seat");
-
-  // HLS-1: back to plain audience once neither seat state is held.
-  if (!isHost && mySeatIndex === null && myGuestSlot === null) enterAudienceMode();
 }
 
 function toggleMySeatMic() {
@@ -1389,7 +869,6 @@ async function claimGuestSeat(slot) {
         appData: { type: "video", isHost: false, guestSlot: slot }
       };
 
-      // FIX-2: force the actual negotiated codec to match what we claim.
       if (codecCapability) produceOptions.codec = codecCapability;
 
       if (codec === "VP9") {
@@ -1429,9 +908,6 @@ async function claimGuestSeat(slot) {
       isMicMuted  = false;
       isCameraOff = false;
       window.showToast(`Joined ${slot} guest seat - camera & mic on`);
-      // HLS-1: no longer plain audience - switch #stage-video back
-      // to a real WebRTC consumer of the host.
-      enterInteractiveMode();
     });
   } catch (e) {
     console.error("[claimGuestSeat]", e);
@@ -1464,9 +940,6 @@ function releaseGuestSeatLocal() {
   myGuestSlot = null;
   isMicMuted  = false;
   window.showToast("Left guest seat");
-
-  // HLS-1: back to plain audience once neither seat state is held.
-  if (!isHost && mySeatIndex === null && myGuestSlot === null) enterAudienceMode();
 }
 
 function toggleMyGuestMic() {
@@ -1484,33 +957,22 @@ function toggleMyGuestMic() {
 
 /**
  * FIX-1: guarded against duplicate consumption of the same
- * producerId. This is the actual root cause fix - previously,
- * any re-emission of "existingProducers" (e.g. on socket
- * reconnect / rejoin) or an overlapping "newProducer" would call
- * this a second time for a producer already being consumed,
- * silently creating a second consumer whose track attachment
- * would removeTrack()+stop() the FIRST (already working) track.
+ * producerId (reconnect / duplicate existingProducers /
+ * overlapping newProducer race).
  *
- * HLS-1 / HLS-2: also guarded against ever WebRTC-consuming the
- * HOST's producer while this viewer is plain audience in HLS mode
- * (see attachHlsToStage / isAudienceHlsMode). Once a viewer falls
- * back to WebRTC (audienceForceWebRTC), isAudienceHlsMode() returns
- * false and this guard naturally stops applying, so the host's
- * producer gets consumed normally. Guest/co-host producers are
- * never skipped here, only the host's.
+ * Every viewer — audience, seated, or guest — consumes the host
+ * (and every other stage producer) directly over WebRTC, the same
+ * way guest/co-host producers always have. There is no separate
+ * "audience mode" anymore; see the top-of-file note on why the
+ * HLS-audience pipeline was removed.
  */
-async function consumeProducer({ producerId, socketId, userId, kind, isHost: producerIsHostHint }) {
-  console.log(`[consumeProducer] producerId=${producerId} kind=${kind} socketId=${socketId} isHostHint=${producerIsHostHint}`);
+async function consumeProducer({ producerId, socketId, userId, kind, isHost: producerIsHostHint, appData }) {
+  console.log(`[consumeProducer] producerId=${producerId} kind=${kind} socketId=${socketId} isHostHint=${producerIsHostHint} guestSlot=${appData?.guestSlot}`);
 
   await deviceReady;
 
   if (socketId === socket.id) {
     console.log("[consumeProducer] Skipping self");
-    return;
-  }
-
-  if (producerIsHostHint && isAudienceHlsMode()) {
-    console.log(`[consumeProducer] ⏭️  Skipping host producerId=${producerId} kind=${kind} - this viewer is plain audience in HLS mode (see attachHlsToStage).`);
     return;
   }
 
@@ -1539,16 +1001,9 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
       }
 
       // Re-check after the round trip - a duplicate call could have
-      // raced ahead and completed while this one was awaiting the
-      // server response. Also re-check the HLS-mode guard, in case
-      // the viewer switched back to audience mode while this consume
-      // was in flight.
+      // raced ahead and completed while this one was awaiting.
       if (consumedProducers.has(producerId)) {
         console.warn(`[consumeProducer] ⏭️  Duplicate resolved after round-trip for producerId=${producerId} - discarding.`);
-        return;
-      }
-      if ((params.isHost ?? producerIsHostHint) && isAudienceHlsMode()) {
-        console.warn(`[consumeProducer] ⏭️  Viewer returned to audience HLS mode mid-consume for producerId=${producerId} - discarding host consumer.`);
         return;
       }
 
@@ -1563,19 +1018,20 @@ async function consumeProducer({ producerId, socketId, userId, kind, isHost: pro
         });
 
         const producerIsHost = params.isHost ?? producerIsHostHint;
+        const guestSlot = appData?.guestSlot || null;
 
-        consumers.set(consumer.id, { consumer, producerId, socketId, kind, isHost: producerIsHost });
+        consumers.set(consumer.id, { consumer, producerId, socketId, kind, isHost: producerIsHost, guestSlot });
         consumedProducers.set(producerId, consumer.id);
 
         instrumentTrack(consumer.track, `remote-${producerIsHost ? "host" : "guest"}-${kind}-${socketId}`);
 
-        console.log(`[consumeProducer] Routing track: kind=${consumer.kind} isHost=${producerIsHost} socketId=${socketId} consumerId=${consumer.id}`);
+        console.log(`[consumeProducer] Routing track: kind=${consumer.kind} isHost=${producerIsHost} guestSlot=${guestSlot} socketId=${socketId} consumerId=${consumer.id}`);
 
         if (consumer.kind === "video") {
           if (producerIsHost) {
             attachTrackToStage(consumer.track);
           } else {
-            attachTrackToParticipantTile(consumer.track, socketId, userId);
+            attachTrackToParticipantTile(consumer.track, socketId, userId, guestSlot);
           }
         } else if (consumer.kind === "audio") {
           setupAudioBoost(consumer.track, consumer.id, socketId, producerIsHost);
@@ -1619,12 +1075,6 @@ function attachTrackToStage(track) {
   const stageVideo = $("stage-video");
   if (!stageVideo) { console.error("[attachTrackToStage] #stage-video not found!"); return; }
 
-  // HLS-1: a WebRTC host track is about to own #stage-video - make
-  // sure any hls.js instance/native HLS src is fully torn down
-  // first so the two never fight over the same <video> element.
-  if (viewMode === "hls") detachHlsFromStage();
-  viewMode = "webrtc";
-
   stageVideo.muted = true;
 
   if (!stageVideo.srcObject) stageVideo.srcObject = new MediaStream();
@@ -1643,7 +1093,72 @@ function attachTrackToStage(track) {
   console.log("[attachTrackToStage] Stage video attached");
 }
 
-function getOrCreateParticipantTile(socketId, userId) {
+/* ============================================================
+   FIX-6: guest camera video now routes into the correct
+   #guest-frame-male / #guest-frame-female element instead of a
+   generic tile dumped into #participants-strip (the mic-seats
+   strip). Falls back to the old generic-tile behavior only if no
+   guestSlot is known (shouldn't happen in practice, since only
+   guest-seat occupants ever produce video).
+   ============================================================ */
+function attachTrackToParticipantTile(track, socketId, userId, guestSlot) {
+  if (guestSlot === "male" || guestSlot === "female") {
+    attachTrackToGuestFrame(track, socketId, userId, guestSlot);
+    return;
+  }
+
+  console.warn(`[attachTrackToParticipantTile] No guestSlot known for socketId=${socketId} - falling back to generic tile`);
+  const tile  = getOrCreateGenericTile(socketId, userId);
+  const video = tile.querySelector("video");
+  if (!video) return;
+
+  let stream = peerStreams.get(socketId);
+  if (!stream) { stream = new MediaStream(); peerStreams.set(socketId, stream); }
+  const existingTracks = stream.getVideoTracks();
+  existingTracks.forEach(t => { stream.removeTrack(t); t.stop(); });
+  stream.addTrack(track);
+  video.srcObject = stream;
+  video.muted = true;
+  video.play().catch(e => console.warn("[attachTrackToParticipantTile] play() rejected:", e.message));
+  startFreezeWatchdog(video, `guest-tile(${socketId})`);
+}
+
+function attachTrackToGuestFrame(track, socketId, userId, slot) {
+  const frame = $(`guest-frame-${slot}`);
+  if (!frame) { console.error(`[attachTrackToGuestFrame] #guest-frame-${slot} not found!`); return; }
+
+  console.log(`[attachTrackToGuestFrame] Attaching video for socketId=${socketId} into #guest-frame-${slot}`);
+
+  frame.classList.add("occupied");
+  frame.dataset.socketId = socketId;
+
+  let video = frame.querySelector("video");
+  if (!video) {
+    video = document.createElement("video");
+    video.autoplay    = true;
+    video.playsInline = true;
+    video.muted        = true;
+    frame.appendChild(video);
+  }
+
+  let stream = peerStreams.get(socketId);
+  if (!stream) { stream = new MediaStream(); peerStreams.set(socketId, stream); }
+  const existingTracks = stream.getVideoTracks();
+  if (existingTracks.length) {
+    console.log(`[attachTrackToGuestFrame] Replacing ${existingTracks.length} existing track(s) for socketId=${socketId}`);
+  }
+  existingTracks.forEach(t => { stream.removeTrack(t); t.stop(); });
+  stream.addTrack(track);
+  video.srcObject = stream;
+  video.muted = true;
+  video.play().catch(e => console.warn("[attachTrackToGuestFrame] play() rejected:", e.message));
+  startFreezeWatchdog(video, `guest-frame-${slot}(${socketId})`);
+}
+
+// Legacy generic-tile path, kept only as a defensive fallback for
+// the (shouldn't-happen) case of a non-host video producer with no
+// known guestSlot.
+function getOrCreateGenericTile(socketId, userId) {
   let tile = document.querySelector(`.participant-tile[data-socket-id="${socketId}"]`);
   if (!tile) {
     tile = document.createElement("div");
@@ -1664,53 +1179,34 @@ function getOrCreateParticipantTile(socketId, userId) {
     const nameEl = document.createElement("div");
     nameEl.className   = "ptile-name";
     nameEl.textContent = userId ? `User ${String(userId).slice(0, 6)}` : "Peer";
-
-    const mutedBadge = document.createElement("div");
-    mutedBadge.className   = "ptile-muted-badge";
-    mutedBadge.textContent = "muted";
-    mutedBadge.style.display = "none";
-
-    tile.appendChild(mutedBadge);
     tile.appendChild(nameEl);
 
     const strip = $("participants-strip");
     if (strip) strip.appendChild(tile);
 
-    peerStreams.set(socketId, new MediaStream());
-    video.srcObject = peerStreams.get(socketId);
-
-    console.log(`[getOrCreateParticipantTile] Created new tile for socketId=${socketId}`);
+    console.log(`[getOrCreateGenericTile] Created fallback tile for socketId=${socketId}`);
   }
   return tile;
 }
 
-function attachTrackToParticipantTile(track, socketId, userId) {
-  console.log(`[attachTrackToParticipantTile] Attaching video track for socketId=${socketId}`);
-  const tile  = getOrCreateParticipantTile(socketId, userId);
-  const video = tile.querySelector("video");
-  if (!video) return;
-
-  let stream = peerStreams.get(socketId);
-  if (!stream) { stream = new MediaStream(); peerStreams.set(socketId, stream); }
-  const existingTracks = stream.getVideoTracks();
-  if (existingTracks.length) {
-    console.log(`[attachTrackToParticipantTile] Replacing ${existingTracks.length} existing track(s) for socketId=${socketId}`);
-  }
-  existingTracks.forEach(t => { stream.removeTrack(t); t.stop(); });
-  stream.addTrack(track);
-  video.srcObject = stream;
-  video.muted = true;
-  video.play().catch(e => console.warn("[attachTrackToParticipantTile] play() rejected:", e.message));
-  startFreezeWatchdog(video, `guest-tile(${socketId})`);
-}
-
 function removeParticipantVideo(socketId) {
+  // Guest-frame cleanup
+  const frame = document.querySelector(`.guest-frame[data-socket-id="${socketId}"]`);
+  if (frame) {
+    const video = frame.querySelector("video");
+    if (video) { stopFreezeWatchdog(video); video.remove(); }
+    frame.classList.remove("occupied");
+    delete frame.dataset.socketId;
+  }
+
+  // Legacy generic-tile cleanup
   const tile = document.querySelector(`.participant-tile[data-socket-id="${socketId}"]`);
   if (tile) {
     const video = tile.querySelector("video");
     if (video) stopFreezeWatchdog(video);
     tile.remove();
   }
+
   peerStreams.delete(socketId);
   cleanupAudioBoostsForSocket(socketId);
 }
@@ -1858,10 +1354,6 @@ async function switchCamera() {
       if (stageVideo) stageVideo.srcObject = localStream;
     }
 
-    // beautyEngine.stop()/start() tore down the old hidden <video>
-    // and rebuilt a new one - re-point the AR engine's overlay hook
-    // at the fresh instance (attach() is cheap/idempotent past the
-    // first real model load; it just re-registers the draw hook).
     if (faceEngineAttached) faceEngine.attach(beautyEngine).then(() => faceEngine.start());
 
     window.showToast("Camera switched");
@@ -1890,11 +1382,7 @@ function toggleBeautyFilter() {
 
 /* ============================================================
    EFFECTS SHEET - color filters, beauty presets, AR (stickers +
-   distortion). All three panes drive the SAME beautyEngine /
-   faceEngine instances that are already running the live preview,
-   so every change here is visible immediately, live, before
-   anything is sent - and is baked into the actual outgoing video
-   track (not just a local CSS preview), same as the beauty filter.
+   distortion).
    ============================================================ */
 let currentColorFilter    = "none";
 let currentFilterIntensity = 1.0;
@@ -2051,11 +1539,6 @@ async function loadRoom() {
     currentRoom = room;
     viewerCount = room.viewer_count || 0;
 
-    // HLS-1: keep our own audienceHlsUrl in sync with whatever the
-    // room payload carries (liveRoomController.getById() -> egress
-    // status). initAudienceHlsMode()/pollForHlsUrl() read this.
-    audienceHlsUrl = room.hlsUrl || null;
-
     $("host-name").textContent = room.username || room.display_name || "Host";
     $("viewer-count").textContent = window.formatCoins(viewerCount);
 
@@ -2082,7 +1565,7 @@ async function loadRoom() {
       secondsLive = Math.floor((Date.now() - new Date(room.started_at).getTime()) / 1000);
     }
 
-    console.log(`[loadRoom] room=${roomId} host_id=${room.host_id} hlsUrl=${room.hlsUrl || "(none yet)"}`);
+    console.log(`[loadRoom] room=${roomId} host_id=${room.host_id}`);
   } catch (err) {
     console.error("[loadRoom]", err);
     window.showToast("Failed to load room");
@@ -2110,10 +1593,6 @@ async function leaveRoom() {
 
   for (const videoEl of [...watchdogs.keys()]) stopFreezeWatchdog(videoEl);
   consumedProducers.clear();
-
-  // HLS-1: tear down hls.js / stop the audience polling loop too.
-  stopHlsPolling();
-  detachHlsFromStage();
 
   try { faceEngine.destroy(); } catch (e) {}
   faceEngineAttached = false;
@@ -2257,26 +1736,17 @@ function initSocket() {
     if (socketId === socket.id) return;
     removeParticipantVideo(socketId);
 
-    // Clean up any dedup entries left over for this peer's producers.
     for (const [producerId, consumerId] of [...consumedProducers.entries()]) {
       const entry = consumers.get(consumerId);
       if (entry?.socketId === socketId) consumedProducers.delete(producerId);
     }
 
-    // HLS-1: this fallback (showing the "waiting for host" overlay
-    // when no host consumer is left) only makes sense while this
-    // viewer is actually consuming the host over WebRTC. Plain
-    // audience in HLS mode has no host consumer to check by design
-    // - the HLS stream itself ending is what signals host-offline
-    // for them (handled separately via the "hostLeft" event below).
-    if (viewMode === "webrtc") {
-      const hostConsumerExists = [...consumers.values()].some(c => c.isHost && !c.consumer.closed);
-      if (!hostConsumerExists && !isHost) {
-        const stageVideo = $("stage-video");
-        if (stageVideo) { stopFreezeWatchdog(stageVideo); stageVideo.srcObject = null; }
-        const offlineEl = $("stage-offline");
-        if (offlineEl) offlineEl.style.display = "flex";
-      }
+    const hostConsumerExists = [...consumers.values()].some(c => c.isHost && !c.consumer.closed);
+    if (!hostConsumerExists && !isHost) {
+      const stageVideo = $("stage-video");
+      if (stageVideo) { stopFreezeWatchdog(stageVideo); stageVideo.srcObject = null; }
+      const offlineEl = $("stage-offline");
+      if (offlineEl) offlineEl.style.display = "flex";
     }
   });
 
@@ -2346,22 +1816,16 @@ function initSocket() {
 
   socket.on("hostLeft", () => {
     window.showToast("Host disconnected");
-    // HLS-1: relevant regardless of viewMode - if the viewer was in
-    // HLS mode, the stream itself will also error out shortly after
-    // (egress stops with the host), this just surfaces it sooner.
     const offlineEl = $("stage-offline");
     if (offlineEl && !isHost) offlineEl.style.display = "flex";
   });
 
   socket.on("reconnect", () => {
     window.showToast("Reconnected");
-    // NOTE: this re-emits joinRoom, which will cause the server to
-    // resend "existingProducers" - consumeProducer()'s FIX-1 guard
-    // is what prevents this from duplicating/killing already-working
-    // consumers, and its HLS-1/HLS-2 guard is what prevents it from
-    // needlessly WebRTC-consuming the host for a viewer who's still
-    // plain audience (and correctly DOES consume the host if this
-    // viewer already fell back to WebRTC via audienceForceWebRTC).
+    // Re-emits joinRoom, which causes the server to resend
+    // "existingProducers" - consumeProducer()'s FIX-1 guard is what
+    // prevents this from duplicating/killing already-working
+    // consumers.
     socket.emit("joinRoom", { roomId, userId: window.CURRENT_USER.id });
   });
 
@@ -2649,7 +2113,6 @@ function attachUIListeners() {
   $("viewers-close-btn")?.addEventListener("click", closeParticipantsModal);
   $("viewers-backdrop")?.addEventListener("click", closeParticipantsModal);
 
-  // Effects sheet (color filters / beauty presets / AR)
   $("effects-btn")?.addEventListener("click", openEffectsSheet);
   $("effects-close-btn")?.addEventListener("click", closeEffectsSheet);
   $("effects-backdrop")?.addEventListener("click", closeEffectsSheet);
@@ -2668,7 +2131,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   attachUIListeners();
   initAudioUnlock();
-  initHlsAudioUnlock();
   initGiftEngineVisibilityHandling();
 
   if (window.CURRENT_USER.id) {
@@ -2697,17 +2159,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const hostCtrls = $("host-controls");
     if (endBtn)    endBtn.style.display    = "flex";
     if (hostCtrls) hostCtrls.style.display = "flex";
-  } else {
-    // HLS-1: plain audience (not seated/guest yet) starts on HLS,
-    // not a WebRTC consumer of the host. Host/co-host/guest video
-    // for OTHER stage occupants is completely unaffected - this
-    // only concerns #stage-video / the host's own producer. HLS-2 /
-    // HLS-3: if HLS never actually produces real playback within
-    // its bounded attempt budget, this viewer automatically falls
-    // back to a real WebRTC consumer instead of getting stuck on a
-    // blank/"Waiting for host…" screen.
-    initAudienceHlsMode();
   }
+  // Non-host viewers need no special setup here anymore - joinRoom()
+  // below causes the server to send "existingProducers" including
+  // the host's, and consumeProducer() consumes it directly like any
+  // other producer.
 
   initSocket();
   await joinRoom();
